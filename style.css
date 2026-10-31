@@ -1,0 +1,1330 @@
+/* =====================================================================
+   MangaFlow Reader - style.css
+   WHY: All visuals live here so changing the look never touches the logic.
+   Every block below has:  WHY (reason it exists)  |  IMPROVE (ideas for later)
+   ===================================================================== */
+
+/* ---------- 1. THEME VARIABLES ----------
+   WHY: Colours are stored once as variables. The theme toggle only flips data-theme on <html>
+        and every colour below updates automatically. Light = pure white, dark = pure black (#000).
+   HOW: var(--name) in any rule below reads the value. The [data-theme="dark"] block overrides them.
+   IMPROVE: Add a third "sepia" theme by adding [data-theme="sepia"] { ... }. */
+/* WHY: :root is the top of the page, so these variables are available everywhere. HOW: - -bg is background, - -fg text, */
+/* - -muted grey text, - -bar see-through bar colour, - -line thin borders, - -accent orange highlight, - -shadow soft */
+/* glow under cards. IMPROVE: move - -accent to Settings so users pick a colour. */
+:root {
+  --bg: #ffffff;
+  --fg: #111111;
+  --muted: #666666;
+  --bar: rgba(255, 255, 255, .92);
+  --line: rgba(0, 0, 0, .14);
+  --accent: #e8590c;
+  --shadow: 0 14px 44px rgba(0, 0, 0, .20);
+  --keytop: #f6f6f6;                            /* keycap colours (arrow keys in reading mode) */
+  --keyedge: #b9b9b9;
+  --keyhi: #ffffff;                             /* highlight spot on the round 3D keys */
+  --w: 820px;                                   /* chapter column width (changed in Settings) */
+  --safe-t: env(safe-area-inset-top, 0px);      /* phone notch spacing */
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+/* WHY: the dark theme. HOW: when <html> has data-theme='dark', these values replace the ones in :root, so the whole site */
+/* turns black without changing any other rule. Missing variables (like - -accent) are simply kept. IMPROVE: also follow */
+/* the phone setting with prefers-color-scheme. */
+[data-theme="dark"] {
+  --bg: #000000;
+  --fg: #eeeeee;
+  --muted: #9a9a9a;
+  --bar: rgba(0, 0, 0, .92);
+  --line: rgba(255, 255, 255, .18);
+  --shadow: 0 14px 44px rgba(255, 255, 255, .08);
+  --keytop: #2d2d2d;
+  --keyedge: #1b1b1b;
+  --keyhi: #5a5a5a;
+}
+
+/* ---------- 2. BASE RESET ----------
+   WHY: border-box makes widths predictable; removing the default margin avoids a stray white edge.
+        Reduced-motion: people who turn off animations in their system settings get no animations.
+   IMPROVE: add more @media (prefers-reduced-motion) rules if you add more animation. */
+/* WHY: a reset gives every browser the same starting point. HOW: * means every element. border-box makes padding count */
+/* inside the width, so boxes do not overflow. The tap-highlight rule removes the grey flash on phone taps. IMPROVE: add */
+/* focus styles if you remove the flash. */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* WHY: browsers add a default margin around the page, which shows as a white edge. HOW: set margin to 0 on html and */
+/* body. IMPROVE: none needed. */
+html, body { margin: 0; }
+/* WHY: sets the default look of the whole site. HOW: background and text colour come from the theme variables; the font */
+/* list uses the phone or computer's own font (system-ui) for fast loading; line-height 1.45 gives readable spacing. */
+/* IMPROVE: let users pick the font size. */
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.45;
+}
+[hidden] { display: none !important; }          /* WHY: makes the "hidden" attribute always win */
+/* WHY: a small helper class for grey, less important text. HOW: put class muted on any element and it uses the - -muted */
+/* colour. .small below does the same for a smaller font (.8rem = 80% of normal). IMPROVE: none needed. */
+.muted { color: var(--muted); }
+.small { font-size: .8rem; }
+/* WHY: kindness for people who get sick from motion; they ask their system to reduce animation. HOW: the media query */
+/* matches that setting and makes every animation and transition last 0.01ms (almost nothing). !important makes it win */
+/* over other rules. IMPROVE: test every new animation with this on. */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ---------- 3. BUTTONS & INPUTS ----------
+   WHY: 40px+ touch targets so thumbs can hit them; one shared style keeps the UI consistent.
+        :focus-visible draws a clear outline for people who use the keyboard (Tab key).
+   IMPROVE: swap the text symbols for inline SVG icons for a sharper look. */
+/* WHY: buttons, inputs and selects normally ignore the page font and colour. HOW: font: inherit and color: inherit copy */
+/* the surrounding text style, so the form controls match the theme (also in dark mode). IMPROVE: none needed. */
+button, input, select {
+  font: inherit; color: inherit;
+}
+/* WHY: one shared button look so every button is easy to tap (40px is a comfortable finger size). HOW: */
+/* min-width/min-height set the smallest size, padding adds side space, the border uses the theme - -line colour, */
+/* border-radius rounds corners, cursor shows the hand. IMPROVE: use CSS variables for the radius. */
+button {
+  min-width: 40px; min-height: 40px;
+  padding: 0 12px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+/* WHY: feedback so the user sees which button they touch. HOW: hover darkens the border to the text colour; :active */
+/* (while pressed) shrinks the button to 96%; :disabled makes it faint and removes the hand cursor. IMPROVE: add a short */
+/* transition so the change is smooth. */
+button:hover { border-color: var(--fg); }
+button:active { transform: scale(.96); }
+button:disabled { opacity: .35; cursor: default; }
+/* WHY: the main action button (like Go) should stand out. HOW: class primary gives it the orange accent background and */
+/* border with white bold text. IMPROVE: use a darker orange on hover. */
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+/* WHY: keyboard users need to see where they are. HOW: :focus-visible only shows when the Tab key was used; it draws a */
+/* 2px orange outline 2px away from the control. IMPROVE: check the outline has enough contrast in dark mode. */
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* WHY: text boxes should look like the buttons and fill the row. HOW: width 100% stretches them, a theme background and */
+/* border match the site; font-size 16px prevents the iPhone from zooming when you tap the box. IMPROVE: add a */
+/* placeholder colour rule. */
+input[type="text"] {
+  width: 100%; min-height: 40px; padding: 0 12px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  font-size: 16px;                              /* WHY: 16px stops iOS Safari zooming on focus */
+}
+/* WHY: show clearly which text box is active. HOW: on focus, draw an orange outline and hide the normal border */
+/* (transparent) so there are not two lines. IMPROVE: none needed. */
+input[type="text"]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+
+/* ---------- 4. BROWSER VIEW ----------
+   WHY: Flex column = fixed address bar on top, page area fills the remaining height.
+        100dvh follows the real visible height on phones (100vh is the fallback for old browsers).
+   IMPROVE: make the navbar auto-hide on scroll like a real mobile browser. */
+/* WHY: the browser screen is a column: the address bar on top, the page below. HOW: display:flex with */
+/* flex-direction:column stacks the children; height 100vh is the fallback, then 100dvh (the real visible height on */
+/* phones) overrides it when supported. IMPROVE: none needed. */
+#browser { display: flex; flex-direction: column; height: 100vh; height: 100dvh; }
+/* WHY: the top address bar with buttons. HOW: a flex row that centres items vertically with 6px gaps. padding-top adds */
+/* the phone notch space (- -safe-t) on top of 8px. A thin line under it separates it from the page. IMPROVE: make it */
+/* auto-hide when scrolling. */
+.navbar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 8px 8px; padding-top: calc(8px + var(--safe-t));
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+/* WHY: the address form must take all spare room beside the buttons. HOW: flex:1 means grow to fill; min-width:0 lets */
+/* the input shrink on small screens instead of pushing the buttons out. IMPROVE: none needed. */
+#addrForm { flex: 1; display: flex; gap: 6px; min-width: 0; }
+/* WHY: a thin strip that shows loading progress. HOW: only 3px tall and clear until the class 'on' is added; */
+/* overflow:hidden cuts the moving bar when it slides outside. IMPROVE: show real percent when known. */
+#loadbar { height: 3px; background: transparent; overflow: hidden; }
+/* WHY: the moving orange bar shown while a page loads. HOW: ::before creates an invisible-content box that is 40% wide */
+/* and as tall as the strip, filled with the accent colour; the 'slide' animation repeats forever, 1 second long. */
+/* IMPROVE: use a gradient for a nicer look. */
+#loadbar.on::before {
+  content: ""; display: block; height: 100%; width: 40%;
+  background: var(--accent); animation: slide 1s linear infinite;
+}
+/* WHY: defines the 'slide' animation used above. HOW: from/to describe the start and end: the bar starts left of the */
+/* strip (-100% of its own width) and ends at 260%, which is past the right edge. IMPROVE: none needed. */
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+
+/* WHY: the area that holds either the start page or the iframe (the website being read). HOW: position:relative lets */
+/* children be placed inside it; flex:1 fills the leftover height; overflow:auto adds scrollbars only when needed. */
+/* IMPROVE: none needed. */
+#viewport { position: relative; flex: 1; overflow: auto; }
+/* WHY: the iframe shows the outside manga website. HOW: fill the whole viewport, no border, white background (most sites */
+/* assume white), display:block removes the small gap under inline elements. IMPROVE: add a sandbox attribute in HTML for */
+/* safety. */
+#frame { width: 100%; height: 100%; border: 0; background: #fff; display: block; }
+/* WHY: the start page (before a site is opened) should be a neat centred column. HOW: max-width 720px, margin 0 auto */
+/* centres it, padding gives side space and 100px at the bottom so the floating button does not cover content. Later */
+/* overridden to 860px. IMPROVE: merge the two #start rules. */
+#start { max-width: 720px; margin: 0 auto; padding: 24px 16px 100px; }
+
+/* History / bookmark rows: bold title on top, small grey line under it (site, chapter, time). */
+/* WHY: the lists of history and bookmarks. HOW: a flex column with 6px gaps between rows. IMPROVE: add a search box for */
+/* long lists. */
+.list { display: flex; flex-direction: column; gap: 6px; }
+/* WHY: each history or bookmark row is a button. HOW: .list .item is a column with the title above the small line; */
+/* align-items flex-start keeps text on the left; width 100% and min-height 52px make a big tap target. IMPROVE: add a */
+/* delete swipe. */
+.list .item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; min-height: 52px; padding: 8px 12px; text-align: left;
+}
+/* WHY: long titles must not break the layout. HOW: .t is the bold title; overflow hidden + text-overflow ellipsis + */
+/* white-space nowrap cut the text on one line and add ... at the end. .s on the next line is the same for the small grey */
+/* subtitle. IMPROVE: show the full title in a tooltip. */
+.item .t { font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .s { font-size: .78rem; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Floating "Reading mode" button (bottom-right corner).
+   WHY: always reachable with the thumb; z-index keeps it above the iframe.
+   IMPROVE: show how many chapters were detected, e.g. "Reading mode (120)". */
+/* WHY: the floating Reading mode button. HOW: position:fixed pins it to the screen corner (right 16px, bottom 18px plus */
+/* phone safe space); z-index:20 keeps it above the iframe; 999px radius makes a pill shape; accent colours and a shadow */
+/* make it pop. IMPROVE: show how many chapters were found. */
+#fabRead {
+  position: fixed; right: 16px; bottom: calc(18px + var(--safe-b)); z-index: 20;
+  height: 48px; padding: 0 18px; border-radius: 999px;
+  background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+
+/* ---------- 4b. SEARCH PILL + FLOATING SEARCH BAR (small screens) ----------
+   WHY: on a phone the long address input was squeezed next to six buttons and showed almost nothing.
+        Under 760px wide the input is hidden, the navbar wraps into two rows, and a full-width "pill"
+        shows the current address. Tapping the pill opens a floating bar with a big input + Go button.
+   HOW: #addrPill is hidden on wide screens and #addrForm is hidden on narrow screens (media query below).
+   IMPROVE: let the pill show the page title instead of the address. */
+/* WHY: the phone-sized fake address box (the pill). HOW: hidden by default (display:none); when shown it is a flex row */
+/* with an icon and text, round (999px). min-width:0 allows the text to shrink. IMPROVE: show the page title in it. */
+#addrPill {
+  display: none; align-items: center; gap: 8px;
+  min-width: 0; padding: 0 12px; text-align: left;
+  border-radius: 999px;
+}
+/* WHY: keep the first span (the icon) from shrinking. HOW: flex:none means do not grow and do not shrink. IMPROVE: none */
+/* needed. */
+#addrPill span:first-child { flex: none; }
+/* WHY: the pill text shows the current address, which can be long. HOW: flex:1 fills the pill; min-width:0 + overflow */
+/* hidden + ellipsis + nowrap cut long text with ...; muted grey colour. IMPROVE: show only the site name. */
+#pillText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+/* WHY: on screens 760px or narrower there is no room for the long address input. HOW: the media query switches layout: */
+/* the navbar wraps to two rows, the form hides, the pill shows first (order:-1) at full width (flex: 1 0 100%), and the */
+/* other buttons share row two evenly. IMPROVE: use a variable for 760px. */
+@media (max-width: 760px) {
+  .navbar { flex-wrap: wrap; row-gap: 6px; }
+  #addrForm { display: none; }
+  #addrPill { display: flex; order: -1; flex: 1 0 100%; min-height: 44px; }
+  .navbar > button:not(#addrPill) { flex: 1 1 0; }      /* the six small buttons share the second row evenly */
+}
+/* WHY: a dark layer behind the floating search bar so it stands out. HOW: position:fixed with inset:0 covers the whole */
+/* screen; z-index 79 is just under the search box (80); the black is 45% see-through. IMPROVE: close the search when the */
+/* shade is tapped (check app.js). */
+#popShade { position: fixed; inset: 0; z-index: 79; background: rgba(0, 0, 0, .45); }
+/* WHY: the floating search bar opened from the pill. HOW: fixed at the top centre (left 50% + translateX(-50%) centres */
+/* it); width is the smaller of 680px or screen minus 20px; padding, theme colours, rounded corners and shadow make it */
+/* look like a card. IMPROVE: slide it in with an animation. */
+#searchPop {
+  position: fixed; z-index: 80; left: 50%; transform: translateX(-50%);
+  top: calc(10px + var(--safe-t)); width: min(680px, calc(100vw - 20px));
+  padding: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+}
+/* WHY: layout inside the floating search bar. HOW: a flex row with gaps; the input grows (flex:1), may shrink */
+/* (min-width:0) and is 46px tall; the button matches that height. IMPROVE: none needed. */
+#popForm { display: flex; gap: 6px; align-items: center; }
+#popForm input { flex: 1; min-width: 0; min-height: 46px; }
+#popForm button { min-height: 46px; }
+
+/* ---------- 5. READER BAR (title space at the top) ----------
+   WHY: fixed at the top so the manga name is always visible. Blur makes text readable over pages.
+   IMPROVE: add a tiny cover thumbnail next to the title. */
+/* WHY: the title bar shown at the top while reading. HOW: position:fixed with top/left/right 0 pins it across the top; */
+/* z-index 30 puts it over the pictures; - -bar gives a see-through background and backdrop-filter blurs what is behind */
+/* (the -webkit- line is for Safari). IMPROVE: add a cover thumbnail. */
+#readerBar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+  background: var(--bar);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+  /* WHY: leave space on top. HOW: padding-top = phone notch space + 3px for the progress line. The transition makes the */
+  /* bar slide smoothly in .28s; will-change tells the browser to prepare for moving it so it is smooth. IMPROVE: remove */
+  /* will-change if it uses too much memory. */
+  padding-top: calc(var(--safe-t) + 3px);                 /* 3px = room for the progress line at the very top */
+  transition: transform .28s ease;                        /* ROUND 9: the bar SLIDES up (see section 6) */
+  will-change: transform;
+}
+/* WHY: the main row of the reader bar (exit, title, buttons). HOW: a flex row, centred vertically, 8px gaps and padding. */
+/* IMPROVE: none needed. */
+.rb-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
+/* WHY: the title area should take all the spare room in the row. HOW: flex:1 grows, min-width:0 allows shrinking, */
+/* text-align:center centres; the opacity transition lets it fade (dimmed while scrolling). h1 below has no margin, 1rem */
+/* text and one line with ... for long names. IMPROVE: let long titles scroll sideways. */
+.rb-title { flex: 1; min-width: 0; text-align: center; transition: opacity .25s; }
+.rb-title h1 { margin: 0; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* WHY: #rSub is the small sub-title line (for example the chapter info). HOW: smaller font (.75rem) in grey. Redefined */
+/* later in round 11 with a pill look. IMPROVE: merge both rules. */
+#rSub { font-size: .75rem; color: var(--muted); }
+/* ROUND 8: search / link row inside the reader bar. */
+/* WHY: the search / link row inside the reader bar. HOW: a flex row with side padding; the input grows and is 40px tall, */
+/* the button also 40px tall. IMPROVE: hide the row until the user taps a search icon. */
+.rb-search { display: flex; gap: 6px; padding: 0 10px 8px; }
+.rb-search input { flex: 1; min-width: 0; min-height: 40px; }
+.rb-search button { min-height: 40px; }
+/* ROUND 9: the reading-progress line is pinned to the very top edge of the screen (position: fixed), outside the bar.
+   WHY: the bar slides up when you scroll down; the line used to stay behind in the middle of the page. Now it is always at
+        the top edge, thin (3 px) and on top of everything, so it never covers the art.
+   HOW: app.js updateCurrent() sets the width of the <i> inside. top = safe-area so a phone notch does not hide it. */
+/* WHY: a thin reading-progress line at the top of the screen. HOW: fixed to the top edge (below any phone notch), full */
+/* width, 3px tall, above everything (z-index 35); pointer-events:none lets taps pass through it. Made 4px later. */
+/* IMPROVE: show percent text on hover. */
+/* ROUND 31 - THE LINE IS ALWAYS AT THE VERY TOP EDGE OF THE SCREEN, whatever the mode or the device.
+   WHY: the owner (2026-10-31): "in full screen on my phone the line does not go to the top, it shows in between the chapters; it must always be at the top, on every device and browser, also
+        while scrolling down". Until round 30 the line used top: var(--safe-t) (the phone-notch space). In the normal page that space is 0 or is covered by the title bar, so it looked right.
+        But in full screen the phone browser reports a real notch / status-bar space (e.g. 30 px), the title bar is hidden (round 29c), and the line floated 30 px down INSIDE the pictures.
+        The same happened in normal mode while the title bar slid away on scrolling down.
+   HOW: top is now plain 0 for every case: normal, full screen (body.fs), scrolling, F11, installed-app windows. The title bar below keeps its own notch space (padding-top), so nothing else moves.
+        A few pixels of the line can sit under a camera hole: that is fine (the line is thin and spans the whole width).
+   TEST: R31-1 .. R31-3 in test/ui.test.js put a 32 px notch space on a phone and a computer and measure the line in normal, full screen and scrolled states.
+   IMPROVE: if a phone ever hides the line under its status bar, add a second thin line at the bottom edge as a fallback. */
+#progress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 35; background: transparent; pointer-events: none; }
+/* WHY: the coloured part of the progress line. HOW: the <i> element starts at width 0 and app.js changes the width; the */
+/* .12s linear transition makes growth smooth. IMPROVE: none needed. */
+#progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .12s linear; }
+
+/* ---------- 6. AUTO-HIDE WHILE SCROLLING DOWN ----------
+   WHY: app.js adds the class "scrolling" to <body> when you scroll DOWN. Buttons (exit, chapter list,
+        theme, arrow keys) fade out so nothing blocks the art. They come back ONLY when you scroll UP
+        (mouse wheel up, finger drag down, Up arrow key) or reach the top. The manga title stays (dimmed).
+   IMPROVE: make the 14 px "dead zone" in app.js a setting. */
+/* WHY: any element with class ui-hide can fade out while scrolling. HOW: the transition animates opacity over .25s; the */
+/* next rule sets opacity 0 and turns off clicking when body has the class 'scrolling'. IMPROVE: add a short delay so it */
+/* does not flicker on tiny scrolls. */
+.ui-hide { transition: opacity .25s; }
+body.scrolling .ui-hide { opacity: 0; pointer-events: none; }
+/* ROUND 9: while you scroll down the WHOLE bar (title, buttons, search row) slides up out of the screen. The progress line
+   is a separate element pinned to the top edge, so it simply stays there as a thin line. The bar stops catching clicks
+   while it is away, so taps in the top area still scroll the chapter. It slides back when you scroll up. */
+/* WHY: while scrolling down, the whole title bar leaves the screen so it does not cover the art. HOW: when body has */
+/* 'scrolling', the bar moves up 110% of its height (translateY) and ignores taps; the progress line stays slightly */
+/* see-through (.9). IMPROVE: add a small handle to bring the bar back. */
+body.scrolling #readerBar { transform: translateY(-110%); pointer-events: none; }
+body.scrolling #progress { opacity: .9; }
+
+/* ---------- 7. CHAPTER COLUMN (centered, "floating") ----------
+   WHY: margin auto centres each chapter; border + soft shadow make it look like a floating sheet.
+        On phones it goes full width and loses the rounded corners to give the art maximum size.
+   IMPROVE: add a "fit height" mode that scales each page to the screen height. */
+/* WHY: #stream is the box that holds all chapters. HOW: padding 0 so chapters touch the screen sides when needed. */
+/* IMPROVE: none needed. */
+#stream { padding: 0; }
+/* ROUND 9: the earlier-chapters bar sits above the stream and also provides the empty space under the fixed title bar. */
+/* WHY: the area above the first chapter: it holds the load-earlier-chapters button and also leaves room under the fixed */
+/* title bar. HOW: big min-height and top padding add space for the bar (112px + notch); the flex column centres the */
+/* content with 6px gaps. IMPROVE: compute the bar height with JavaScript. */
+#prevBar {
+  min-height: calc(112px + var(--safe-t) + 64px); padding: calc(112px + var(--safe-t) + 10px) 12px 10px;   /* space for the bar + the controls */
+  display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center;
+}
+/* WHY: make the load-earlier button easy to tap. HOW: 44px tall with side padding. The next rule hides it entirely when */
+/* disabled (nothing to load) so only the text remains. IMPROVE: none needed. */
+#prevBar button { min-height: 44px; padding: 0 18px; }
+#prevBar button:disabled { display: none; }               /* nothing earlier to load: only the text is shown */
+/* WHY: each chapter looks like a floating sheet. HOW: width is the smaller of the chosen width (- -w) or 100%; margin 0 */
+/* auto centres it and adds 56px below; theme background, thin border, rounded corners and shadow; overflow:hidden clips */
+/* pictures to the rounded corners. IMPROVE: add a fit-height mode. */
+.chapter {
+  width: min(var(--w), 100%); margin: 0 auto 56px;
+  background: var(--bg);
+  border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+/* WHY: on phones the chapter should use the full width. HOW: at 700px or narrower, remove rounded corners and side */
+/* borders and use less space below. IMPROVE: none needed. */
+@media (max-width: 700px) {
+  .chapter { border-radius: 0; border-left: 0; border-right: 0; margin-bottom: 36px; }
+}
+
+/* Chapter header: manga name, chapter number, chapter title - at the start of every chapter. */
+/* WHY: the top part of a chapter that shows its name. HOW: centred text, padding for air, a thin line below to separate */
+/* it from the pictures. IMPROVE: add the cover picture. */
+.ch-head { text-align: center; padding: 30px 16px 22px; border-bottom: 1px solid var(--line); }
+/* WHY: the manga name should look like a small label. HOW: small font, letter-spacing for wide letters, */
+/* text-transform:uppercase makes capitals, grey colour. .ch-num below is the big chapter number: clamp(1.5rem, 5vw, */
+/* 2.1rem) grows with the screen but stays between two limits. IMPROVE: none needed. */
+.ch-manga { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.ch-num { font-size: clamp(1.5rem, 5vw, 2.1rem); font-weight: 800; margin: 4px 0; }
+/* WHY: the chapter title is less important than the number. HOW: grey colour only. IMPROVE: none needed. */
+.ch-title { color: var(--muted); }
+
+/* Pages. WHY: display:block removes the tiny gap browsers leave under images.
+   The grey min-height box reserves space so the page does not jump while images load. */
+/* WHY: the manga pictures. HOW: display:block removes the small gap browsers leave under images; width 100% fits the */
+/* column; height:auto keeps the picture shape. IMPROVE: add loading='lazy' in JS for speed. */
+img.page { display: block; width: 100%; height: auto; }
+/* WHY: before an image loads, the page would be tiny and then jump. HOW: :not(.loaded) matches images without the class */
+/* 'loaded'; they get a 260px tall light-grey box (rgba 128 grey, 12% strong). IMPROVE: use the real image ratio if */
+/* known. */
+img.page:not(.loaded) { min-height: 260px; background: rgba(128, 128, 128, .12); }
+/* WHY: the footer of each chapter. HOW: centred grey text with padding and a line above. .ch-msg below is a message box */
+/* (centred, grey, big padding); its .row holds buttons in a centred row. IMPROVE: none needed. */
+.ch-end { text-align: center; color: var(--muted); padding: 26px 12px; border-top: 1px solid var(--line); }
+.ch-msg { text-align: center; padding: 40px 16px; color: var(--muted); }
+.ch-msg .row { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
+
+/* WHY: a loading circle. HOW: a 28px box with a grey ring (border) where only the top is orange; border-radius 50% makes */
+/* it round; the 'spin' animation rotates it forever. IMPROVE: none needed. */
+.spinner {
+  width: 28px; height: 28px; margin: 0 auto 10px;
+  border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+/* WHY: defines the spin animation. HOW: it only needs the end state: rotate 360 degrees; the start is the normal */
+/* position. IMPROVE: none needed. */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* WHY: #sentinel is an invisible marker near the end; JavaScript watches it to load the next chapter. HOW: just 2px tall */
+/* so it exists in the layout. IMPROVE: none needed. */
+#sentinel { height: 2px; }
+/* Download bar at the end of the page (round 2). */
+/* WHY: the download area at the end of the chapters. HOW: same width as chapters and centred; padding, centred text and */
+/* a line above. Its paragraphs get 6px margin; its buttons are bigger (50px tall, 1rem text). IMPROVE: show the file */
+/* size estimate here. */
+#dlBar { width: min(var(--w), 100%); margin: 0 auto; padding: 22px 16px; text-align: center; border-top: 1px solid var(--line); }
+#dlBar p { margin: 6px 0; }
+#dlBar button { min-height: 50px; padding: 0 24px; font-size: 1rem; }
+/* WHY: the very last message. HOW: centred grey text; bottom padding of 150px (+ safe area) leaves room so the floating */
+/* keys do not cover it. IMPROVE: none needed. */
+#theEnd { text-align: center; padding: 20px 16px calc(150px + var(--safe-b)); color: var(--muted); }
+
+/* ---------- 8. FLOATING READER KEYS (round 9: ONE horizontal row of round 3D buttons, bottom-RIGHT corner) ----------
+   WHY: the person asked for the keys in a single HORIZONTAL row (reload this chapter, reload all, previous, next, end), in the
+        right corner, and as 3D CIRCLES instead of squares.
+   HOW: flex row. Each key is a circle (border-radius 50%). The 3D look comes from three things:
+          1. a radial-gradient (light spot top-left) that makes it look like a ball / dome,
+          2. a solid shadow under it (box-shadow 0 5px 0 = the "thickness" of the button),
+          3. inset highlights. Pressing moves the key down 4px and shrinks the thickness, like a real key.
+        Side is switchable in Settings (body[data-side]); default is RIGHT (round 9).
+   WHERE: buttons live in index.html (<nav id="side">); app.js section 14 wires the clicks and the End key.
+   IMPROVE: add a click sound, or small legends under the keys.
+   ROUND 28 NOTE (so this old text does not mislead you): this block describes ROUND 9. Later blocks further down this file win over it:
+        the two reload keys are gone (the reload wheel, reload-wheel.js, replaced them and sits TOP LEFT, see "ROUND 19 ADDITIONS" and "ROUND 20" near the end),
+        the right-hand column under the title bar is now: download pill (#dock), full-screen icon (#fsRead); at the bottom edge the chapter slider
+        (chapter-slider.js) stands at the bottom RIGHT and the Top / End slider (edge-slider.js) at the bottom LEFT (they swap sides with the "buttons side" setting).
+        The keys that are still in <nav id="side"> are Top, previous, next and End (#btnTop, #btnPrev, #btnNext, #btnEnd); the sliders hide the ones they replace. */
+/* ROUND 9b: #side is a click-through strip across the bottom. The reload keys (.kg-l) sit in the LEFT corner and the previous /
+   next / end keys (.kg-r) form one horizontal row in the RIGHT corner. WHY a strip: both groups hide and show together
+   (one .ui-hide), and pointer-events:none lets you tap the pictures between the groups. */
+/* WHY: the strip that holds the floating reader keys. HOW: fixed across the bottom with 12px side margins; - -key sets */
+/* the key size (50px); flex row with space-between puts one group left and one right; pointer-events:none lets taps pass */
+/* between the groups. IMPROVE: let users drag the keys. */
+#side {
+  position: fixed; bottom: calc(14px + var(--safe-b)); left: 12px; right: 12px; z-index: 30;
+  --key: 40px;                                       /* round 13: leaner keys (was 50 px) */
+  display: flex; flex-direction: row; justify-content: space-between; align-items: flex-end;
+  pointer-events: none;
+}
+/* WHY: each key group (.kg). HOW: a flex row, no wrapping, 9px gaps; pointer-events:auto turns clicking back on for the */
+/* keys themselves. IMPROVE: none needed. */
+#side .kg { display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 9px; pointer-events: auto; }
+/* WHY: Settings can move the keys to the left side. HOW: when body has data-side='left', row-reverse flips the order of */
+/* the two groups. IMPROVE: none needed. */
+body[data-side="left"] #side { flex-direction: row-reverse; }        /* Settings > "Side of the arrow keys" = left swaps the groups */
+/* WHY: the round 3D key look. HOW: width and height equal - -key and border-radius 50% make a circle; min-width:0 and */
+/* padding:0 cancel the normal button rules; radial-gradient makes a light spot (a dome); box-shadow adds a solid edge */
+/* under it (thickness), a soft shadow, and inset highlights. IMPROVE: add a click sound. */
+#side .key {
+  width: var(--key); height: var(--key); min-width: 0; padding: 0; border-radius: 50%;
+  font-size: 1.05rem; font-weight: 700; line-height: 1;      /* round 13: smaller symbol for the leaner key */
+  color: var(--fg);
+  background: radial-gradient(circle at 34% 26%, var(--keyhi) 0%, var(--keytop) 46%, var(--keyedge) 150%);
+  border: 1px solid var(--line);
+  box-shadow: 0 5px 0 var(--keyedge), 0 10px 14px rgba(0, 0, 0, .30),
+              inset 0 2px 3px rgba(255, 255, 255, .55), inset 0 -3px 5px rgba(0, 0, 0, .12);
+  transition: transform .06s, box-shadow .06s;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+/* WHY: tiny label text under a symbol on a key. HOW: block, very small capital letters with a little letter-spacing and */
+/* 1px top margin. IMPROVE: hide on very small phones. */
+#side .key small { display: block; font-size: .44rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-top: 1px; }
+/* WHY: show a hover hint. HOW: the border becomes the accent colour. IMPROVE: none needed. */
+#side .key:hover { border-color: var(--accent); }
+/* WHY: pressed look like a real key. HOW: when pressed (or JavaScript adds the class 'pressed') the key moves down 4px */
+/* and the shadow becomes thin, so it looks pushed in. IMPROVE: none needed. */
+#side .key:active, #side .key.pressed {
+  transform: translateY(4px);
+  box-shadow: 0 1px 0 var(--keyedge), 0 3px 5px rgba(0, 0, 0, .25), inset 0 2px 3px rgba(255, 255, 255, .4), inset 0 -2px 4px rgba(0, 0, 0, .15);
+}
+/* WHY: show that a reload is running. HOW: class 'spin' makes the symbol orange and rotates it with the keyspin */
+/* animation (a full turn each .9s, forever). The next line defines that rotation. IMPROVE: none needed. */
+#side .key.spin { color: var(--accent); animation: keyspin .9s linear infinite; }     /* shown while a reload is running */
+@keyframes keyspin { to { transform: rotate(360deg); } }
+/* WHY: make keys smaller on small phones so five fit in a row. HOW: at 520px or less the key size variable becomes 44px, */
+/* margins and gaps shrink. The next rule does the same at 370px (40px). The last rule stops the key spin for */
+/* reduced-motion users. IMPROVE: use clamp() for a smooth size. */
+@media (max-width: 520px) { #side { --key: 38px; left: 8px; right: 8px; } #side .kg { gap: 7px; } }
+@media (max-width: 370px) { #side { --key: 34px; } #side .kg { gap: 5px; } }          /* very small phones: the five keys still fit in one row */
+@media (prefers-reduced-motion: reduce) { #side .key.spin { animation: none; } }
+
+/* ---------- 9. CHAPTER DROPDOWN ---------- */
+/* WHY: the chapter list pop-up. HOW: fixed below the title bar on the right; z-index 40; width is the smaller of 360px */
+/* or the screen minus 16px; max-height 62vh with overflow:auto adds scrolling for long lists; theme colours, border, */
+/* radius and shadow. IMPROVE: add a search box. */
+#chapterMenu {
+  position: fixed; top: calc(124px + var(--safe-t)); right: 8px; z-index: 40;
+  width: min(360px, calc(100vw - 16px)); max-height: 62vh; overflow: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
+}
+/* WHY: the download buttons inside the menu. HOW: full width (minus margins), shown as blocks with 6px margin. IMPROVE: */
+/* none needed. */
+#chapterMenu .dl-menu { display: block; width: calc(100% - 12px); margin: 6px; }
+/* WHY: the list of chapters. HOW: list-style:none removes bullet dots; margin 0 and padding 6px for neat spacing. */
+/* IMPROVE: none needed. */
+#chapterList { list-style: none; margin: 0; padding: 6px; }
+/* WHY: each chapter entry is a flat button. HOW: full width, left-aligned text, no border, small radius, 44px tall for */
+/* tapping; nowrap + ellipsis cut long names. The next rule colours the current chapter orange with white text. IMPROVE: */
+/* scroll to the current chapter when opened. */
+#chapterList button {
+  display: block; width: 100%; text-align: left; border: 0; border-radius: 8px;
+  padding: 10px 12px; min-height: 44px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#chapterList button.current { background: var(--accent); color: #fff; }
+
+/* ---------- 10. TOAST, BUSY, SETTINGS ---------- */
+/* WHY: the small message pop-up (toast). HOW: fixed at bottom centre; starts invisible (opacity 0), 20px lower and not */
+/* clickable; dark background with white text. The transition animates the fade and slide. IMPROVE: add an icon for */
+/* success or error. */
+#toast {
+  position: fixed; left: 50%; bottom: calc(80px + var(--safe-b)); transform: translate(-50%, 20px);
+  max-width: min(92vw, 520px); padding: 10px 16px; border-radius: 10px;
+  background: #222; color: #fff; opacity: 0; pointer-events: none; z-index: 60;
+  transition: opacity .25s, transform .25s;
+}
+/* WHY: show the toast. HOW: when JavaScript adds the class 'show', opacity becomes 1 and it moves up to its place. */
+/* IMPROVE: none needed. */
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* WHY: a full-screen overlay while the app is busy. HOW: fixed with inset:0 covers everything; z-index 55; flex centres */
+/* the message; - -bar background is see-through. IMPROVE: add a spinner inside. */
+#busy {
+  position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center;
+  background: var(--bar); font-weight: 600;
+}
+/* WHY: the shared look of all pop-up dialogs. HOW: the width is the smaller of 92% of the screen or 480px; max-height */
+/* 90dvh with overflow:auto scrolls inside; theme border, radius, colours and padding. Browsers colour dialogs by */
+/* default, so colours are set here. IMPROVE: none needed. */
+dialog { width: min(92vw, 480px); max-height: 90vh; max-height: 90dvh; overflow: auto;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--bg); color: var(--fg); padding: 18px; }
+/* WHY: the dark layer behind an open dialog. HOW: ::backdrop is made by the browser for <dialog>; 50% black. IMPROVE: */
+/* add a blur. */
+dialog::backdrop { background: rgba(0, 0, 0, .5); }
+/* WHY: spacing for form fields inside dialogs. HOW: labels are blocks with space around; selects get a theme look; .row */
+/* puts buttons in a row with space between. IMPROVE: none needed. */
+dialog label { display: block; margin: 12px 0 4px; }
+dialog select { min-height: 36px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+dialog .row { display: flex; gap: 8px; justify-content: space-between; margin-top: 16px; }
+
+/* ---------- 10c. SETTINGS DIALOG: FITS ONE SCREEN (round 9) ----------
+   WHY: the settings used to be one long column, so you had to scroll inside it. Now the options sit in cards in a grid.
+   HOW: .set-grid is a CSS grid with auto-fit columns: 4 columns on a big monitor, 2 on a tablet, 1 on a phone. The dialog
+        is as wide as the screen allows and never taller than the screen. app.js fitSettings() measures it: if the cards
+        still do not fit, it adds the class "tabs" and only the selected card is shown (the tab row appears). So you never
+        need to scroll, on any size, and no option is removed.
+   WHERE: markup in index.html (<dialog id="settings">); the switch is app.js fitSettings() and the tab clicks in section 15.
+   IMPROVE: remember the last used tab; let the user drag the cards into a different order. */
+/* WHY: the settings dialog should be wide so the cards fit one screen. HOW: width up to 1180px (or 98% of the screen), */
+/* max-height 96dvh, tighter padding than normal dialogs. IMPROVE: none needed. */
+#settings { width: min(98vw, 1180px); max-height: 96vh; max-height: 96dvh; padding: 12px 14px; }
+/* WHY: the header of the settings with title and tabs. HOW: flex row with space between, wraps on small screens. h3 has */
+/* no margin. IMPROVE: none needed. */
+#settings .set-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+#settings h3 { margin: 0; }
+/* WHY: the tab buttons are only needed when cards do not fit. HOW: hidden by default (display:none); shown as flex when */
+/* #settings has class 'tabs' (line below). Active tab is orange. Round pills with 36px height. IMPROVE: remember the */
+/* last tab. */
+#setTabs { display: none; gap: 6px; flex-wrap: wrap; }                 /* only shown in tab mode */
+#setTabs button { min-height: 36px; padding: 0 12px; border-radius: 99px; }
+#setTabs button.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+#settings.tabs #setTabs { display: flex; }
+/* WHY: in tab mode only one card should show. HOW: cards without the class 'active' are hidden. IMPROVE: none needed. */
+#settings.tabs .set-card:not(.active) { display: none; }                /* tab mode: one card at a time */
+/* WHY: lay the setting cards in a responsive grid. HOW: grid with repeat(auto-fit, minmax(200px, 1fr)) makes as many */
+/* columns of at least 200px as fit; gap 10px; align-items:start keeps cards at their own height. IMPROVE: none needed. */
+.set-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 10px; align-items: start; }   /* round 11: 200 px so FIVE cards (with Troubleshoot) still sit side by side on a 1100 px window */
+/* WHY: each card (fieldset) groups related settings. HOW: thin border, rounded, small padding, no margin; min-width:0 */
+/* lets it shrink. Legend is the card title in bold. IMPROVE: none needed. */
+.set-card { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 8px; margin: 0; min-width: 0; }
+.set-card legend { font-weight: 600; padding: 0 6px; }
+/* WHY: compact spacing so everything fits without scrolling. HOW: tighter margins for labels, help text, rows, buttons */
+/* (36px tall), the range row gap and the inline row. IMPROVE: none needed. */
+#settings label { margin: 6px 0 2px; }
+#settings .muted.small { margin: 4px 0; }
+#settings .row { margin-top: 10px; }
+#settings button { min-height: 36px; }
+#settings .rg-row { gap: 8px; }
+#settings .inline { margin-top: 4px; flex-wrap: wrap; }
+/* WHY: a long proxy list must not make the dialog taller. HOW: max-height 24vh (24% of screen height) with overflow:auto */
+/* gives the list its own scrollbar. #secList below only adds a small top margin. IMPROVE: none needed. */
+#settings #proxyList { max-height: 24vh; overflow: auto; }              /* a long proxy list scrolls on its own, the dialog does not grow */
+#settings #secList { margin-top: 4px; }
+/* WHY: very short windows have no room for long help text. HOW: if the screen is 560px high or less, hide the small */
+/* muted help lines but keep all controls. IMPROVE: show help on a tap instead. */
+@media (max-height: 560px) { #settings .muted.small { display: none; } }  /* very short windows: hide the long help texts, keep every control */
+
+/* Proxy list in Settings. Each row: proxy name, a small status text, and a remove button. */
+/* WHY: the proxy box in Settings looks like the other cards. HOW: thin rounded border, padding, no margin; the legend is */
+/* bold. IMPROVE: none needed. */
+#proxyBox { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; margin: 0; }
+#proxyBox legend { font-weight: 600; padding: 0 6px; }
+/* WHY: the proxy list. HOW: no bullets; a flex column with 6px gaps. Each li row is a flex row with a border and rounded */
+/* corners. IMPROVE: add drag to reorder. */
+#proxyList { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+#proxyList li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 2px 4px 2px 10px; }
+/* WHY: show each proxy name and status neatly. HOW: .pname grows, cuts long text with ... and uses a small monospace */
+/* font (same-width letters); .pstate does not grow, can take 40% at most; the remove button is 34px tall with no border. */
+/* IMPROVE: colour the status text. */
+#proxyList .pname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px ui-monospace, Consolas, monospace; }
+#proxyList .pstate { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#proxyList button { min-height: 34px; border: 0; }
+/* WHY: a common row with an input and a button side by side. HOW: flex row, 6px gap; the input grows and may shrink. */
+/* IMPROVE: none needed. */
+.inline { display: flex; gap: 6px; margin-top: 6px; }
+.inline input { flex: 1; min-width: 0; }
+
+/* ---------- 10b. PDF DOWNLOAD PANEL ----------
+   WHY: a centred card with a progress bar while the PDF is being built (can take minutes for many chapters).
+   IMPROVE: show the estimated file size and time left. */
+/* ---------- DOWNLOAD DOCK + RANGE DIALOG (round 7) ----------
+   WHY: the download must stay visible (and not block reading) while chapters are fetched.
+        The dock floats in the bottom corner (the opposite side of the reader keys); the pill is the minimised form.
+   HOW: #dock.min hides the list and shows only the pill. The pill's ring is a conic-gradient filled by the CSS
+        variable --p (0-100) that app.js sets while a job runs. Jobs are <li class="dl-job">.
+   WHERE: markup in index.html (#dock, #rangeDlg); logic in app.js sections 12b and 12c.
+   IMPROVE: make the dock draggable, add a sound or notification when a file is ready. */
+/* WHY: the download progress bar. HOW: .dl-bar is a 10px grey track with round ends; the <i> inside is the orange fill; */
+/* JavaScript sets its width and it animates over .2s. IMPROVE: show percent text. */
+.dl-bar { height: 10px; margin: 8px 0 6px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.dl-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+/* ROUND 8: the dock sits right ABOVE the reader keys, in the same corner. column-reverse puts the open list above the round pill. */
+/* WHY: the floating download dock. HOW: fixed in the bottom corner (right 12px) above the keys; z-index 60; width up to */
+/* 380px; flex with column-reverse puts the open list above the round pill. IMPROVE: make it draggable. */
+#dock { position: fixed; right: 12px; left: auto; bottom: calc(18px + var(--safe-b)); z-index: 60; width: min(380px, calc(100vw - 24px));
+  display: flex; flex-direction: column-reverse; align-items: flex-end; }
+/* WHY: follow the key side setting. HOW: if keys are on the left, the dock moves to the left too and aligns to the */
+/* start. IMPROVE: none needed. */
+body[data-side="left"] #dock { right: auto; left: 12px; align-items: flex-start; }
+/* WHY: the dock must not cover the keys. HOW: in reading mode, bottom is the key row height plus gaps (14+5+50+14px) */
+/* plus the safe area; outside reading mode it sits 86px up, above the Reading mode button. IMPROVE: use a variable for */
+/* the key height. */
+body.reading #dock { bottom: calc(14px + 5px + 40px + 14px + var(--safe-b)); }          /* above the key row */
+body:not(.reading) #dock { bottom: calc(86px + var(--safe-b)); }                        /* above the Reading mode button */
+/* WHY: the list box inside the dock. HOW: fills the dock width. Later rules style it as a card. IMPROVE: merge duplicate */
+/* #dockBox rules. */
+#dockBox { width: 100%; }
+/* WHY: show a finished download. HOW: a done pill gets a green ring (#2f9e44) and a bold green arrow. IMPROVE: none */
+/* needed. */
+#dockIcon.done .ring { background: #2f9e44; }
+#dockIcon.done .arrow { color: #2f9e44; font-weight: 800; }
+/* WHY: make the open dock list look like a card. HOW: theme background, border, rounded corners, shadow, 8px gap below, */
+/* max height 55vh with scrolling. The next line hides it when the dock is minimised (class min). IMPROVE: none needed. */
+#dockBox { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); margin-bottom: 8px; max-height: 55vh; overflow: auto; }
+#dock.min #dockBox { display: none; }
+/* WHY: the dock title row. HOW: flex row with space between; the close button has no border and a small height. IMPROVE: */
+/* none needed. */
+.dock-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 0 14px; }
+.dock-head button { border: 0; min-width: 40px; min-height: 36px; }
+/* WHY: the list of download jobs. HOW: no bullets, flex column with 10px gaps. Each job (.dl-job) is a small bordered */
+/* card. IMPROVE: none needed. */
+#dockList { list-style: none; margin: 0; padding: 4px 10px 10px; display: flex; flex-direction: column; gap: 10px; }
+.dl-job { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+/* WHY: layout of a job card. HOW: .dj-top puts title and size on one line; .dj-title cuts long names with ...; .dj-size */
+/* keeps its width, uses same-width digits (tabular-nums) and orange bold text; .dj-btns holds buttons on the right and */
+/* wraps. IMPROVE: none needed. */
+.dj-top { display: flex; justify-content: space-between; gap: 8px; }
+.dj-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dj-size { flex: none; font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+.dj-btns { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; margin-top: 6px; }
+.dj-btns button { min-height: 34px; padding: 0 12px; }
+/* WHY: colour the progress bar by job state. HOW: attribute selectors read data-status: done = green; error or cancelled */
+/* = red. IMPROVE: add a yellow colour for paused. */
+.dl-job[data-status="done"] .dl-bar i { background: #2f9e44; }
+.dl-job[data-status="error"] .dl-bar i, .dl-job[data-status="cancelled"] .dl-bar i { background: #c92a2a; }
+/* WHY: the minimised round download pill. HOW: flex row with icon and label, 48px tall, round (99px), theme colours and */
+/* shadow. The next lines continue the same rule. IMPROVE: none needed. */
+#dockIcon { display: flex; align-items: center; gap: 8px; margin-left: 0; padding: 4px 14px 4px 4px; min-height: 48px; border-radius: 99px;
+  background: var(--bg); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--fg); }
+/* WHY: the progress ring. HOW: a 38px circle; conic-gradient paints a pie: orange for - -p percent (calc(var(- -p) * */
+/* 1%)) and grey for the rest; JavaScript updates - -p. Lines 403-404 repeat the same values (harmless duplicate). */
+/* IMPROVE: delete the duplicates. */
+#dockIcon .ring { --p: 0; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--line) 0); }
+#dockIcon { --p: 0; }
+#dockIcon .ring { background: conic-gradient(var(--accent) calc(var(--p) * 1%), var(--line) 0); }
+/* WHY: the arrow in the middle of the ring. HOW: a 28px round circle with theme background that sits over the ring */
+/* centre (display:grid + place-items:center centres it). IMPROVE: none needed. */
+#dockIcon .arrow { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--bg); }
+/* WHY: show activity while downloading. HOW: when busy, the arrow bobs up and down using the bob animation; the next */
+/* line moves it 2px at the midpoint. IMPROVE: none needed. */
+#dockIcon.busy .arrow { animation: bob 1.1s ease-in-out infinite; }
+@keyframes bob { 50% { transform: translateY(2px); } }
+/* WHY: a small count badge on the pill. HOW: :not(:empty) means it only shows when it has text; orange pill with white */
+/* small text. IMPROVE: none needed. */
+#dockCount:not(:empty) { background: var(--accent); color: #fff; border-radius: 99px; padding: 0 7px; font-size: .75rem; }
+/* WHY: respect reduced-motion for the bobbing arrow. HOW: turn the animation off in that setting. IMPROVE: none needed. */
+@media (prefers-reduced-motion: reduce) { #dockIcon.busy .arrow { animation: none; } }
+
+/* Range dialog + memory / security boxes in the settings. */
+/* WHY: the chapter range chooser. HOW: .chips is a wrapping flex list of small buttons with a max-height of 128px and */
+/* scrolling; .chip is a round 34px button. IMPROVE: add select-all. */
+.chips { display: flex; flex-wrap: wrap; gap: 6px; max-height: 128px; overflow: auto; margin: 8px 0; }
+.chip { min-height: 34px; padding: 0 12px; border-radius: 99px; font-size: .9rem; }
+/* WHY: put two selects (from / to) side by side. HOW: .rg-row is a flex row; each label shares space equally; selects */
+/* fill their label. IMPROVE: none needed. */
+.rg-row { display: flex; gap: 10px; }
+.rg-row label { flex: 1; min-width: 0; }
+.rg-row select { width: 100%; }
+/* WHY: memory and security boxes in Settings look like the other cards. HOW: thin rounded border, padding, no margin, */
+/* bold legends. label.check puts a checkbox beside its text. IMPROVE: none needed. */
+#memBox, #secBox { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px 10px; margin: 0; }
+#memBox legend, #secBox legend { font-weight: 600; padding: 0 6px; }
+label.check { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+/* WHY: the list in the security box. HOW: no bullets, flex column with 4px gaps. The last rule removes extra margin */
+/* between two stacked menu buttons. IMPROVE: none needed. */
+#secList { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+#chapterMenu .dl-menu + .dl-menu { margin-top: 0; }
+
+/* ---------- 11. BIG ERROR POP-UP (round 8) ----------
+   WHY: errors must be impossible to miss and easy to copy. It is a modal <dialog>: centred, red border, with a plain
+        one-line summary, a hint, and the full report in a selectable text box.
+   IMPROVE: add a "Retry" button that repeats the action that failed. */
+/* WHY: the error pop-up must be impossible to miss. HOW: wide dialog (max 760px) with a thick 3px dark-red border; the */
+/* title is red; the summary is bold and breaks long words (word-break) so it does not overflow; hint has a small margin. */
+/* IMPROVE: add a Retry button. */
+#errbox { width: min(96vw, 760px); border: 3px solid #b3261e; }
+#errbox h2 { margin: 0 0 8px; color: #b3261e; font-size: 1.45rem; }
+#errSummary { margin: 0 0 6px; font-weight: 700; font-size: 1.05rem; word-break: break-word; }
+#errHint { margin: 0 0 10px; }
+/* WHY: the full error report in a box that is easy to copy. HOW: a full-width textarea that can be resized vertically, */
+/* small monospace font, theme colours; user-select:text makes sure the text can be selected. IMPROVE: add a Copy button. */
+#errText {
+  width: 100%; resize: vertical; font: 12px/1.4 ui-monospace, Consolas, monospace;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px;
+  -webkit-user-select: text; user-select: text;
+}
+
+/* ---------- 12. FAILED PAGE + CLEARED CHAPTER NOTICES (round 8) ----------
+   WHY: a picture that cannot load used to be an empty grey box. Now it says so and offers Retry / Open picture. */
+/* WHY: a picture that failed to load shows a clear message. HOW: centred grey text with padding and a light red tint; */
+/* its .row holds the Retry / Open buttons in a centred row; links use the accent colour. Redefined in round 11. IMPROVE: */
+/* auto-retry once. */
+.page-fail { text-align: center; padding: 36px 14px; color: var(--muted); background: rgba(179, 38, 30, .08); border-top: 1px solid var(--line); }
+.page-fail .row { display: flex; gap: 12px; justify-content: center; align-items: center; margin-top: 10px; }
+.page-fail a { color: var(--accent); }
+/* WHY: the notice shown after a chapter is cleared (to free memory). HOW: centred grey text with generous padding. */
+/* IMPROVE: add an Undo button. */
+.ch-cleared { text-align: center; color: var(--muted); padding: 40px 14px; }
+
+/* ---------- 13. ROUND 8 EXTRAS ----------
+   WHY: (1) while you scroll down the round keys fade away; the download dock then slides down so it does not float
+        in empty space, and it STAYS visible (a download must always be checkable).
+        (2) the dock pill shows red when a download failed.
+   IMPROVE: make the dock draggable. */
+/* WHY: let the dock slide smoothly. HOW: transition on bottom makes a change of position animate over .25s. When reading */
+/* and scrolling, the dock moves down to 18px; the next lines colour an error pill red. IMPROVE: none needed. */
+#dock { transition: bottom .25s; }
+body.reading.scrolling #dock { bottom: calc(18px + var(--safe-b)); }
+#dockIcon.err .ring { background: #c92a2a; }
+#dockIcon.err .arrow { color: #c92a2a; font-weight: 800; }
+/* The short notice ("Download started...") must not cover the round download button, so in reading mode it floats higher. */
+/* WHY: keep the short message from covering the download button. HOW: in reading mode, the toast sits 150px higher. */
+/* IMPROVE: none needed. */
+body.reading #toast { bottom: calc(150px + var(--safe-b)); }
+
+/* ROUND 9b: the clear (x) button INSIDE a search box. WHY: pasting a new link meant deleting the old one by hand. HOW: the
+   input gets extra right padding, the button floats over that spot and only shows when the box has text (app.js). */
+/* WHY: a wrapper so the clear (x) button can sit inside the input. HOW: position:relative lets the button be placed */
+/* inside it; flex layout; the input gets extra right padding so text does not go under the x. IMPROVE: none needed. */
+.inwrap { position: relative; flex: 1; display: flex; min-width: 0; }
+.inwrap input { flex: 1; min-width: 0; padding-right: 38px; }
+/* WHY: the clear (x) button. HOW: position:absolute puts it at the right, top 50% with translateY(-50%) centres it */
+/* vertically; small round grey button; min-height:0 cancels the global button rule. The next line hides it when the */
+/* hidden attribute is set. IMPROVE: none needed. */
+.clearx { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 30px; height: 30px; min-height: 0; padding: 0;
+  border-radius: 50%; border: 0; background: var(--line); color: var(--fg); font-size: .8rem; line-height: 1; cursor: pointer; }
+.clearx[hidden] { display: none; }
+
+/* ROUND 9b (phones): the "End reading" words are hidden on narrow screens (only the x stays) so the manga title gets room.
+   Selects in the settings cards may never be wider than their card. */
+/* WHY: save space on phones. HOW: on 520px or narrower the text label of the Exit button is hidden so only the x */
+/* remains; settings selects are never wider than their card. IMPROVE: none needed. */
+@media (max-width: 520px) { #btnExit .lbl { display: none; } }
+#settings select { max-width: 100%; }
+
+
+/* =====================================================================
+   ROUND 10 ADDITIONS
+   WHY / HOW / IMPROVE are written next to each block.
+   ===================================================================== */
+
+/* The clear (x) button inside a search box: SMALL and FIXED size now (22 px), so it never stretches with the box.
+   WHY: it was too big. HOW: explicit width/height, flex:none, min-* reset so the global 44 px button rule cannot grow it. */
+/* WHY: make the x smaller and fixed. HOW: 22px width and height, min-* sizes reset, flex:none so it never stretches, */
+/* smaller font. This overrides the earlier .clearx rule because it comes later. IMPROVE: delete the older .clearx rule */
+/* to avoid confusion. */
+.clearx { width: 22px; height: 22px; min-width: 22px; min-height: 22px; flex: none; right: 8px; font-size: .62rem; padding: 0; line-height: 22px; }
+.inwrap input { padding-right: 36px; }
+
+/* "top" key: it uses the same .key rules as the reload keys (round 3D look). Only the little label needs a rule. */
+/* WHY: the 'top' key symbol is a little bigger than text keys. HOW: only the font size is set; all other looks come from */
+/* .key. IMPROVE: none needed. */
+#side .k-top { font-size: 1.25rem; }
+
+/* DOWNLOAD BUTTON that is always there in reading mode (minimised round pill above the arrow keys).
+   WHY: you asked for it to be visible like the arrow keys and to hide when you scroll down (class ui-hide does that).
+   HOW: while nothing is downloading only the round icon shows; while a job runs the ring fills, the arrow bobs and a glow
+   pulses (the "notification"); green when a PDF is ready, red on a failure. */
+/* WHY: the download pill should be small when idle. HOW: when it is not busy, done or error, the label is hidden and */
+/* padding is smaller so only the round icon shows. IMPROVE: none needed. */
+#dockIcon:not(.busy):not(.done):not(.err) #dockLabel { display: none; }
+#dockIcon:not(.busy):not(.done):not(.err) { padding: 4px; }
+/* WHY: tell the user a download is running. HOW: while busy, the dockglow animation pulses an orange glow ring around */
+/* the pill (box-shadow grows and shrinks). It is turned off for reduced-motion users. IMPROVE: none needed. */
+#dockIcon.busy { animation: dockglow 1.6s ease-in-out infinite; }
+@keyframes dockglow { 0%, 100% { box-shadow: var(--shadow); } 50% { box-shadow: 0 0 0 5px rgba(232, 89, 12, .28), var(--shadow); } }
+@media (prefers-reduced-motion: reduce) { #dockIcon.busy { animation: none; } }
+
+/* Range dialog: estimated size line. Colour says how big: normal / big (orange) / huge (red). */
+/* WHY: show the estimated download size in the range dialog. HOW: a bordered rounded box with bold small text. The next */
+/* rules read data-level: big = orange tint, huge = red tint. small text inside is grey and on its own line. IMPROVE: add */
+/* a warning icon. */
+.rg-size { margin: 8px 0 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); font-weight: 600; font-size: .92rem; }
+.rg-size[data-level="big"] { border-color: #e8590c; background: rgba(232, 89, 12, .08); }
+.rg-size[data-level="huge"] { border-color: #c92a2a; background: rgba(201, 42, 42, .09); }
+.rg-size small { display: block; font-weight: 400; color: var(--muted); margin-top: 2px; }
+
+/* START PAGE (digital look): hero card, steps, avatar cards. Plain CSS only. */
+/* WHY: widen the start page a bit (overrides the 720px set earlier). HOW: a later rule with the same selector wins. */
+/* IMPROVE: merge with the first #start rule. */
+#start { max-width: 860px; }
+/* WHY: the colourful hero card at the top of the start page. HOW: rounded card with white text on a purple-to-orange */
+/* diagonal gradient; background-size 160% lets the herodrift animation slowly move the gradient; a purple shadow adds */
+/* depth. The animation is turned off for reduced-motion users. IMPROVE: use theme colours. */
+.hero { position: relative; overflow: hidden; padding: 26px 20px 20px; margin-bottom: 18px; border-radius: 22px; text-align: center;
+  color: #fff; background: linear-gradient(135deg, #3b2bd9 0%, #7a2cf0 48%, #e8590c 130%); background-size: 160% 160%;
+  animation: herodrift 14s ease-in-out infinite; box-shadow: 0 14px 40px rgba(60, 40, 200, .28); }
+@keyframes herodrift { 50% { background-position: 100% 60%; } }
+@media (prefers-reduced-motion: reduce) { .hero { animation: none; } }
+/* WHY: hero text pieces. HOW: h2 is a big heading that scales with screen width; the badge is a small see-through pill; */
+/* the sub-text is slightly faded (opacity .9). IMPROVE: none needed. */
+.hero h2 { margin: 6px 0 4px; font-size: clamp(1.35rem, 4.6vw, 2rem); line-height: 1.15; }
+.hero-badge { display: inline-block; padding: 3px 12px; border-radius: 99px; background: rgba(255, 255, 255, .18); font-weight: 700; font-size: .85rem; }
+.hero-sub { margin: 0 0 14px; opacity: .9; }
+/* WHY: the big search form in the hero. HOW: a flex row with the box and the button; max-width 640px centred; the input */
+/* is tall (48px) with white background and rounded corners; the clear button gets light-grey colours to show on white. */
+/* IMPROVE: none needed. */
+#heroForm { display: flex; gap: 6px; align-items: center; max-width: 640px; margin: 0 auto; }
+#heroForm .inwrap { flex: 1; }
+#heroForm input { width: 100%; min-height: 48px; border-radius: 14px; border: 0; font-size: 16px; background: #fff; color: #111; }
+#heroForm button { min-height: 48px; border-radius: 14px; }
+#heroForm .clearx { background: #e5e5ea; color: #333; }
+/* WHY: small status pills in the hero (for example proxy state). HOW: .status-chips is a centred wrapping row; each */
+/* .chip2 is a see-through white pill with white small bold text. IMPROVE: none needed. */
+.status-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 12px; }
+.status-chips .chip2 { padding: 4px 12px; border-radius: 99px; background: rgba(255, 255, 255, .2); color: #fff; font-size: .8rem; font-weight: 600; border: 1px solid rgba(255, 255, 255, .3); min-height: 0; }
+/* WHY: the how-it-works steps. HOW: .steps is a grid with as many columns of at least 170px as fit; each .step is a */
+/* bordered card in a column; b is the round numbered circle in orange; span is the bold step name; small is grey help */
+/* text. IMPROVE: add icons. */
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.step { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); box-shadow: var(--shadow); }
+.step b { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: .85rem; }
+.step span { font-weight: 700; margin-top: 4px; }
+.step small { color: var(--muted); }
+/* WHY: the history list as cards. HOW: .list.cards becomes a grid with columns at least 240px wide, filling the row. */
+/* IMPROVE: none needed. */
+.list.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+/* WHY: make each item a row with an avatar and text. HOW: !important forces row layout and centre alignment over the */
+/* earlier .list .item rules. IMPROVE: remove the older rule so !important is not needed. */
+.item { flex-direction: row !important; align-items: center !important; gap: 10px !important; }
+/* WHY: the coloured letter avatar in each item and its text block. HOW: .av is a 40px rounded square that centres a bold */
+/* white letter; .tx is a column that can shrink so long text is cut. IMPROVE: use the site favicon. */
+.item .av { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: 1.1rem; }
+.item .tx { display: flex; flex-direction: column; min-width: 0; align-items: flex-start; gap: 2px; }
+/* WHY: hover feedback for cards. HOW: the border turns orange and the card lifts 1px. IMPROVE: add a transition to make */
+/* it smooth. */
+.item:hover { border-color: var(--accent); transform: translateY(-1px); }
+
+/* ROUND 10 fix: the search-bar rules (".rb-search button { min-height: 40px }") were making the clear (x) button tall.
+   A more specific selector (.inwrap .clearx) wins and pins it to 22 x 22 px everywhere. */
+/* WHY: fix the clear x being tall in the search bar. HOW: .inwrap .clearx is more specific than .rb-search button, so it */
+/* wins and pins the size to 22x22px. IMPROVE: rely less on specificity by renaming the classes. */
+.inwrap .clearx { width: 22px; height: 22px; min-width: 22px; min-height: 22px; max-height: 22px; line-height: 20px; padding: 0; }
+
+
+/* =====================================================================
+   ROUND 11 ADDITIONS
+   WHY / HOW / IMPROVE are written next to each block.
+   ===================================================================== */
+
+/* 1. THE SLIDER REPLACES THE UP / DOWN ARROW KEYS.
+   WHY: you asked to remove the up and down arrow keys once the vertical slider exists above the End key.
+   HOW: chapter-slider.js adds the class "has-slider" to <body>. Only then are the two keys hidden, so without the slider file
+        you still have them (and the Left / Right keyboard keys, the chapter list and "n" / "p" always work).
+   IMPROVE: a Settings switch "show the arrow keys as well". To bring the keys back for good delete the next two lines. */
+/* WHY: when the slider exists, the up and down arrow keys are not needed. HOW: only when body has class 'has-slider' */
+/* (added by chapter-slider.js) both buttons are hidden. IMPROVE: add a Settings switch to show them again. */
+body.has-slider #btnPrev, body.has-slider #btnNext { display: none; }
+
+/* 2. DOWNLOAD BUTTON NEXT TO THE END KEY (when the slider is linked).
+   WHY: the slider now sits right above the End key, exactly where the round download button used to be.
+   HOW: the dock moves to the LEFT of the End key in the same bottom row (End key width + gaps); sizes follow the keys in section 8. */
+/* WHY: move the download dock next to the End key when the slider is used. HOW: in reading mode with the slider, the */
+/* dock sits to the left of the End key (12px + 50px key + 12px from the right); the left-side version mirrors it; while */
+/* scrolling, it stays at the same bottom. IMPROVE: use CSS variables instead of repeated numbers. */
+body.reading.has-slider #dock { right: calc(12px + 40px + 12px); bottom: calc(14px + var(--safe-b)); }
+body[data-side="left"].reading.has-slider #dock { right: auto; left: calc(12px + 40px + 12px); }
+body.reading.has-slider.scrolling #dock { bottom: calc(14px + var(--safe-b)); }
+/* WHY: keep the dock beside the End key when keys are smaller. HOW: the 520px rule uses 44px keys and 8px gaps; the */
+/* 370px rule uses 40px keys; each also has a left-side version. IMPROVE: use var(- -key) to avoid repeating numbers. */
+@media (max-width: 520px) { body.reading.has-slider #dock { right: calc(8px + 38px + 8px); } body[data-side="left"].reading.has-slider #dock { left: calc(8px + 38px + 8px); right: auto; } }
+@media (max-width: 370px) { body.reading.has-slider #dock { right: calc(8px + 34px + 6px); } body[data-side="left"].reading.has-slider #dock { left: calc(8px + 34px + 6px); right: auto; } }
+
+/* 3. THE REPORT BUTTON ON THE LAST CHAPTER + THE TROUBLESHOOT DIALOG. */
+/* WHY: the Report button on the last chapter and the Troubleshoot dialog. HOW: a small round button next to the */
+/* chapter-end text; #fixDlg is a wide dialog (max 820px) with spaced headings. IMPROVE: none needed. */
+.ch-end .ch-report { min-height: 32px; margin-left: 6px; padding: 0 12px; font-size: .8rem; border-radius: 99px; }
+#fixDlg { width: min(96vw, 820px); }
+#fixDlg h4 { margin: 14px 0 6px; }
+/* WHY: collapsible sections in the troubleshoot dialog. HOW: <details> gets a thin border and rounded corners; summary */
+/* has the hand cursor, bold text, and is a flex row so it is easy to tap; an open section gets an orange border. */
+/* IMPROVE: none needed. */
+#fixDlg details { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; margin: 6px 0; }
+#fixDlg summary { cursor: pointer; font-weight: 600; min-height: 32px; display: flex; align-items: center; }
+#fixDlg details[open] { border-color: var(--accent); }
+/* WHY: tidy lists in the troubleshoot dialog. HOW: inline rows wrap; .fix-prompts and .fix-recent are lists without */
+/* bullets in a column with gaps; prompt items have a border; <pre> wraps long lines, uses small monospace text, limited */
+/* to 9em tall with scrolling. IMPROVE: add Copy buttons. */
+#fixDlg .inline { flex-wrap: wrap; margin: 6px 0; }
+.fix-prompts, .fix-recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.fix-prompts li { border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.fix-prompts pre { white-space: pre-wrap; margin: 6px 0; font: 12px/1.4 ui-monospace, Consolas, monospace; max-height: 9em; overflow: auto; color: var(--muted); }
+.fix-recent li { font-size: .85rem; }
+/* WHY: the fix list scrolls on its own. HOW: no bullets, limited to 26vh high with overflow:auto; each item has small */
+/* vertical padding. The last line lets the error box buttons wrap. IMPROVE: none needed. */
+#fixList { list-style: none; padding: 0; margin: 6px 0; max-height: 26vh; overflow: auto; }
+#fixList li { padding: 2px 0; }
+#errbox .row { flex-wrap: wrap; }
+
+/* 4. READING MODE, DIGITAL LOOK (round 11).
+   WHY: the start page got a digital look in round 10; you asked for the reading mode to follow, without changing it too much and
+        with a friendlier interface.
+   HOW: only colours, borders, glows and sizes change. No button moved. Everything uses the theme variables, so light and dark both work.
+        - title bar: soft glass with a thin accent line under it, bigger touch targets (44 px)
+        - progress line: accent gradient with a small glow
+        - chapter header: number in a pill, accent line on top of every chapter card
+        - end of chapter: a dashed "digital" divider
+        - keys: accent ring when hovered or pressed, same shapes as before
+   IMPROVE: a compact / comfortable switch in Settings, per-site accent colour, a mini map of chapters in the bar. */
+/* WHY: give the reader bar a glass look. HOW: background is a gradient of the same colour (a placeholder that keeps the */
+/* bar see-through); the bottom border is removed and replaced by a thin line plus a soft shadow. IMPROVE: none needed. */
+#readerBar { background: linear-gradient(180deg, var(--bar), var(--bar)); border-bottom: 0; box-shadow: 0 1px 0 var(--line), 0 6px 18px rgba(0, 0, 0, .10); }
+/* WHY: a thin coloured line under the bar. HOW: ::after creates an extra element at the bottom, 2px tall, filled with a */
+/* gradient that fades in and out at both ends (transparent to orange to purple to transparent) at 65% strength. IMPROVE: */
+/* none needed. */
+#readerBar::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), #7a2cf0, transparent); opacity: .65; }
+/* WHY: bigger, friendlier buttons in the bar. HOW: 44px minimum size, rounded 12px; the hover rule colours the border */
+/* orange. The title gets slightly bigger text with a little letter-spacing. IMPROVE: none needed. */
+.rb-row button, .rb-search button { min-height: 44px; min-width: 44px; border-radius: 12px; }
+.rb-row button:hover, .rb-search button:hover { border-color: var(--accent); }
+.rb-title h1 { font-size: 1.02rem; letter-spacing: .01em; }
+/* WHY: show the sub-title as a purple pill. HOW: inline-block with padding, round corners, a see-through purple */
+/* background; the font shorthand sets weight, size and line-height together with monospace letters. IMPROVE: none */
+/* needed. */
+#rSub { display: inline-block; margin-top: 2px; padding: 1px 10px; border-radius: 99px; background: rgba(122, 44, 240, .12); color: var(--fg);
+  font: 600 .72rem/1.5 ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: .04em; }
+/* WHY: make the progress line a bit thicker and prettier. HOW: height 4px; the fill is an orange-purple-blue gradient */
+/* with a glow (box-shadow) and a rounded right end. IMPROVE: none needed. */
+#progress { height: 4px; }
+#progress i { background: linear-gradient(90deg, var(--accent), #7a2cf0, #25a8ff); box-shadow: 0 0 8px rgba(122, 44, 240, .7); border-radius: 0 3px 3px 0; }
+/* WHY: a colourful line on top of every chapter card. HOW: border-top is 3px transparent, and border-image paints a */
+/* gradient over it (the 1 means use the image as it is). The phone rule repeats it because the earlier phone rule */
+/* removes borders. IMPROVE: remove the repeated rule if not needed. */
+.chapter { border-top: 3px solid transparent; border-image: linear-gradient(90deg, var(--accent), #7a2cf0, #25a8ff) 1; }
+@media (max-width: 700px) { .chapter { border-image: linear-gradient(90deg, var(--accent), #7a2cf0, #25a8ff) 1; } }
+/* WHY: a friendlier chapter header. HOW: a faint purple gradient fades from top to transparent; .ch-num becomes a pill */
+/* with a border, theme background and soft purple shadow. IMPROVE: none needed. */
+.ch-head { background: linear-gradient(180deg, rgba(122, 44, 240, .07), transparent); }
+.ch-num { display: inline-block; padding: 2px 18px; border-radius: 99px; border: 1px solid var(--line); background: var(--bg); box-shadow: 0 2px 10px rgba(122, 44, 240, .15); }
+/* WHY: a digital style for the chapter end and message buttons. HOW: the end gets a dashed top line and small monospace */
+/* bold text; the buttons in messages are round pills 40px tall; failed pages get a dashed red border and soft red tint. */
+/* IMPROVE: none needed. */
+.ch-end { border-top: 2px dashed var(--line); font: 600 .85rem ui-monospace, Consolas, monospace; letter-spacing: .03em; }
+.ch-msg .row button, .page-fail .row button { min-height: 40px; border-radius: 99px; padding: 0 16px; }
+.page-fail { border: 1px dashed #c92a2a; border-radius: 12px; margin: 8px 10px; background: rgba(201, 42, 42, .06); }
+/* WHY: key focus and hover glow. HOW: the border turns orange and an extra purple ring (0 0 0 3px) is added to the */
+/* shadow list, keeping the original 3D shadows so the key shape does not change. Line 596 removes the default outline */
+/* for focus because the glow replaces it. IMPROVE: keep a visible outline for accessibility checks. */
+#side .key:hover, #side .key:focus-visible { border-color: var(--accent); box-shadow: 0 5px 0 var(--keyedge), 0 0 0 3px rgba(122, 44, 240, .25), 0 10px 14px rgba(0, 0, 0, .30), inset 0 2px 3px rgba(255, 255, 255, .55), inset 0 -3px 5px rgba(0, 0, 0, .12); }
+#side .key:focus-visible { outline: none; }
+/* WHY: style the load-earlier button and chapter menu like the rest. HOW: round pill with orange border; the menu gets */
+/* rounder corners and an orange border; the current chapter gets a soft orange-purple gradient and bold text. IMPROVE: */
+/* none needed. */
+#prevBar button { border-radius: 99px; border-color: var(--accent); }
+#chapterMenu { border-radius: 14px; border-color: var(--accent); }
+#chapterList button.current { background: linear-gradient(90deg, rgba(232, 89, 12, .18), rgba(122, 44, 240, .12)); font-weight: 700; }
+/* WHY: a slim scrollbar that matches the theme. HOW: scrollbar-width: thin makes the bar narrow; scrollbar-color sets */
+/* the thumb to orange and the track to transparent (works in Firefox and new Chrome). IMPROVE: add -webkit-scrollbar */
+/* rules for older Safari. */
+html { scrollbar-width: thin; scrollbar-color: var(--accent) transparent; }
+
+
+/* =====================================================================
+   ROUND 12: ALIGNMENT ON EVERY DEVICE + THE WHEEL CORNER + THE DOWNLOAD LIST ON PHONES
+   WHY: (1) the two reload keys were replaced by the reload wheel in the bottom-left corner, so the Top key must sit BESIDE it.
+        (2) on a phone the open download list (380 px wide) was pushed off the left edge because the dock sits beside the End key.
+        (3) phones with a notch / rounded corners / sideways use need the safe-area margins on the left and right too.
+   HOW: body.has-wheel (set by reload-wheel.js) adds a left margin to the Top key group equal to the wheel width (--mfw, defined by
+        reload-wheel.js on body). The open #dockBox becomes a bottom sheet (fixed, 8 px from both sides, above the key row) on screens
+        up to 700 px wide. Left / right margins use max(12px, env(safe-area-inset-*)).
+   IMPROVE: let the user drag the wheel and the dock to any corner and remember it. */
+/* WHY: keep every floating item inside the visible screen. HOW: the strip and the dock use the larger of 12 px and the notch inset. */
+#side { left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); }
+#dock { max-width: calc(100vw - 16px); }
+/* WHY: room for the wheel. HOW: margin-left on the left key group (the Top key); mirrored when the buttons are on the left. */
+body.has-wheel #side .kg-l { margin-left: 0; }       /* round 14: the wheel now sits ABOVE the Top key, so no side margin */
+body.has-wheel[data-side="left"] #side .kg-l { margin: 0; }
+/* WHY: the Top key was a reload-key partner; keep it vertically centred with the End key. HOW: nothing to add, the group aligns centre. */
+@media (max-width: 520px) { #side { left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); } }
+/* WHY: the open download list must always fit on a phone / small tablet. HOW: bottom sheet above the key row (reading mode) or above the pill (start page). */
+@media (max-width: 700px) {
+  #dock:not(.min) #dockBox { position: fixed; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto;
+    bottom: calc(14px + 5px + 40px + 14px + 56px + var(--safe-b)); max-height: min(55dvh, 420px); margin: 0; z-index: 61; }
+  body:not(.reading) #dock:not(.min) #dockBox { bottom: calc(86px + 56px + var(--safe-b)); }
+}
+/* WHY: short screens (phone turned sideways) must not hide the list behind the keys. HOW: lower height cap. */
+@media (max-height: 430px) { #dockBox { max-height: 60dvh; } #dock:not(.min) #dockBox { max-height: 60dvh; bottom: calc(14px + 5px + 38px + 8px + var(--safe-b)); } }
+/* WHY: dialogs (settings, error report, troubleshoot) must fit any screen. HOW: never wider than the screen minus 16 px, never taller than the visible height. */
+dialog { max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+
+
+/* =====================================================================
+   ROUND 13: SWITCHING THE ADD-ONS OFF + LEANER LOOK
+   WHY: Settings > Reading has two switches (slider, wheel). Off means hidden AND not usable.
+   HOW: app.js puts body.no-slider / body.no-wheel; these rules win over the add-ons' own display rules (!important).
+   IMPROVE: remove the elements from the page instead of hiding them. */
+body.no-slider #mfSlider, body.no-wheel #mfWheel { display: none !important; pointer-events: none !important; }
+/* WHY: the keys got smaller (40 px), so their 3D edge and shadow are thinner too. HOW: lighter shadow numbers. */
+#side .key { box-shadow: 0 4px 0 var(--keyedge), 0 8px 12px rgba(0, 0, 0, .28), inset 0 2px 3px rgba(255, 255, 255, .5), inset 0 -2px 4px rgba(0, 0, 0, .12); }
+#side .key:active, #side .key.pressed { box-shadow: 0 1px 0 var(--keyedge), 0 3px 5px rgba(0, 0, 0, .25), inset 0 2px 3px rgba(255, 255, 255, .4); transform: translateY(3px); }
+
+/* ROUND 13: the two add-on switches share one line so the Reading card stays short (all five cards still fit on a big screen). */
+.check-pair { display: flex; gap: 14px; flex-wrap: wrap; } .check-pair .check { margin: 0; }
+
+
+/* =====================================================================
+   ROUND 14: LAYOUT + CLEAR BUTTON + SMALL KEYS WITHOUT WORDS
+   WHY: (1) the x in the search boxes jumped when pressed: the global rule  button:active { transform: scale(.96) }  REPLACED the
+            transform that centred it (translateY(-50%)), so it dropped half its height while you pressed it.
+        (2) the layout asked for: LEFT corner = Top key at the bottom with the reload wheel right above it; RIGHT corner = End key at
+            the bottom with the chapter slider right above it (see chapter-slider.js); the download button moves to the top right,
+            just below the title bar, and is smaller.
+   HOW: (1) the x is centred with margin instead of transform and every state keeps  transform: none ; an invisible ::before makes
+            the touch area bigger than the 22 px circle. (2) in reading mode the dock is pinned with top (below the bar) and the
+            open list hangs under the round button; when the bar slides away (body.scrolling) the dock rises with it.
+   IMPROVE: make the dock draggable and remember where you left it. */
+.inwrap .clearx { position: absolute; right: 8px; top: 50%; margin: -11px 0 0; transform: none !important; -webkit-tap-highlight-color: transparent; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.inwrap .clearx:hover, .inwrap .clearx:active, .inwrap .clearx:focus { transform: none !important; }
+.inwrap .clearx::before { content: ""; position: absolute; inset: -11px; }            /* bigger invisible touch area (44 x 44) */
+/* WHY: the bottom corner keys carry no words any more (only the symbol). HOW: hide any leftover <small> label. */
+#side .key small { display: none; }
+/* WHY: download button at the top right under the title bar (reading mode only). HOW: !important beats the older dock rules. */
+body.reading #dock { top: calc(124px + var(--safe-t)) !important; bottom: auto !important; right: max(8px, env(safe-area-inset-right)) !important; left: auto !important;
+  flex-direction: column !important; align-items: flex-end !important; transition: top .25s; }
+body.reading.scrolling #dock { top: calc(10px + var(--safe-t)) !important; }         /* follows the title bar when it slides away */
+body.reading #dockBox { margin: 8px 0 0; }
+body.reading #dockIcon { min-height: 34px; padding: 3px 10px 3px 3px; gap: 6px; font-size: .72rem; }
+body.reading #dockIcon .ring { width: 28px; height: 28px; } body.reading #dockIcon .arrow { width: 20px; height: 20px; font-size: .8rem; }
+body.reading #dockLabel { font-size: .72rem; } body.reading #dockCount:not(:empty) { font-size: .66rem; padding: 0 6px; }
+/* the chapter list drop-down starts below the download button so they never cover each other */
+body.reading #chapterMenu { top: calc(124px + 44px + var(--safe-t)); max-height: calc(100dvh - 124px - 44px - 80px - var(--safe-t) - var(--safe-b)); }
+/* WHY: the open download list on a phone used to be a bottom sheet; now it hangs from the top. */
+@media (max-width: 700px) {
+  body.reading #dock:not(.min) #dockBox { position: fixed; top: calc(124px + 44px + var(--safe-t)); bottom: auto; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); width: auto; max-height: min(55dvh, 420px); margin: 0; }
+  body.reading.scrolling #dock:not(.min) #dockBox { top: calc(10px + 44px + var(--safe-t)); }
+}
+
+/* ROUND 14: accent colour swatches (Settings > Reading). WHY: a quick "pro" way to restyle. HOW: five small round buttons, each paints itself
+   with its own --c; the chosen one gets a ring. min-width/min-height 0 so the global 40px button size does not enlarge them. IMPROVE: a free colour picker. */
+.accent-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
+.accent-row button { min-width: 0; min-height: 0; box-sizing: border-box; width: 26px; height: 26px; padding: 0; border-radius: 50%; background: var(--c); border: 2px solid transparent; }
+.accent-row button.on { box-shadow: 0 0 0 2px var(--bg, #fff), 0 0 0 4px var(--c); }
+
+/* =====================================================================
+   ROUND 15: DIGITAL START PAGE + "PAGE MAY LOOK INCOMPLETE" NOTICE
+   WHY: the start page should feel like a control panel, and a half-loaded website must say so (with a report button).
+   HOW: a moving grid and a scan line are painted on the hero with gradients (no pictures, no scripts); the HUD strip and the scope switch are small
+        flex rows with glowing "LED" dots. All motion stops for people who asked for reduced motion.
+   IMPROVE: let people pick the neon colour in Settings.
+   ===================================================================== */
+/* WHY: the digital grid behind the hero text. HOW: two thin repeating lines (horizontal and vertical) in see-through white, drifting slowly; it sits
+   behind the content (z-index 0 / content 1). */
+.hero::before { content: ""; position: absolute; inset: 0; z-index: 0; pointer-events: none; opacity: .35;
+  background-image: linear-gradient(rgba(255,255,255,.16) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.16) 1px, transparent 1px); background-size: 28px 28px;
+  animation: gridmove 9s linear infinite; }
+/* WHY: a thin bright line that sweeps down the card (a "scanner"). HOW: a 2px gradient line moved by keyframes. */
+.hero::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; top: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(127,246,255,.9), transparent); box-shadow: 0 0 14px rgba(127,246,255,.8); animation: scanline 5s ease-in-out infinite; }
+.hero > * { position: relative; z-index: 1; }
+@keyframes gridmove { to { background-position: 28px 28px; } }
+@keyframes scanline { 0% { top: 0; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+/* WHY: neon look for the heading. HOW: text-shadow glow in light cyan. */
+.hero h2 { text-shadow: 0 0 18px rgba(127,246,255,.55); letter-spacing: .01em; }
+.hero-badge { border: 1px solid rgba(127,246,255,.6); box-shadow: 0 0 10px rgba(127,246,255,.35); font-family: ui-monospace, Consolas, monospace; letter-spacing: .08em; }
+#heroForm input { box-shadow: 0 0 0 2px rgba(127,246,255,.45), 0 0 18px rgba(127,246,255,.3); }
+/* WHY: the Manga / Everything switch. HOW: a small pill group; the chosen button is bright. min-width/min-height 0 so the global 40px button size does not enlarge it. */
+.scope { display: inline-flex; align-items: center; gap: 4px; margin-top: 10px; padding: 3px; border-radius: 999px; background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.25); font: 700 .68rem ui-monospace, Consolas, monospace; letter-spacing: .08em; color: #cfe; }
+.scope span { padding: 0 8px; opacity: .8; }
+.scope button { min-width: 0; min-height: 0; box-sizing: border-box; padding: 5px 12px; border-radius: 999px; border: 0; background: transparent; color: #fff; font: inherit; cursor: pointer; }
+.scope button.on { background: #fff; color: #2a1a9a; box-shadow: 0 0 12px rgba(127,246,255,.7); }
+/* ROUND 16: engine row. WHY: reuse the pill look of .scope; the select is a small dark-glass drop-down and the Google button is a plain pill. */
+/* HOW: margin-left puts it beside the scope switch on wide screens; on phones the rows simply wrap. min-width/min-height 0 beat the global button size. */
+.engine { margin-left: 8px; }
+.engine select { min-height: 0; padding: 4px 8px; border-radius: 999px; border: 0; background: rgba(255,255,255,.18); color: #fff; font: inherit; }
+.engine select option { color: #111; background: #fff; }
+.engine #googleBtn { background: rgba(255,255,255,.18); }
+/* WHY: the live status strip. HOW: a wrapping row of tiny monospace labels; .led is a glowing dot (green online, red offline); em is the clock. */
+.hud { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center; align-items: center; margin-top: 10px; font: 600 .68rem ui-monospace, Consolas, monospace; letter-spacing: .08em; color: #d8f6ff; }
+.hud i { font-style: normal; opacity: .85; } .hud em { font-style: normal; color: #7ff6ff; text-shadow: 0 0 8px #25a8ff; }
+.hud .led { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: #51cf66; box-shadow: 0 0 10px #51cf66; animation: ledblink 1.6s ease-in-out infinite; }
+.hud .led.bad { background: #ff6b6b; box-shadow: 0 0 10px #ff6b6b; }
+@keyframes ledblink { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .hero::before, .hero::after, .hud .led { animation: none; } }
+/* WHY: the "page may look incomplete" notice. HOW: a slim amber bar under the address bar with three small buttons; wraps on phones. */
+#pageNote { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; background: #fff3bf; color: #5c4400; border-bottom: 1px solid #f0c36d; font-size: .82rem; }
+#pageNote[hidden] { display: none; }
+#pageNote #pageNoteText { flex: 1 1 220px; }
+#pageNote button { min-width: 0; min-height: 0; box-sizing: border-box; padding: 5px 10px; border-radius: 8px; font-size: .78rem; }
+
+
+/* =====================================================================
+   ROUND 17 ADDITIONS
+   ===================================================================== */
+/* The clear (x) button: ONE fixed 22 x 22 circle in every search box (start page, address bar, popup, reader bar).
+   WHY: "#heroForm button { min-height: 48px }" and "#popForm button { min-height: 46px }" are more specific than the older .clearx rules,
+        so the x became a tall oval, was off-centre and seemed to jump when pressed.
+   HOW: these selectors are even more specific and use !important for size and position; the box is centred with top:50% and a negative
+        margin (no transform at all), nothing is animated, and the tap area is enlarged by an invisible ::before.
+   IMPROVE: none needed. */
+.inwrap .clearx, #heroForm .inwrap .clearx, #popForm .inwrap .clearx, .rb-search .inwrap .clearx, .rb-row .inwrap .clearx {
+  position: absolute !important; right: 8px !important; top: 50% !important; bottom: auto !important; left: auto !important; margin: -11px 0 0 !important;
+  width: 22px !important; height: 22px !important; min-width: 22px !important; min-height: 22px !important; max-width: 22px !important; max-height: 22px !important;
+  padding: 0 !important; border-radius: 50% !important; line-height: 22px !important; font-size: .62rem !important; text-align: center;
+  transform: none !important; transition: none !important; box-shadow: none !important; }
+.inwrap .clearx:hover, .inwrap .clearx:active, .inwrap .clearx:focus { transform: none !important; top: 50% !important; margin: -11px 0 0 !important; }
+/* The clipboard arrow beside the paste button + its drop-down list. */
+/* WHY: the arrow opens the list of copied texts. HOW: .clipdd is a narrow button the same height as the paste button; #clipPop is a
+   fixed card that app.js places under the arrow (z-index above the search popup); rows are one-line buttons. */
+.clipdd { min-width: 34px !important; width: 34px; padding: 0 !important; font-size: .9rem; }
+#heroForm .clipdd { min-height: 48px; }
+#popForm .clipdd { min-height: 46px; }
+#clipPop { position: fixed; z-index: 100000; box-sizing: border-box; max-height: min(60vh, 420px); overflow: auto; padding: 6px; border-radius: 14px;
+  background: var(--card, #fff); color: var(--fg, #111); border: 1px solid var(--line, #d8dbe4); box-shadow: 0 12px 36px rgba(0,0,0,.35); }
+#clipPop[hidden] { display: none; }
+#clipPop button { min-width: 0; min-height: 0; font: inherit; color: inherit; background: transparent; border: 0; cursor: pointer; text-align: left; }
+#clipPop .clip-now, #clipPop .clip-clear { display: block; width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; font-weight: 600; }
+#clipPop .clip-clear { color: #c92a2a; }
+#clipPop .clip-now:hover, #clipPop .clip-clear:hover, #clipPop .clip-item:hover { background: rgba(127,127,127,.15); }
+#clipPop .clip-row { display: flex; align-items: center; gap: 2px; }
+#clipPop .clip-item { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#clipPop .clip-del { width: 30px; height: 30px; border-radius: 50%; text-align: center; opacity: .6; }
+#clipPop .clip-empty { padding: 10px 12px; font-size: .85rem; opacity: .7; }
+/* The engine row on narrow phones: the pills wrap under each other and the select stays small. */
+@media (max-width: 480px) { .engine { margin-left: 0; } #heroForm { gap: 4px; } #heroForm #heroPaste { min-width: 40px; padding: 0 8px; } }
+
+/* ROUND 17: the clipboard arrow glyph must be visible: the start-page buttons are white, so the arrow is dark there. */
+#heroForm .clipdd, #popForm .clipdd, .clipdd { color: #222; background: #fff; border-radius: 14px; line-height: 1; }
+[data-theme="dark"] #popForm .clipdd { color: #eee; background: var(--card, #2a2c36); }
+
+
+/* =====================================================================
+   ROUND 18 ADDITIONS  (Google panel, full screen, Top / End slider, settings card)
+   WHY: every new feature of round 18 has its styles here, so nothing in the older rules was changed (a past update once moved other
+        things by accident). Each block says which feature it belongs to.
+   IMPROVE: when the design settles, merge these rules into the sections above.
+   ===================================================================== */
+
+/* ---- 1. GOOGLE SEARCH PANEL (#gview) ----------------------------------------------------------------------------------------
+   WHY: Google draws its own search box and result list; this panel gives it a clean, scrollable home inside the page area.
+   HOW: it fills #viewport (position:absolute) like the frame does; the bar on top stays visible while the results scroll. */
+#gview { position: absolute; inset: 0; z-index: 3; overflow: auto; background: var(--bg); color: var(--fg); padding: 0 0 90px; -webkit-overflow-scrolling: touch; }
+#gview[hidden] { display: none; }
+#gview .gv-bar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; background: var(--bg); border-bottom: 1px solid var(--line); }
+#gview .gv-bar b { flex: none; }
+#gview .gv-bar #gvQuery { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#gview .gv-bar button { min-height: 36px; padding: 0 12px; border-radius: 99px; }
+#gvStatus { padding: 6px 14px 0; }
+#gvStatus:empty { display: none; }
+#gvBox { max-width: 860px; margin: 0 auto; padding: 6px 10px; }
+/* Google's own elements are light-coloured; keep them readable in the dark theme too. */
+[data-theme="dark"] #gvBox { background: #fff; border-radius: 12px; margin-top: 8px; }
+
+/* ---- 2. FULL SCREEN -------------------------------------------------------------------------------------------------------------
+   WHY: "full screen" works like the F11 key. The title / address bars stay, the floating helpers (wheel, sliders, keys, downloads) hide.
+   HOW: app.js puts body.fs while the browser is in full screen (button, Esc, or F11) and body.fs-small too on a phone / small tablet (round 29c: only there the
+        helpers and the title bars hide; on a computer they stay). body.no-fs hides the buttons when the switch in Settings is off. body.fs-unsupported hides them in browsers that cannot do it (iPhone Safari). */
+.fs-btn { white-space: nowrap; }
+body.no-fs .fs-btn, body.fs-unsupported .fs-btn { display: none !important; }
+/* ROUND 29c: the helpers (slider, wheel, Top / End slider, keys, download pill, Reading-mode button) hide in full screen ONLY on a phone / small tablet (body.fs-small, set by app.js
+   syncFs). On a computer they stay, as the owner asked ("on a computer I want all the buttons"). */
+body.fs.fs-small #mfSlider, body.fs.fs-small #mfWheel, body.fs.fs-small #mfEdge, body.fs.fs-small #side, body.fs.fs-small #dock, body.fs.fs-small #fabRead { display: none !important; }
+/* ... and on a phone / small tablet the TITLE BARS go too (the reader bar with its buttons and search box, the address bar of the browse view): only the exit icon is left. They are
+   position: fixed (reader bar) or the first row of a column (address bar), so hiding them gives the pictures / the page the whole screen. */
+body.fs.fs-small #readerBar, body.fs.fs-small .navbar { display: none !important; }
+/* the exit icon then moves up to the corner where the title bar was (the old place, under the download pill, is empty now) */
+body.fs.fs-small.reading #fsRead { top: calc(10px + var(--safe-t, 0px)) !important; }
+#chapterMenu .fs-btn { display: block; width: calc(100% - 12px); margin: 0 6px 6px; }
+#dlBar .fs-btn { margin-top: 8px; min-height: 46px; padding: 0 22px; font-size: .95rem; }
+/* The exit button: bottom centre, so it never covers the title bar or the right-hand controls. It fades after 3 s without movement. */
+#fsExit { position: fixed; left: 50%; bottom: calc(18px + var(--safe-b, 0px)); transform: translateX(-50%); z-index: 90; min-height: 40px; padding: 0 18px;
+  border-radius: 99px; border: 1px solid rgba(255, 255, 255, .55); background: rgba(20, 20, 28, .88); color: #fff; font: 600 .9rem system-ui, sans-serif;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .4); cursor: pointer; transition: opacity .3s; }
+#fsExit[hidden] { display: none; }
+#fsExit.idle { opacity: 0; pointer-events: none; }
+body:not(.fs) #fsExit { display: none; }
+
+/* ---- 3. TOP / END SLIDER (edge-slider.js) --------------------------------------------------------------------------------------
+   WHY: the owner asked for a slider that replaces the Top and End keys and sits ABOVE the reload wheel.
+   HOW: edge-slider.js adds body.has-edge only while it is linked AND switched on. Then (a) the two keys are hidden, (b) the wheel and the
+        chapter slider drop to the corner where the keys were, and (c) the new slider stands on top of the wheel. Switch it off in
+        Settings > Search & extras and everything returns to the old layout (keys visible, wheel above the Top key). */
+body.has-edge #btnTop, body.has-edge #btnEnd { display: none !important; }
+/* round 19: the wheel no longer sits at the bottom, see ROUND 19 block at the end. The chapter slider drops to the bottom because the End key is hidden: */
+body.has-edge #mfSlider { bottom: calc(14px + var(--safe-b, 0px)) !important; }
+body.no-edge #mfEdge { display: none !important; pointer-events: none !important; }
+
+/* ---- 4. SETTINGS CARD "Search & extras" -------------------------------------------------------------------------------------- */
+#searchBox input[type="text"] { width: 100%; box-sizing: border-box; min-height: 36px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: .85rem ui-monospace, Consolas, monospace; }
+#searchBox code { background: rgba(127, 127, 127, .18); padding: 0 4px; border-radius: 4px; }
+
+/* ---- 5. PAGES SHOWN WITHOUT THEIR SCRIPTS (renderFrame adds class mf-nojs to <html> inside the frame) --------------------------
+   WHY: manga sites hide menus, pop-ups and chapter lists with CSS that a script switches on. We never run their scripts, so those
+        pieces used to appear as raw text (theme drop-downs) or stayed hidden (chapter lists). The rules themselves are injected into the
+        frame by app.js (MF_NOJS_CSS), not loaded from here. */
+
+
+/* =====================================================================
+   ROUND 19 ADDITIONS (reading-mode column at the top right, hide rules)
+   WHY: the owner wants, in reading mode, one tidy column on the right under the title bar:
+        download pill (existing #dock)  ->  full-screen ICON button (#fsRead)  ->  reload wheel (#mfWheel).
+        The bottom of the right edge keeps the chapter slider and (beside it) the shorter Top / End slider.
+   HOW: all three follow the same "top" number as the download pill, so they slide up together when the title bar hides on scroll down
+        (the same behaviour as the pill) and come back on scroll up. Everything is fixed-position CSS only; no script moves them.
+   IMPROVE: put the column's top offset into one CSS variable (--col-top) if the title bar height ever changes.
+   ===================================================================== */
+body { --col-top: calc(124px + var(--safe-t, 0px)); }
+body.reading.scrolling { --col-top: calc(10px + var(--safe-t, 0px)); }
+/* ROUND 20: the full-screen button has EXACTLY the size of the download pill (44 x 38 px, pill shape) and stands right under it. */
+#fsRead { display: none; position: fixed; z-index: 60; width: 44px; height: 38px; min-height: 0; min-width: 0; padding: 0; border-radius: 999px;
+  right: max(8px, env(safe-area-inset-right)); top: calc(var(--col-top) + 38px + 8px); transition: top .25s; font-size: 1.05rem; line-height: 1; place-items: center;
+  background: var(--bg); border: 1px solid var(--line); box-shadow: var(--shadow); color: var(--fg, inherit); cursor: pointer; }
+body.reading #fsRead { display: grid; }
+body.no-fs #fsRead, body.fs-unsupported #fsRead { display: none !important; }
+/* ROUND 21: while in full screen the SAME icon button, in the SAME place, becomes the EXIT button (the old bottom "Exit" button is hidden in reading mode).
+   It hides while you scroll down and comes back when you scroll up, like the other floating buttons. Esc and F11 still leave full screen too. */
+body.fs.reading #fsRead { display: grid !important; top: calc(124px + var(--safe-t, 0px) + 38px + 8px); transition: opacity .25s, top .25s; }
+body.fs.reading.scrolling #fsRead { opacity: 0; pointer-events: none; }
+body.fs.reading #fsExit { display: none !important; }
+body.reading #dock { transition: top .25s; }
+/* ROUND 20: the reload wheel is at the TOP LEFT under the title bar (the mirror of the download pill), in the same row as the pill */
+body.reading #mfWheel { left: max(8px, env(safe-area-inset-left)) !important; right: auto !important; bottom: auto !important;
+  top: var(--col-top) !important; transition: top .25s, opacity .25s; }
+body.reading #mfWheel .mf-tip { left: 0 !important; right: auto !important; top: 100%; bottom: auto; margin: 8px 0 0; }   /* the tip opens DOWNWARDS (there is no room above) */
+body[data-side="left"].reading #mfWheel { left: max(8px, env(safe-area-inset-left)) !important; }
+/* the old text buttons for full screen inside reading mode are replaced by the icon button */
+body.reading #btnFsMenu, body.reading #btnFsDl { display: none !important; }
+
+/* =====================================================================
+   ROUND 19: DIGITAL POLISH FOR THE HEADER BUTTONS AND THE SETTINGS WINDOW
+   WHY: the owner asked for friendlier, more "digital" buttons that work on every device. HOW: only look changes (no sizes that move other things):
+        glowing hover / focus ring, a pressed effect, touch targets of at least 40 px, settings tabs as pill chips that scroll sideways on small screens,
+        cards with a soft neon edge. Reduced-motion users get no animation. IMPROVE: move the colours into variables (--glow) for a theme maker.
+   ===================================================================== */
+header button, #chapterMenu button, #settings button { transition: box-shadow .18s, transform .12s, border-color .18s; }
+header button:hover:not(:disabled), #settings button:hover:not(:disabled) { box-shadow: 0 0 0 1px var(--accent), 0 0 14px color-mix(in srgb, var(--accent) 45%, transparent); }
+header button:active:not(:disabled), #settings button:active:not(:disabled) { transform: scale(.96); }
+header button:focus-visible, #settings button:focus-visible, #settings input:focus-visible, #settings select:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+header button, #settings .inline button { min-height: 40px; }
+#settings [role=tablist], #setTabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+#settings [role=tab] { flex: 0 0 auto; border-radius: 999px; padding: 6px 14px; min-height: 36px; white-space: nowrap; }
+#settings [role=tab].active { background: var(--accent); color: #fff; border-color: transparent; box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 55%, transparent); }
+#settings .set-card { border-radius: 14px; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); }
+#settings .set-card legend { font-weight: 700; letter-spacing: .03em; }
+@media (prefers-reduced-motion: reduce) { header button, #chapterMenu button, #settings button { transition: none; } }
+
+
+/* =====================================================================
+   ROUND 22
+   1) The full-screen icon hides while you scroll down and returns when you scroll up (like the other floating buttons).
+   2) Google's own pop-up / overlay (shown by Google's script when its engine is set to "Overlay") is never shown: results are drawn inside #gview or by MangaFlow's own list.
+   ===================================================================== */
+body.reading.scrolling #fsRead { opacity: 0; pointer-events: none; }
+#fsRead { transition: opacity .25s, top .25s; }
+.gsc-overlay-wrapper, .gsc-modal-background-image, .gsc-overlay-wrapper-constraint { display: none !important; }
+
+/* ROUND 28: the note under a chapter that could only be read in part ("Only 1 of 7 pictures of Chapter 1 could be found ...").
+   WHY: it must stand out from a normal "Loading" message but must not look like a red error. HOW: a soft yellow dashed box (like .page-fail but yellow); the link and the two buttons
+   share one row that wraps on a phone. IMPROVE: show which pages are missing. */
+.ch-partial { margin: 8px 10px; padding: 18px 14px; border: 1px dashed #e0a800; border-radius: 12px; background: rgba(224, 168, 0, .10); }
+.ch-partial .row { flex-wrap: wrap; align-items: center; }
+.ch-partial .row a { color: var(--accent); }
+.ch-partial .row button { min-height: 40px; border-radius: 99px; padding: 0 16px; }
+
+
+/* =====================================================================
+   ROUND 29a - THE REOPEN COVER (no flash of the start page)
+   WHY: after a refresh, or when the closed browser is reopened on the same page, the start screen used to flash for a second before the page came back (see boot.js).
+   HOW: #resume is hidden normally. boot.js puts the class mf-resuming on <html> BEFORE the first paint when the address asks for a reopen; then #resume covers the whole screen
+        (position: fixed, above everything including the toast) and app.js removes the class when the page is really ready (endResume). The colours come from the variables, so
+        it is dark in dark mode (boot.js also sets the theme early). IMPROVE: a soft fade-out instead of an instant removal.
+   ===================================================================== */
+#resume { display: none; }
+html.mf-resuming #resume {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  position: fixed; inset: 0; z-index: 2147483000;       /* above the toast, the dialogs and the Google panel */
+  background: var(--bg); color: var(--fg);
+}
+html.mf-resuming #resume p { margin: 6px 0 0; color: var(--muted); font: 15px/1.4 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+html.mf-resuming body { overflow: hidden; }            /* nothing scrolls behind the cover */
+/* ROUND 30: the way out of a slow reopen. boot.js shows #resumeSlow (it has the attribute hidden until then) when the cover has stood for resumeSlowMs. */
+#resumeSlow { text-align: center; margin-top: 14px; padding: 0 16px; }
+#resumeSlow[hidden] { display: none; }
+#resumeSlow button { min-height: 44px; border-radius: 99px; padding: 0 20px; margin-top: 10px; }
+
+
+/* ============================================================
+   ROUND 29e - THE "VERIFY YOU ARE HUMAN" BOX AND THE WAITING CHAPTER BOXES
+   WHY: a page behind a Cloudflare check can only be passed by a person. The dialog (#verifyBox) is for a page you open; .ch-verify is the box a waiting CHAPTER shows while reading.
+   HOW: the dialog copies the look of #errbox but in the accent colour (it is not an error, it is a step for you). Buttons wrap on a phone and keep a 44 px touch height.
+   IMPROVE: animate the dialog in with a short fade (watch prefers-reduced-motion). */
+#verifyBox { width: min(96vw, 560px); border: 3px solid var(--accent); }
+#verifyBox h2 { margin: 0 0 8px; color: var(--accent); font-size: 1.3rem; }
+#verifyBox ol { margin: 8px 0; padding-left: 22px; line-height: 1.5; }
+#verifyBox .row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+#verifyBox .row button { min-height: 44px; border-radius: 99px; padding: 0 16px; }
+.ch-verify { margin: 8px 10px; padding: 18px 14px; border: 1px dashed var(--accent); border-radius: 12px; background: rgba(120, 120, 255, .08); }
+.ch-verify .row { flex-wrap: wrap; align-items: center; }
+.ch-verify .row button { min-height: 44px; border-radius: 99px; padding: 0 16px; }
+
+/* =====================================================================
+   ROUND 32 - TRANSLATE (translate.js)
+   WHY: the Translate add-on draws its own button, bar, panel and boxes with CSS that lives INSIDE translate.js (like the slider and the wheel). Only the rule below is here,
+        because it belongs to the Settings dialog, which is part of index.html.
+   HOW: app.js puts body.no-tr-file when translate.js is not linked; then the "Translate" tab and card are hidden (nothing would work without the file).
+   IMPROVE: none needed.
+   ===================================================================== */
+body.no-tr-file [data-tab="translate"] { display: none !important; }

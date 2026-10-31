@@ -1,0 +1,18 @@
+# =====================================================================
+# MangaFlow - _headers   (security headers for Netlify and Cloudflare Pages)
+# WHY: a web page can only ask the browser to be careful with <meta> tags; real HTTP headers are stronger
+#      and can also stop other sites from showing yours inside a frame (clickjacking).
+# HOW: put this file next to index.html. Netlify and Cloudflare Pages read it by itself.
+#      GitHub Pages ignores this file (it cannot set headers) - there the <meta> policy in index.html is used.
+# ROUND 18: script-src and frame-src also list the three Google hosts that Google Programmable Search (cse.js) needs. Nothing else was opened.
+# ROUND 32: script-src also lists 'wasm-unsafe-eval' (the text reader of the Translate add-on is a WebAssembly program; this does NOT allow eval() or inline scripts).
+# IMPROVE: replace  connect-src *  with the exact addresses of your own proxy once you only use that.
+# =====================================================================
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://*.google.com https://*.google.co.in https://*.googleapis.com https://*.gstatic.com https://*.googlesyndication.com https://*.googleadservices.com https://*.doubleclick.net https://*.syndicatedsearch.goog https://syndicatedsearch.goog https://cse.google.com https://www.google.com https://www.gstatic.com https://clients1.google.com https://clients1.google.co.in https://*.google.com https://partner.googleadservices.com https://*.googleadservices.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://syndicatedsearch.goog https://*.syndicatedsearch.goog; style-src 'self' 'unsafe-inline' https:; img-src * data: blob:; media-src * blob:; font-src * data:; connect-src *; frame-src 'self' about: blob: data: https://*.google.com https://*.google.co.in https://*.googleapis.com https://*.gstatic.com https://*.googlesyndication.com https://*.googleadservices.com https://*.doubleclick.net https://*.syndicatedsearch.goog https://syndicatedsearch.goog https://www.google.com https://googleads.g.doubleclick.net https://syndicatedsearch.goog https://*.syndicatedsearch.goog https://*.google.com https://*.googlesyndication.com; object-src 'none'; form-action 'self'; frame-ancestors 'none'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Cross-Origin-Opener-Policy: same-origin
+  Strict-Transport-Security: max-age=31536000
