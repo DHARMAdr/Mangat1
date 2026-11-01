@@ -54,7 +54,8 @@
   const OCR_LANGS = {
     auto:    { name: 'Detect by itself (slower on the first page)' },
     jpn:     { name: 'Japanese (vertical and horizontal)', passes: ['jpn_vert', 'jpn'], tr: 'ja', min: 75 },
-    kor:     { name: 'Korean',                              passes: ['kor'],            tr: 'ko', min: 50 },
+    // WHY min:35 for Korean: Naver webtoon text is clean but Tesseract scores Korean lower than Latin/Japanese; 50 misses real bubbles.
+    kor:     { name: 'Korean',                              passes: ['kor'],            tr: 'ko', min: 35 },
     chi_sim: { name: 'Chinese, simplified',                 passes: ['chi_sim'],        tr: 'zh-CN', min: 50 },
     chi_tra: { name: 'Chinese, traditional',                passes: ['chi_tra'],        tr: 'zh-TW', min: 50 },
     eng:     { name: 'English',                             passes: ['eng'],            tr: 'en', min: 50 }
@@ -374,7 +375,14 @@
       return async (text, from, to) => {
         if (!('Translator' in self)) throw new Error('this browser has no built-in translator');
         const o = { sourceLanguage: code(from), targetLanguage: code(to) }, k = o.sourceLanguage + '>' + o.targetLanguage;
-        if (!made.has(k)) { const a = await Translator.availability(o); if (a === 'unavailable') throw new Error('language pair not supported on this device'); made.set(k, await Translator.create(o)); }
+        if (!made.has(k)) {
+          const a = await Translator.availability(o);
+          // WHY: 'downloading'/'downloadable' means Chrome is still installing the language pack; this is NOT a real failure — throw a special
+          //   error so the caller knows NOT to count this against the failure counter (we will retry on the next page automatically).
+          if (a === 'unavailable') throw new Error('language pair not supported on this device');
+          if (a === 'downloading' || a === 'downloadable') { const e = new Error('Requires a user gesture when availability is "' + a + '"'); e.isDownloading = true; throw e; }
+          made.set(k, await Translator.create(o));
+        }
         return made.get(k).translate(text);
       };
     })()
@@ -390,7 +398,9 @@
     let last = null;
     for (const e of order()) {
       try { const t = String(await SVC[e](text, from, to) || '').trim(); if (!t) throw new Error('empty answer'); cache.set(k, t); usedBy[e] = (usedBy[e] || 0) + 1; lastEngine = e; fails[e] = 0; return t; }
-      catch (er) { last = er; note(e + ' failed: ' + (er && er.message)); if (++fails[e] >= 2) { rest[e] = Date.now() + 60000; fails[e] = 0; } }
+      // WHY: if Chrome's translator is still downloading its language pack, that is a temporary hold, not a real failure; we skip it silently
+      //   and try again on the next call (when the pack finishes installing). HOW: the isDownloading flag is set by the chrome service above.
+      catch (er) { last = er; note(e + ' failed: ' + (er && er.message)); if (!er.isDownloading && ++fails[e] >= 2) { rest[e] = Date.now() + 60000; fails[e] = 0; } }
     }
     throw new Error('No translation service answered' + (last ? ' (' + last.message + ')' : '') + '. Check your internet, or pick another service.');
   }
@@ -472,6 +482,12 @@
     }
     render(img, st);
     note('page done: ' + st.ocr.bubbles.length + ' bubble(s), ' + (lastEngine || 'no service') + ', lang ' + st.ocr.lang);
+    // WHY: when a page finishes with zero bubbles, show a gentle notice so the owner knows OCR ran but found nothing.
+    //   HOW: only shown while idle (not during the next page's work) and only when the source language was set explicitly (not 'auto' guessing).
+    //   IMPROVE: add a "Re-read this page" button that lowers the confidence threshold and tries again.
+    if (st.ocr.bubbles.length === 0 && cfg.from !== 'auto') {
+      setStatus('No text found on this page — try a different "Pages written in" language, or the text may be too stylised for the reader.');
+    }
   }
   function fail(e) {
     const msg = (e && e.message) || String(e); note('FAILED: ' + msg);
