@@ -210,22 +210,38 @@
           loaded through your own proxy are "blob:" pictures and are fine. For a picture straight from a manga site the drawing board becomes
           "tainted" (locked); then the picture is fetched AGAIN as bytes (directly, then through your own proxy) and decoded from those bytes.
      --------------------------------------------------------------- */
+  // WHY: list of domains known to block canvas access (no CORS headers on images). For these we skip the direct fetch and go straight to the proxy.
+  //   HOW: if the image src hostname ends with any of these, fetchBitmap puts the proxy FIRST in the try list.
+  //   IMPROVE: make this list a setting so the owner can add new sites without editing this file.
+  const CORS_BLOCK = ['naver.com', 'navertoon.com', 'kakao.com', 'kakaocdn.net', 'webtoons.com', 'lezhin.com', 'tapas.io', 'tappytoon.com'];
+  function isBlocked(src) { try { const h = new URL(src).hostname; return CORS_BLOCK.some(d => h === d || h.endsWith('.' + d)); } catch { return false; } }
+
   async function fetchBitmap(img) {
     const src = img.currentSrc || img.src, sec = img.closest('.chapter'), ref = sec && sec.dataset.url;
-    const tries = [() => fetch(src, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' })];
-    cfg.proxies.filter(p => !/allorigins|codetabs/.test(p)).slice(0, 2).forEach(p => tries.push(() => fetch(p.replace('{url}', encodeURIComponent(src)) + (ref ? '&ref=' + encodeURIComponent(ref) : ''), { credentials: 'omit', referrerPolicy: 'no-referrer' })));
+    const own = cfg.proxies.filter(p => !/allorigins|codetabs/.test(p)).slice(0, 2);
+    const proxyFetches = own.map(p => () => fetch(p.replace('{url}', encodeURIComponent(src)) + (ref ? '&ref=' + encodeURIComponent(ref) : ''), { credentials: 'omit', referrerPolicy: 'no-referrer' }));
+    // WHY: for known CORS-blocking sites (e.g. Naver) put proxy first so we don't waste time on a direct fetch that will always be blocked.
+    //   For unknown sites try direct first (faster, no proxy needed if the site allows it), then proxy as fallback.
+    const direct = () => fetch(src, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer' });
+    const tries = isBlocked(src) ? [...proxyFetches, direct] : [direct, ...proxyFetches];
     let last = null;
     for (const t of tries) {
       try { const r = await withTimeout(t(), 20000, 'Fetching the picture'); if (!r.ok) throw new Error('HTTP ' + r.status); const b = await r.blob(); if (b.size < 200) throw new Error('not a picture'); return await createImageBitmap(b); }
       catch (e) { last = e; }
     }
-    throw new Error('The picture can not be read by the page (' + (last && last.message) + '). Add your own proxy (worker.js) in Settings > Proxies.');
+    throw new Error('The picture can not be read by the page (' + (last && last.message) + '). ' + (own.length ? 'The proxy also failed — check that worker.js is deployed and the URL in Settings > Proxies is correct.' : 'Add your own proxy (worker.js) in Settings > Proxies.'));
   }
-  // WHY: one object that can draw any rectangle of the page into a small drawing board. HOW: tries the picture itself, falls back to the fetched bitmap.
+  // WHY: one object that can draw any rectangle of the page into a small drawing board. HOW: tries the picture itself first (free, instant);
+  //   if the canvas is tainted (site blocks pixel reading) falls back to fetchBitmap which routes through the proxy.
   async function pageSource(img) {
-    const test = document.createElement('canvas'); test.width = test.height = 1; const x = test.getContext('2d', { willReadFrequently: true });
-    try { x.drawImage(img, 0, 0, 1, 1); x.getImageData(0, 0, 1, 1); return { src: img, w: img.naturalWidth, h: img.naturalHeight }; }
-    catch { const bmp = await fetchBitmap(img); return { src: bmp, w: bmp.width, h: bmp.height }; }
+    const src = img.currentSrc || img.src;
+    // WHY: skip the canvas test entirely for known blocking sites — it always taints and costs 200ms for nothing.
+    if (!isBlocked(src)) {
+      const test = document.createElement('canvas'); test.width = test.height = 1; const x = test.getContext('2d', { willReadFrequently: true });
+      try { x.drawImage(img, 0, 0, 1, 1); x.getImageData(0, 0, 1, 1); return { src: img, w: img.naturalWidth, h: img.naturalHeight }; }
+      catch { /* tainted — fall through to fetchBitmap */ }
+    }
+    const bmp = await fetchBitmap(img); return { src: bmp, w: bmp.width, h: bmp.height };
   }
   // WHY: cut a very tall picture where nothing is written. HOW: looks at the rows around the wanted cut and takes the row whose brightness changes least (an empty strip).
   function quietRow(P, want) {
