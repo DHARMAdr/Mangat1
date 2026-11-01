@@ -3459,6 +3459,19 @@
     }
     // WHY: Last resort. HOW: if still under 2 chapters, build guessed ones with synthesizeChapters.
     if (isChapter && chapters.length < 2) { const syn = synthesizeChapters(url, nav); if (syn) chapters = syn; }
+    // ROUND 33: Second last resort — for sites like Kuaikan that use IDs (not sequential numbers) in their URLs.
+    //   synthesizeChapters only works when the URL contains a chapter number like "chapter-5"; for ID-based URLs (e.g.
+    //   kuaikan.com/comic-next/800337) it returns null. But findNavLinks() already found the prev/next links correctly.
+    //   HOW: if we still only have 1 chapter but nav has a prev or next link, build a minimal [prev, current, next] list from
+    //        those links so the reader can continue. Numbers are set by position, not by a chapter number from the URL.
+    //   IMPROVE: fetch the prev/next pages to get their real titles.
+    if (isChapter && chapters.length < 2 && nav && (nav.prev || nav.next)) {
+      const navList = [];
+      if (nav.prev) navList.push({ url: nav.prev, title: 'Previous chapter', num: 1, guess: true });
+      navList.push({ url, title: doc.title.slice(0, 120) || 'Current chapter', num: nav.prev ? 2 : 1 });
+      if (nav.next) navList.push({ url: nav.next, title: 'Next chapter', num: nav.prev ? 3 : 2, guess: true });
+      if (navList.length > chapters.length) chapters = navList;
+    }
     // WHY: Chapter pages finish here. HOW: find the current chapter in the list.
     if (isChapter) {
       // WHY: Locate the current chapter. HOW: findIndex by same address.
