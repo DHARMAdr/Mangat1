@@ -1140,7 +1140,10 @@
   // One history row = bold title + small grey line. WHY: more information than just the page name.
   // WHY: builds one clickable history row (coloured letter, bold title, small grey line). HOW: creates a button element
   // and fills it with spans, using textContent for safety. IMPROVE: show a cover picture instead of a letter.
-  function item(title, sub, onclick, tip) {
+  // WHY: onDelete (optional 5th arg) — when given, a small × button is added at the right of the row so the person can
+  //   remove that one history entry without clearing everything. HOW: a separate <button> that calls onDelete() and stops
+  //   the click from bubbling (so it does not also trigger the row's own onclick). IMPROVE: animate the row out.
+  function item(title, sub, onclick, tip, onDelete) {
     const b = document.createElement('button');
     b.className = 'item'; b.title = tip || '';
     // ROUND 10: a coloured letter tile (colour made from the title, so a manga always has the same colour) + the two text lines.
@@ -1150,8 +1153,7 @@
     // WHY: the same title always gets the same colour. HOW: loops over the letters and mixes their codes into a number from
     // 0 to 359, which is a colour hue. IMPROVE: none needed.
     let hue = 0; for (const ch of String(title || '')) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
-    // WHY: paint the tile with that colour. HOW: sets CSS background as hsl(hue, saturation, lightness). IMPROVE: none
-    // needed.
+    // WHY: paint the tile with that colour. HOW: sets CSS background as hsl(hue, saturation, lightness). IMPROVE: none needed.
     av.style.background = 'hsl(' + hue + ',55%,45%)';
     // WHY: the two text lines next to the tile. HOW: creates a wrapper, then a title span and a sub span; textContent keeps
     // them safe from HTML. IMPROVE: none needed.
@@ -1161,6 +1163,17 @@
     // WHY: put the pieces together and make the row clickable. HOW: append adds the children, and onclick is the function
     // given by the caller. IMPROVE: use addEventListener.
     tx.append(t, s); b.append(av, tx); b.onclick = onclick;
+    // ROUND 34: delete button on each history row.
+    // WHY: lets the person remove one entry without clearing all history. HOW: a small × button added at the right of the row.
+    //   stopPropagation makes sure clicking × does NOT also trigger the row's main onclick (opening the manga). IMPROVE: add a
+    //   short fade-out animation before the row disappears.
+    if (onDelete) {
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'item-del'; del.textContent = '×';
+      del.title = 'Remove from history'; del.setAttribute('aria-label', 'Remove from history');
+      del.onclick = e => { e.stopPropagation(); onDelete(); };
+      b.append(del);
+    }
     return b;
   }
   /* STATUS CHIPS on the start page (round 10): one glance tells which proxy route you have and whether the slider add-on is linked.
@@ -1199,12 +1212,16 @@
       arr.forEach(it => el.appendChild(make(it)));
     };
     // WHY: the 'continue reading' list. HOW: each row shows title and host, chapter and time; clicking reopens that chapter.
+    //   ROUND 34: each row now has a × delete button. HOW: the onDelete callback splices the entry out of reads[], saves and redraws.
     // IMPROVE: show a progress bar.
     fill(reads, $('#readList'), 'Nothing yet. Read a manga and it will appear here.',
-      r => item(r.title, [r.host, r.chapterLabel, timeAgo(r.at)].filter(Boolean).join(' · '), () => continueReading(r), r.chapterUrl));
-    // WHY: the recent pages list. HOW: each row opens that address with navigate(). IMPROVE: add a delete button.
+      r => item(r.title, [r.host, r.chapterLabel, timeAgo(r.at)].filter(Boolean).join(' · '), () => continueReading(r), r.chapterUrl,
+        () => { reads = reads.filter(x => x.id !== r.id); store.set('reads', reads); renderStart(); }));
+    // WHY: the recent pages list. HOW: each row opens that address with navigate().
+    //   ROUND 34: each row now has a × delete button. HOW: the onDelete callback filters out the entry by URL, saves and redraws.
     fill(recent, $('#recentList'), 'Nothing yet.',
-      r => item(r.title || r.url, [r.host || hostOf(r.url), timeAgo(r.at)].filter(Boolean).join(' · '), () => navigate(r.url), r.url));
+      r => item(r.title || r.url, [r.host || hostOf(r.url), timeAgo(r.at)].filter(Boolean).join(' · '), () => navigate(r.url), r.url,
+        () => { recent = recent.filter(x => x.url !== r.url); store.set('recent', recent); renderStart(); }));
     // WHY: the bookmark list. HOW: each row shows title and host; click opens it. The empty text explains how to add one.
     // IMPROVE: allow reordering.
     fill(books, $('#bookList'), 'Tap the star in the address bar to bookmark a page.',

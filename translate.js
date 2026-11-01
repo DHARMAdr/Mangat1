@@ -190,6 +190,15 @@
           results in the round 32 tests (also for vertical Japanese with jpn_vert). IMPROVE: keep two workers on desktop computers (faster, more memory).
      --------------------------------------------------------------- */
   let T = null, worker = null, workerLang = '', engineProgress = '';
+  // WHY: remember which language files exist on the server (checked once, cached). HOW: a Map of lang code -> true/false.
+  //   This prevents Tesseract from crashing when a language file is missing (e.g. hin.traineddata.gz not yet uploaded).
+  //   IMPROVE: re-check after a settings change or reload.
+  const langFileCache = new Map();
+  async function langFileExists(code) {
+    if (langFileCache.has(code)) return langFileCache.get(code);
+    try { const r = await fetch(OCR_DIR + 'lang/' + code + '.traineddata.gz', { method: 'HEAD', cache: 'no-store' }); langFileCache.set(code, r.ok); return r.ok; }
+    catch { langFileCache.set(code, false); return false; }
+  }
   function loadScript(src) {
     return new Promise((ok, bad) => {
       const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => bad(new Error('Could not load ' + src + ' (is the folder "ocr" next to index.html?)'));
@@ -344,9 +353,18 @@
     if (!key) { key = 'auto'; probe = true; }
     let s = Math.min(1, MAX_W / P.w); if (P.w * P.h * s * s > MAX_AREA) s = Math.sqrt(MAX_AREA / (P.w * P.h));
     const tileNat = Math.round(TILE_H / s), bubbles = [];
-    // WHY: the probe pass reads ALL supported scripts at once (combined Tesseract langs) so we can detect which script is on the page.
-    //   ROUND 33: added 'hin' to the probe list so Devanagari/Hindi is auto-detected. HOW: Tesseract accepts '+' as a separator for multi-language mode.
-    const passes = probe ? [['jpn', 'kor', 'chi_sim', 'hin', 'eng'].join('+')] : OCR_LANGS[key].passes, minConf = probe ? 60 : OCR_LANGS[key].min;
+    // WHY: the probe pass reads ALL available scripts at once so we can detect which script is on the page.
+    //   ROUND 33: only include language codes whose .traineddata.gz file actually exists on the server (checked via HEAD request,
+    //   result cached). This prevents a crash when e.g. hin.traineddata.gz has not been uploaded yet.
+    //   HOW: Tesseract accepts '+' as a separator for multi-language mode (e.g. 'jpn+kor+chi_sim+eng').
+    const PROBE_LANGS = ['jpn', 'kor', 'chi_sim', 'hin', 'eng'];  // all scripts we want to auto-detect
+    const availProbe = probe ? (await Promise.all(PROBE_LANGS.map(async l => (await langFileExists(l)) ? l : null))).filter(Boolean) : null;
+    // WHY: if a specific language was chosen by the user, check its files too; if missing show a clear message.
+    if (!probe && key !== 'auto') {
+      const allOk = await Promise.all((OCR_LANGS[key].passes || []).map(langFileExists));
+      if (!allOk.every(Boolean)) { setStatus('The language file for ' + OCR_LANGS[key].name + ' is missing from the ocr/lang/ folder on the server. See MANGAFLOW.md section 0b.', true); return { lang: key, bubbles: [] }; }
+    }
+    const passes = probe ? [(availProbe.length ? availProbe : ['eng']).join('+')] : OCR_LANGS[key].passes, minConf = probe ? 60 : OCR_LANGS[key].min;
     for (let pi = 0; pi < passes.length; pi++) {
       const lines = []; let y = 0;
       while (y < P.h) {

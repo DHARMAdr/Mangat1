@@ -1328,3 +1328,22 @@ html.mf-resuming body { overflow: hidden; }            /* nothing scrolls behind
    IMPROVE: none needed.
    ===================================================================== */
 body.no-tr-file [data-tab="translate"] { display: none !important; }
+
+/* =====================================================================
+   ROUND 34 - DELETE HISTORY BUTTONS
+   WHY: the person wanted to remove individual history entries (reading history and recent pages) without clearing everything.
+   HOW: a small × button (.item-del) is added at the right end of each history row by item() in app.js. It is visually separate
+        from the row so it is clear it does not open the manga. It sits at the right edge with margin-left:auto pushing it
+        there. On hover it turns red so the person knows it is a destructive action. IMPROVE: add a fade-out animation.
+   ===================================================================== */
+.item-del {
+  flex: none; margin-left: auto; min-width: 28px; min-height: 28px; width: 28px; height: 28px;
+  padding: 0; border-radius: 50%; border: 1px solid var(--line, #ccc); background: transparent;
+  color: var(--muted, #888); font-size: 1rem; line-height: 1; cursor: pointer;
+  display: grid; place-items: center; transition: background .15s, color .15s, border-color .15s;
+}
+.item-del:hover { background: #e53935; border-color: #e53935; color: #fff; }
+.item-del:active { transform: scale(.9); }
+/* WHY: make sure the × button does not get squashed when the title is long. HOW: tell .item to let the .tx column shrink
+   but not the delete button. IMPROVE: none needed. */
+.item .tx { flex: 1 1 0; min-width: 0; }
