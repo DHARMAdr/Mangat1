@@ -102,20 +102,24 @@
   #mfTr.on{box-shadow:0 0 0 3px rgba(127,246,255,.45),0 0 22px rgba(37,168,255,.8),0 6px 14px rgba(0,0,0,.5);}
   #mfTr.busy::after{content:"";position:absolute;inset:-6px;border-radius:50%;border:3px solid transparent;border-top-color:#7ff6ff;animation:mftrspin .9s linear infinite;}
   @keyframes mftrspin{to{transform:rotate(360deg)}}
+  /* WHY darker bg + stronger text: the bar was too transparent to read in bright manga backgrounds. */
   #mfTrBar{position:fixed;display:none;z-index:28;left:50%;transform:translateX(-50%);bottom:calc(14px + var(--safe-b,0px));max-width:calc(100vw - 120px);box-sizing:border-box;
-    align-items:center;gap:6px;padding:5px 6px 5px 12px;border-radius:999px;background:#111c;color:#fff;font:600 12px/1.3 system-ui,sans-serif;backdrop-filter:blur(6px);transition:opacity .25s;}
+    align-items:center;gap:6px;padding:5px 6px 5px 12px;border-radius:999px;background:#1a1a2eee;color:#e8e8f0;font:600 12px/1.3 system-ui,sans-serif;backdrop-filter:blur(8px);border:1px solid #44445a;transition:opacity .25s;}
   body.reading.mf-tr-on #mfTrBar{display:flex;}
   body.scrolling #mfTrBar{opacity:0;pointer-events:none;}
   #mfTrBar.err{background:#a3191ad9;}
   #mfTrBar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
   #mfTrBar button{min-width:0;min-height:0;height:28px;padding:0 10px;border-radius:999px;border:1px solid #fff5;background:#fff2;color:#fff;font:600 12px system-ui,sans-serif;cursor:pointer;}
   #mfTrBar button[hidden]{display:none;}
+  /* WHY hardcoded colours: in reading mode --bg/--fg are the reader's own dark vars, making the panel invisible (dark on dark).
+     HOW: use explicit light-panel colours that work in all modes. IMPROVE: add a @media prefers-color-scheme dark version. */
   #mfTrPanel{position:fixed;display:none;z-index:31;left:50%;transform:translateX(-50%);bottom:calc(58px + var(--safe-b,0px));width:min(320px,calc(100vw - 24px));box-sizing:border-box;
-    padding:12px;border-radius:14px;background:var(--bg,#fff);color:var(--fg,#111);border:1px solid var(--line,#ccc);box-shadow:0 10px 30px rgba(0,0,0,.4);font:14px/1.4 system-ui,sans-serif;}
+    padding:12px;border-radius:14px;background:#1e1e2e;color:#e8e8f0;border:1px solid #44445a;box-shadow:0 10px 30px rgba(0,0,0,.6);font:14px/1.4 system-ui,sans-serif;}
   #mfTrPanel.open{display:block;}
-  #mfTrPanel label{display:block;margin:0 0 8px;font-weight:600;font-size:12px;}
-  #mfTrPanel select{display:block;width:100%;margin-top:3px;min-height:38px;font-size:15px;}
-  #mfTrPanel .row{display:flex;gap:8px;margin-top:4px;} #mfTrPanel .row button{flex:1;min-height:38px;border-radius:10px;}
+  #mfTrPanel label{display:block;margin:0 0 8px;font-weight:600;font-size:12px;color:#b0b0cc;}
+  #mfTrPanel select{display:block;width:100%;margin-top:3px;min-height:38px;font-size:15px;background:#2a2a3e;color:#e8e8f0;border:1px solid #55557a;border-radius:8px;padding:0 8px;}
+  #mfTrPanel .row{display:flex;gap:8px;margin-top:4px;}
+  #mfTrPanel .row button{flex:1;min-height:38px;border-radius:10px;background:#3a3a55;color:#e8e8f0;border:1px solid #55557a;cursor:pointer;font:600 14px system-ui,sans-serif;}
   .chapter{position:relative;}                                                           /* WHY: the boxes are placed inside the chapter box */
   .mf-tr-layer{display:none;position:absolute;z-index:3;pointer-events:none;container-type:inline-size;overflow:hidden;}
   body.mf-tr-on .mf-tr-layer{display:block;}
