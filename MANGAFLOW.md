@@ -1,4 +1,4 @@
-# MangaFlow Reader — the project blueprint (history + full specification, build round 32)
+# MangaFlow Reader — the project blueprint (history + full specification, build round 33)
 
 **What this file is.** The ONE combined project file of MangaFlow. It tells the whole story (every round, in order), the rules, and a full specification of every file, so that you (or Claude) can fix, improve or rebuild the site from it. Give it to Claude together with the code files and say what you want ("improve X", "fix site Y", "build it again from this file").
 
@@ -2559,6 +2559,65 @@ The OCR files (~20 MB) are self-hosted in the `ocr/` folder. GitHub Pages serves
 | unchanged | `boot.js`, `pdfmaker.js`, `chapter-slider.js`, `reload-wheel.js`, `edge-slider.js`, `profiles.js`, `worker.js`, `accounts-worker.js`, `googledb6fd0cf04d837f7.html`, `test/server.js`, `test/check-guide.js`, `test/page.jpg` |
 
 **What to upload:** `index.html`, `_headers`, `app.js`, `style.css`, `troubleshoot-data.js`, `translate.js`, and the entire `ocr/` folder. **No Worker redeploy needed.** Clear the site cache after uploading (phone: Settings → Site data → clear MangaFlow). Use Settings → Translate → **Test translate** to confirm all 10 OCR files loaded.
+
+### Round 33 — translate fixes, Hindi support, Kuaikan next-chapter fix
+
+This entry is for build round 33. Written from the real code delivered in this session.
+
+#### What the owner reported (2026-11-01)
+
+After round 32 was pushed to GitHub the owner found these problems:
+
+1. **translate.js was truncated** — the owner re-uploaded an old 241-line partial file via the GitHub web UI, overwriting the correct 601-line version.
+2. **Korean webtoons (Naver, Webtoons) still showed 0 bubbles** — Root cause: those sites send images without CORS headers, so `canvas.getImageData()` throws a "tainted canvas" error. The OCR engine never received the pixels.
+3. **Kuaikan showed "No next chapter found after Chapter 1"** — even though the site has more chapters. The prev/next links (IDs 800334 and 800342) were found correctly but `synthesizeChapters()` could not build a list because Kuaikan uses numeric IDs in URLs, not `/chapter-N/` patterns.
+4. **Hindi/Devanagari support requested** — so Hindi manga can be read and translated to English.
+
+#### How it was worked
+
+**Problem 1 — translate.js restored:** Copied the full 601-line file from the round-32 work folder back to the repo and pushed. Restored: CORS_BLOCK proxy-first fetching, Korean min confidence 35, Chrome-downloading error fix, hardcoded dark panel CSS.
+
+**Problem 2 — Naver/Webtoons CORS:** Added a `CORS_BLOCK` list of hostnames known to block canvas pixel reading (naver.com, navertoon.com, kakao.com, kakaocdn.net, webtoons.com, lezhin.com, tapas.io, tappytoon.com). `isBlocked(src)` checks the hostname. `pageSource()` skips the canvas test entirely for blocked sites (saves 200 ms). `fetchBitmap()` puts the owner's Cloudflare Worker proxy FIRST for blocked sites, so those images are routed through the proxy which fetches them server-side without CORS restrictions.
+
+**Problem 3 — Kuaikan ID-based chapters:** Added a "second last resort" block in `app.js` after `synthesizeChapters`. When the list has fewer than 2 chapters AND `synthesizeChapters` returned null AND `findNavLinks` found at least one prev/next link → build a minimal [prev, current, next] list from those links. The reader can now continue through chapters on any site that puts prev/next links on the page, regardless of URL format.
+
+**Problem 4 — Hindi OCR:** Added `hin` to `OCR_LANGS` (min confidence 40, translation code `hi`). Added `DEVANAGARI` regex for Unicode block U+0900-U+097F. Updated `guessLang()` to return `'hin'` when 2+ Devanagari characters are found. Updated the auto-detect probe pass to include `hin` in the combined language string. Added `hin.traineddata.gz` to the selfTest file list.
+
+> **Owner action required for Hindi:** Download `hin.traineddata.gz` from the Tesseract language data repo and upload it to `ocr/lang/` in the GitHub repository. Without it, selecting "Hindi" will show "OCR file missing". Download URL: `https://github.com/tesseract-ocr/tessdata_fast/raw/main/hin.traineddata` — gzip it and name it `hin.traineddata.gz`.
+
+#### What was really done, what was changed
+
+| # | Fix / New feature | Where |
+|---|---|---|
+| 1 | Restored full translate.js (601 lines; was truncated to 241 by web upload) | `translate.js` |
+| 2 | CORS_BLOCK list — proxy-first for Naver/Webtoons/Kakao/Lezhin/Tapas | `translate.js` section 7 |
+| 3 | Korean min confidence 50->35 (Tesseract scores Korean glyphs lower) | `translate.js` OCR_LANGS.kor.min |
+| 4 | Chrome "Requires a user gesture" — isDownloading flag, not counted as failure | `translate.js` translateOne() |
+| 5 | Panel CSS hardcoded dark theme (#1e1e2e) — was invisible in reading mode | `translate.js` CSS block |
+| 6 | 0-bubble notice when OCR ran but found no text, with suggested fix | `translate.js` processPage() |
+| 7 | Hindi OCR support: hin language, DEVANAGARI regex, guessLang updated | `translate.js` |
+| 8 | Auto-detect probe includes Hindi in the combined language pass | `translate.js` readPage() |
+| 9 | selfTest checks hin.traineddata.gz | `translate.js` FILES list |
+| 10 | Nav-link fallback for ID-based chapter URLs (Kuaikan fix) | `app.js` ROUND 33 block |
+
+#### Files changed in round 33
+
+| File | Round 33 |
+|---|---|
+| `translate.js` | Restored full 601-line version + Hindi support (was 241 lines) |
+| `app.js` | Nav-link fallback for ID-based chapter URLs |
+| unchanged | `index.html`, `_headers`, `style.css`, `worker.js`, `boot.js`, all test files |
+
+**What to upload (if not using GitHub push):** `translate.js`, `app.js`. Also add `ocr/lang/hin.traineddata.gz` if you want Hindi OCR.
+After uploading: clear site cache (Settings > Site data > clear MangaFlow). Use Settings > Translate > **Test translate** to confirm all OCR files.
+
+#### Lessons (rules for the next round)
+
+* **Never re-upload files via the GitHub web UI for this project.** The web UI replaces the whole file silently. Uploading an OLD file from your phone's downloads replaces the NEW one. Always push changes through Claude.
+* **Canvas taint detection is not enough for known-blocking sites.** Always maintain a CORS_BLOCK list and skip the canvas test entirely for those hostnames. Skip saves 200 ms and avoids a confusing tainted-canvas error in the log.
+* **Tesseract confidence scores vary by script.** Latin >= 50, Japanese >= 75 (two passes), Korean >= 35, Hindi/Devanagari >= 40. A single threshold for all scripts causes missed bubbles or noise.
+* **Sites that use IDs in chapter URLs (not /chapter-N/) break synthesizeChapters.** Always fall back to the nav links when the chapter list is too small.
+
 
 #### Tests and honesty
 
