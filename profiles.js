@@ -372,6 +372,10 @@
   const setMsg = (m, ok) => { view.msg = m || ''; view.ok = !!ok; };   // the coloured message line at the top of the window
 
   // WHY: one list of history items, used for "my history" and for the admin looking at one profile. HOW: filter text + kind buttons.
+  // ROUND 36: each row now has a × delete button (canOpen=true = owner's own view only; admin looking at someone else has no delete).
+  //   HOW: the button carries data-act="delact" plus data-t (the timestamp as a string) and data-url so the click handler
+  //   can find the exact entry and remove it. We use t+url as a composite key because activity items have no unique id field.
+  //   IMPROVE: paginate long lists; add undo (short grace period before the item disappears).
   function listHtml(items, canOpen) {
     const q = view.filter.toLowerCase();
     const rows = items.slice().reverse().filter(x => (view.kind === 'all' || x.type === view.kind) && (!q || (x.title + ' ' + x.chapter + ' ' + x.host).toLowerCase().includes(q)));
@@ -379,8 +383,14 @@
     // goes through esc() first. IMPROVE: paginate long lists.
     return '<div class="mfp-row"><input type="search" id="mfpFilter" placeholder="Search the history…" value="' + esc(view.filter) + '" aria-label="Search the history">' +
       '<span class="mfp-tabs" style="flex:0 0 auto">' + ['all', 'read', 'download'].map(k => '<button data-act="kind" data-v="' + k + '" class="' + (view.kind === k ? 'on' : '') + '" style="min-width:64px">' + k + '</button>').join('') + '</span></div>' +
-      (rows.length ? '<ul class="mfp-list">' + rows.slice(0, 200).map(x => '<li class="mfp-it"><span class="ico">' + (icon[x.type] || '&#8226;') + '</span><span class="txt"><div class="t">' + esc(x.title || x.url) + (x.chapter ? ' · ' + esc(x.chapter) : '') + '</div><div class="s">' + esc(x.host || '') + ' · ' + ago(x.t) + ' · ' + esc(fmt(x.t)) + '</div></span>' +
-        (canOpen && x.type === 'read' && safeHttp(x.url) ? '<button class="mfp-btn small ghost" data-act="open" data-url="' + esc(x.url) + '">Open</button>' : '') + '</li>').join('') + '</ul>' : '<div class="mfp-empty">Nothing here yet.</div>');
+      (rows.length ? '<ul class="mfp-list">' + rows.slice(0, 200).map(x => {
+        // WHY: the × button is only shown when canOpen=true (the profile owner is looking at their own history, not the admin view).
+        //   HOW: data-t holds the timestamp (used as part of the composite key); data-url is the other half.
+        //   We encode timestamp as a plain string — JSON.stringify is not needed because timestamp is always a number.
+        const delBtn = canOpen ? '<button class="mfp-btn small ghost mfp-del" data-act="delact" data-t="' + esc(String(x.t || '')) + '" data-url="' + esc(x.url || '') + '" title="Remove this entry" aria-label="Remove this entry">&#215;</button>' : '';
+        const openBtn = (canOpen && x.type === 'read' && safeHttp(x.url)) ? '<button class="mfp-btn small ghost" data-act="open" data-url="' + esc(x.url) + '">Open</button>' : '';
+        return '<li class="mfp-it"><span class="ico">' + (icon[x.type] || '&#8226;') + '</span><span class="txt"><div class="t">' + esc(x.title || x.url) + (x.chapter ? ' · ' + esc(x.chapter) : '') + '</div><div class="s">' + esc(x.host || '') + ' · ' + ago(x.t) + ' · ' + esc(fmt(x.t)) + '</div></span>' + openBtn + delBtn + '</li>';
+      }).join('') + '</ul>' : '<div class="mfp-empty">Nothing here yet.</div>');
   }
   // WHY: the three big numbers above a history list. HOW: counts from the items.
   const stats = items => '<div class="mfp-stats"><div class="mfp-stat"><b>' + items.filter(x => x.type === 'read').length + '</b><span>chapters read</span></div><div class="mfp-stat"><b>' + items.filter(x => x.type === 'download').length + '</b><span>downloads</span></div><div class="mfp-stat"><b>' + new Set(items.map(x => x.title)).size + '</b><span>manga</span></div></div>';
@@ -542,6 +552,28 @@
         // WHY: keep app.js in sync — tell it the list changed so it redraws the start page "Continue reading" section.
         window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { reads: newReads } }));
         setMsg('Removed from reading history.', true);
+      }
+      // ROUND 36: delete one activity-log entry from the "My History" tab.
+      // WHY: the user asked for a × button on each row in the "My History" activity log — this is the listHtml() tab,
+      //   separate from the Bookmarks / Continue-reading tab. The activity log lives in localStorage under 'mf_act_<user>'.
+      //   HOW: activity items have NO unique id. We use a composite key: timestamp (data-t) + url (data-url).
+      //   The two fields together make each entry unique because no two events happen at the exact same millisecond for the same page.
+      //   For cloud profiles: the local delete is immediate; the next sync will NOT restore the deleted item because we also
+      //   remove it from `pending` (the in-memory buffer). A full re-pull from the cloud would restore it, but that only
+      //   happens on "Sync now" after the session ends, and a fresh push overwrites the server copy immediately after.
+      //   IMPROVE: add a server-side DELETE endpoint to fully remove cloud entries too.
+      else if (act === 'delact' && session) {
+        const actKey = 'mf_act_' + session.user;
+        const tVal = b.dataset.t, urlVal = b.dataset.url;
+        // WHY: read existing activity, filter out the matching item, save back.
+        const acts = LS.get(actKey, []);
+        const newActs = acts.filter(x => !(String(x.t || '') === tVal && (x.url || '') === urlVal));
+        LS.set(actKey, newActs);
+        // WHY: also remove from `pending` — the in-memory list of cloud items not yet pushed — so a sync does not put it back.
+        pending = (pending || []).filter(x => !(String(x.t || '') === tVal && (x.url || '') === urlVal));
+        // WHY: update view.cache so the list re-renders without the deleted item immediately.
+        if (view.cache) view.cache = view.cache.filter(x => !(String(x.t || '') === tVal && (x.url || '') === urlVal));
+        setMsg('Entry removed from history.', true);
       }
       else if (act === 'syncnow') { const ch = await syncAll(); setMsg('Synced: history and bookmarks are saved on the server.', true); if (ch) { location.reload(); return; } }
       else if (act === 'copyworker') {

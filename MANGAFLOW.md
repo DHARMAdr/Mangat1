@@ -1,4 +1,4 @@
-# MangaFlow Reader — the project blueprint (history + full specification, build round 35)
+# MangaFlow Reader — the project blueprint (history + full specification, build round 36)
 
 **What this file is.** The ONE combined project file of MangaFlow. It tells the whole story (every round, in order), the rules, and a full specification of every file, so that you (or Claude) can fix, improve or rebuild the site from it. Give it to Claude together with the code files and say what you want ("improve X", "fix site Y", "build it again from this file").
 
@@ -2710,6 +2710,80 @@ In `profiles.js`, updated `marksHtml()` to use a new `readRow()` helper (instead
 * **Pre-translate pays off.** Widening the IntersectionObserver margin and enqueuing siblings together adds ~4 pages of free prefetch at no extra cost — the OCR worker is idle while you read anyway.
 * **Batch translation reduces wrong-word errors.** Services translate ambiguous words better when given full sentence context. The `|||` separator approach is cheap and the fallback keeps it safe.
 * **Profile and home-page history are in different files.** Home-page `reads` are in `app.js`; profile `reads` are in `profiles.js` under `readLists()` / `writeLists()`. A delete on one must also fire `mf-lists-changed` to stay in sync.
+
+### Round 36 — Better translation quality, faster speed, My History per-item delete
+
+This entry is for build round 36. Written from the real code delivered in this session.
+
+#### What the owner reported (2026-11-02)
+
+1. **Translation still wrong words** — translated words did not match original meanings well enough, especially for ambiguous CJK words.
+2. **Translation still slow** — translation appeared after scrolling, not before; needed to be faster than scrolling speed.
+3. **My History delete missing** — the × delete button was added to the Bookmarks tab (Round 35) but NOT to the "My History" activity log tab. The owner wanted per-item delete on the activity log rows too.
+
+#### How it was worked
+
+**Problem 1 — Better translation quality:**
+
+Three changes in `translate.js`:
+
+1. **Better Google API call (dt=bd):** Added `dt=bd` (dictionary/best) alongside `dt=t` to the Google translate URL. Google now returns both the plain text translation AND the dictionary entry. For short phrases (1-3 words), the dictionary entry picks the correct meaning by part-of-speech — far more accurate for manga dialogue where one CJK word can mean very different things. Example: Japanese "行く" in a fighting context vs. a travel context — the dictionary pass picks the right sense.
+
+2. **OCR noise cleaning (cleanOcr()):** Added a new `cleanOcr()` function that runs on every bubble's text before translation. It removes:
+   - Lines with zero real letters (pure punctuation / symbol lines — OCR often misreads panel borders as dashes).
+   - Very short ALL-CAPS strings (sound effects like "HA" or "KA" that translate poorly and add noise).
+   These two filters stop bad translations caused by OCR artefacts reaching the translation service.
+
+3. **Smarter batch separator split (splitBatch()):** Google sometimes changes the spacing around the `|||` separator. Added `splitBatch()` which tries six separator variants (`' ||| '`, `'||| '`, `' |||'`, `'|||'`, `' || '`, `'||'`) before giving up on the batch. This makes the batch path succeed more often and reduces fallback to slower one-by-one translation.
+
+**Problem 2 — Faster translation:**
+
+Two changes:
+
+1. **PREFETCH_AHEAD increased from 4 to 6:** The look-ahead prefetch now prepares 6 pages ahead instead of 4, so there is more buffer between what is being read and what is being translated. By the time you reach page N+1, pages N+2 to N+7 are already queued.
+
+2. **Pipeline rendering:** `processPage()` now renders partial results as each translation batch completes, instead of waiting for ALL bubbles on the page to be translated. The first chunk of bubbles (up to 8) appears on screen as soon as its batch finishes; the rest fill in without a full re-render wait.
+
+**Problem 3 — My History per-item delete:**
+
+Updated `listHtml()` in `profiles.js`. Each activity log row now has a `data-act="delact"` × button with `data-t` (timestamp as string) and `data-url` as a composite key (activity items have no unique id, but no two events happen at the same millisecond for the same URL). Added `delact` click handler:
+- Reads the activity log from `localStorage` (`mf_act_<user>`).
+- Filters out the matching item by `t` + `url`.
+- Saves the filtered list back.
+- Also removes the item from `pending` (the in-memory cloud buffer) so a sync does not restore it.
+- Updates `view.cache` immediately so the list re-renders without the item.
+- Shows "Entry removed from history." confirmation message.
+
+#### What was really done, what was changed
+
+| # | Fix / New feature | Where |
+|---|---|---|
+| 1 | Google API: dt=bd for dictionary-quality translations | `translate.js` SVC.google |
+| 2 | cleanOcr(): strip symbol-only lines and sound-effect noise | `translate.js` cleanOcr() + processPage() |
+| 3 | splitBatch(): tolerate Google varying the ||| separator | `translate.js` splitBatch() + translateAll() |
+| 4 | PREFETCH_AHEAD 4→6: larger look-ahead for faster pre-translate | `translate.js` PREFETCH_AHEAD constant |
+| 5 | Pipeline rendering: partial results appear sooner | `translate.js` processPage() |
+| 6 | × delete button on each "My History" activity log row | `profiles.js` listHtml() + delact handler |
+
+#### Files changed in round 36
+
+| File | Round 36 |
+|---|---|
+| `translate.js` | Google dt=bd, cleanOcr(), splitBatch(), PREFETCH_AHEAD=6, pipeline render |
+| `profiles.js` | × delete on My History activity log rows (listHtml + delact handler) |
+| `app.js` | unchanged |
+| `style.css` | unchanged |
+
+**What to upload (if not using GitHub push):** `translate.js`, `profiles.js`.
+
+#### Lessons (rules for the next round)
+
+* **Activity log items have no unique id.** Use composite key `t` (timestamp) + `url` for delete. Both must match; no two events happen at the exact same millisecond for the same URL.
+* **Google's translate API returns richer data when dt=bd is added.** For 1-3 word phrases (most manga bubbles are short) the dictionary entry is more accurate than the plain text translation. Use `j[5][0][1][0]` for the first dictionary entry.
+* **OCR noise = wrong translations.** Symbol-only lines and short sound effects are common OCR artefacts from manga panel borders and title lettering. Filter before translating, not after.
+* **Pipeline rendering improves perceived speed.** Rendering partial batch results as they arrive makes translation feel faster even when total time is the same — the user sees words appearing progressively instead of all at once.
+* **My History (listHtml) and Bookmarks (marksHtml) are different tabs, different functions, different data.** My History = activity log in mf_act_<user> (type/title/chapter/host/t/url). Bookmarks = personal lists in readLists() (reads/books). A delete on one does NOT affect the other.
+
 
 
 

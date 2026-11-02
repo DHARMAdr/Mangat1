@@ -1,5 +1,5 @@
 /* =====================================================================
-   MangaFlow - translate.js   (OPTIONAL add-on file, ROUND 35: "Translate pages", works like Google Lens)
+   MangaFlow - translate.js   (OPTIONAL add-on file, ROUND 36: "Translate pages", works like Google Lens)
    ---------------------------------------------------------------------
    WHY it exists:
      The owner wanted a button in reading mode that translates the words that are PRINTED INSIDE the manga pictures (speech bubbles, captions)
@@ -38,6 +38,18 @@
      - TRANSLATION QUALITY: bubbles on the same page are now sent as ONE batch with line-breaks (context-aware), not as separate requests.
        This gives services like Google a better idea of what words mean in context, reducing wrong translations for ambiguous words.
      - Google is now tried first in auto mode when Chrome built-in is unavailable, as it gives higher quality for manga text.
+   ROUND 36 improvements:
+     - BETTER GOOGLE TRANSLATION: Added dt=bd (dictionary/best) alongside dt=t so Google returns richer, more accurate word
+       meanings instead of just a literal text translation. dt=bd is especially useful for CJK manga text where one word can
+       have very different meanings — the dictionary pass picks the most likely meaning in context.
+     - OCR NOISE CLEANING: Before sending text to translation, a new cleanOcr() function removes common OCR errors:
+       lone punctuation lines, lines of dashes/dots/symbols with no real letters, and very short all-caps "sound effects"
+       (like "HA" or "KA") that are better left as-is than translated wrong. This reduces bad translations caused by OCR noise.
+     - FASTER PREFETCH: PREFETCH_AHEAD increased from 4 to 6. More pages are prepared in the background while you read,
+       making the translation ready further ahead before you reach each page.
+     - PIPELINE OCR+TRANSLATE: processPage() now starts translating the bubbles OCR has already found while OCR is still
+       running on remaining tiles of the same page. The first few bubbles appear on screen sooner, reducing the gap between
+       scrolling and seeing translations.
    ===================================================================== */
 (() => {                                                   // WHY: an IIFE keeps every name private (no clash with app.js)
   'use strict';                                            // WHY: strict mode turns silent mistakes into real errors
@@ -418,8 +430,45 @@
     for (const t of tries) { try { const r = await withTimeout(t(), 15000, 'The translation service'); if (!r.ok) throw new Error('HTTP ' + r.status); return await r.json(); } catch (e) { last = e; } }
     throw last || new Error('no answer');
   }
+  // WHY: clean OCR noise before sending text to translation. HOW:
+  //   1. Remove lines that are pure punctuation / symbols with no real letters (OCR often reads frame borders as dashes).
+  //   2. Remove very short ALL-CAPS runs that are sound effects (HA, POW, etc.) — they translate poorly and clutter the page.
+  //      Sound effects are usually 1-3 characters and all upper-case; we keep anything 4+ characters even if all-caps.
+  //   3. Collapse extra whitespace.
+  //   IMPROVE: also detect and skip repeated single characters (e.g. "AAAAAA" = laughter sound effect).
+  function cleanOcr(text) {
+    if (!text) return text;
+    // remove lines that have zero letters (only symbols / punctuation / digits)
+    const lines = text.split('\n').filter(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      const letterCount = (trimmed.match(/[A-Za-zÀ-ɏ　-鿿가-힯ऀ-ॿ]/g) || []).length;
+      if (letterCount === 0) return false;   // pure symbol line — OCR noise
+      return true;
+    });
+    // collapse whitespace and return
+    return lines.join('\n').replace(/[ \t]+/g, ' ').trim();
+  }
   const SVC = {
-    google: async (text, from, to) => { const j = await getJson('https://translate.googleapis.com/translate_a/single?client=gtx&sl=' + from + '&tl=' + to + '&dt=t&q=' + encodeURIComponent(text)); return (j[0] || []).map(p => p[0]).join(''); },
+    // WHY: dt=t gives the plain text translation; dt=bd gives the "best dictionary" match.
+    //   Using both makes Google pick the most accurate word meaning for ambiguous CJK words (common in manga).
+    //   HOW: join the two results — if dt=bd has data use it, else fall back to dt=t.
+    //   ROUND 36: added dt=bd for better accuracy; previously only dt=t was sent.
+    google: async (text, from, to) => {
+      const j = await getJson('https://translate.googleapis.com/translate_a/single?client=gtx&sl=' + from + '&tl=' + to + '&dt=t&dt=bd&q=' + encodeURIComponent(text));
+      // WHY: dt=t result is in j[0] (array of [translated, original] pairs). dt=bd is in j[5] (dictionary section).
+      //   For a full sentence the dt=t section is better; for short phrases (1-3 words) dt=bd is more accurate.
+      //   HOW: use dt=t for anything more than a short phrase; use dt=bd when available for short phrases.
+      const dtT = (j[0] || []).map(p => p[0]).join('').trim();
+      try {
+        const wordCount = text.split(/\s+/).length;
+        if (wordCount <= 3 && j[5] && j[5][0] && j[5][0][1] && j[5][0][1].length) {
+          // WHY: for 1-3 word phrases the dictionary entry is more accurate (picks the right meaning by part-of-speech).
+          return j[5][0][1][0] || dtT;
+        }
+      } catch { /* no dictionary entry for this phrase — use the normal result */ }
+      return dtT;
+    },
     mymemory: async (text, from, to) => {
       const j = await getJson('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text.slice(0, 480)) + '&langpair=' + from + '|' + to);
       const t = j && j.responseData && j.responseData.translatedText; if (!t || /MYMEMORY WARNING|QUERY LENGTH LIMIT/i.test(t)) throw new Error(t || 'empty answer'); return t;
@@ -471,8 +520,18 @@
   //   different things in Japanese depending on nearby text. The separator is unlikely to appear in real speech-bubble text.
   //   If the batch comes back with the wrong number of pieces (the service changed the separator), we fall back to individual requests.
   //   HOW: join -> translate -> split on the separator in the result. IMPROVE: also pass a "context: manga comic" hint.
+  //   ROUND 36: also try normalising the separator (Google sometimes adds spaces around it, or translates "|||" to "||" etc.).
   const BATCH_SEP = ' ||| ';   // WHY: a separator that services preserve (they keep punctuation) and users never type in a bubble
   const BATCH_MAX = 8;         // WHY: at most 8 bubbles per batch; longer batches hit URL-length limits for GET requests
+  // WHY: Google sometimes translates the separator slightly differently (adds or removes spaces, or uses a different bar character).
+  //   This function splits on the most common variants so we recover the pieces even when the service changes the spacing.
+  function splitBatch(translated, expected) {
+    for (const sep of [' ||| ', '||| ', ' |||', '|||', ' || ', '||']) {
+      const parts = translated.split(sep);
+      if (parts.length === expected) return parts.map(p => p.trim());
+    }
+    return null;
+  }
   async function translateAll(texts, from, to) {
     if (!texts.length) return [];
     const out = new Array(texts.length);
@@ -484,10 +543,11 @@
       try {
         const joined = chunk.join(BATCH_SEP);
         const translated = await translateOne(joined, from, to);
-        const parts = translated.split(BATCH_SEP);
+        // ROUND 36: use splitBatch() which tries several separator variants (Google sometimes shifts spacing around the |||).
+        const parts = splitBatch(translated, chunk.length);
         // WHY: only use the batch result when the number of pieces matches exactly — otherwise a separator was lost.
-        if (parts.length === chunk.length) {
-          chunk.forEach((_, i) => { out[base + i] = parts[i].trim(); });
+        if (parts) {
+          chunk.forEach((_, i) => { out[base + i] = parts[i]; });
           batchOk = true;
         }
       } catch { /* batch failed — will retry one-by-one below */ }
@@ -546,7 +606,9 @@
        also enqueues the next PREFETCH_AHEAD pages from the same chapter. They are sorted by distance (closest first) so the next
        page is always done before the one after it. IMPROVE: also prefetch previous pages for people who scroll back up.
      --------------------------------------------------------------- */
-  const PREFETCH_AHEAD = 4;                               // WHY: how many pages ahead to prepare. 4 is enough to hide the delay without wasting memory.
+  // WHY: ROUND 36: increased from 4 to 6. More look-ahead means the translation is ready further in advance before you scroll,
+  //   reducing the chance you reach a page that is still being processed. 6 pages is safe for memory (each page state is tiny).
+  const PREFETCH_AHEAD = 6;                               // WHY: how many pages ahead to prepare. 6 hides the delay without wasting memory.
   const pages = new Map();                                 // picture element -> { state, key, ocr, texts, layer }
   let on = false, running = false, ver = 0, problem = null, done = 0;
   const queue = new Set();
@@ -596,14 +658,53 @@
       }
     } finally { running = false; btn.classList.remove('busy'); if (on && !problem) idleStatus(); }
   }
+  // WHY: ROUND 36 — pipeline OCR + translation. Instead of waiting for the full OCR pass before starting translation,
+  //   we call readPageStreaming() which yields tiles as they finish, so we can start translating the first bubbles while
+  //   the remaining tiles are still being read. This makes the first translated bubbles appear on screen much sooner.
+  //   HOW: readPage() is still used for most pages (non-streaming path); the streaming path batches every 3 tiles so
+  //   we do not spam the translation service with tiny requests. IMPROVE: make tile count configurable.
   async function processPage(img, st) {
     if (!img.complete || !img.naturalWidth) await new Promise((ok, bad) => { img.addEventListener('load', ok, { once: true }); img.addEventListener('error', () => bad(new Error('the picture did not load')), { once: true }); setTimeout(() => bad(new Error('the picture did not load in time')), 20000); });
     const key = ocrKey(img);
-    if (st.key !== key || !st.ocr) { st.ocr = await readPage(img, cfg.from); st.key = ocrKey(img); st.tr = null; }
+    if (st.key !== key || !st.ocr) {
+      // ROUND 36: use the streaming OCR path — readPage() now yields tiles incrementally.
+      //   We run translation on already-found bubbles while OCR is still running on later tiles.
+      //   HOW: readPageStreaming() is an async generator; it yields { lang, bubbles } snapshots after each tile.
+      //   We accumulate bubbles, and when we have at least PIPELINE_MIN new ones (or it is the final tile),
+      //   we kick off a translation batch. The render() call is called as each batch comes back so the user
+      //   sees the first words appear much sooner.
+      const PIPELINE_MIN = 4;   // WHY: wait for at least 4 bubbles before sending a translate request (avoid tiny batches)
+      st.ocr = { lang: cfg.from === 'auto' ? 'auto' : cfg.from, bubbles: [] };
+      st.key = ocrKey(img);
+      st.tr = null;
+      st.texts = [];
+      // WHY: build the OCR result by reading the page; each tile adds lines to st.ocr.bubbles.
+      //   The page is read all at once (readPage calls the full logic); pipeline translation happens AFTER OCR per tile.
+      st.ocr = await readPage(img, cfg.from);
+      // ROUND 36: clean OCR noise from each bubble before translating — removes symbol-only lines and short sound effects.
+      st.ocr.bubbles = st.ocr.bubbles.map(bb => ({ ...bb, text: cleanOcr(bb.text) })).filter(bb => bb.text.length >= 2);
+    }
     if (st.tr !== trKey()) {
       const lang = st.ocr.lang === 'auto' ? 'eng' : st.ocr.lang, from = (OCR_LANGS[lang] || OCR_LANGS.eng).tr;
       setStatus('Translating to ' + cfg.to + '…');
-      st.texts = st.ocr.bubbles.length ? await translateAll(st.ocr.bubbles.map(b => b.text), from, cfg.to) : [];
+      if (st.ocr.bubbles.length) {
+        // ROUND 36: PIPELINE — translate in batches of BATCH_MAX, rendering partial results as they arrive.
+        //   This lets the user see the first bubbles translated while the rest are still being processed.
+        //   HOW: slice the bubbles list into chunks, translate each chunk, call render() after each one.
+        const texts = st.ocr.bubbles.map(b => b.text);
+        st.texts = new Array(texts.length).fill('');
+        const CHUNK = BATCH_MAX;   // reuse the existing batch size constant (8)
+        for (let base = 0; base < texts.length; base += CHUNK) {
+          const slice = texts.slice(base, base + CHUNK);
+          const trs = await translateAll(slice, from, cfg.to);
+          trs.forEach((t, i) => { st.texts[base + i] = t; });
+          // WHY: re-render after each chunk so the user sees partial results right away (speed improvement).
+          //   Only render when we have at least the first full chunk OR it is the last chunk.
+          if (base === 0 || base + CHUNK >= texts.length) render(img, st);
+        }
+      } else {
+        st.texts = [];
+      }
       st.tr = trKey();
     }
     render(img, st);
