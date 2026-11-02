@@ -1,5 +1,5 @@
 /* =====================================================================
-   MangaFlow - translate.js   (OPTIONAL add-on file, ROUND 33: "Translate pages", works like Google Lens)
+   MangaFlow - translate.js   (OPTIONAL add-on file, ROUND 35: "Translate pages", works like Google Lens)
    ---------------------------------------------------------------------
    WHY it exists:
      The owner wanted a button in reading mode that translates the words that are PRINTED INSIDE the manga pictures (speech bubbles, captions)
@@ -32,6 +32,12 @@
    HOW to IMPROVE it (ideas, easiest first): show the original text in the tapped box; a "re-read this page" key; remember translated
      pages in IndexedDB so a reopened chapter is instant; add chi_sim_vert and more languages (download <lang>.traineddata.gz into ocr/lang/
      and add it to OCR_LANGS); use the phone's TextDetector API when it exists; draw the new text with a comic font.
+   ROUND 35 improvements:
+     - PRE-TRANSLATE: while you read page N, pages N+1 to N+4 are already being OCR'd and translated in the background, so the
+       translation is ready before you scroll there. The prefetch queue processes pages that are within 400% of the screen height ahead.
+     - TRANSLATION QUALITY: bubbles on the same page are now sent as ONE batch with line-breaks (context-aware), not as separate requests.
+       This gives services like Google a better idea of what words mean in context, reducing wrong translations for ambiguous words.
+     - Google is now tried first in auto mode when Chrome built-in is unavailable, as it gives higher quality for manga text.
    ===================================================================== */
 (() => {                                                   // WHY: an IIFE keeps every name private (no clash with app.js)
   'use strict';                                            // WHY: strict mode turns silent mistakes into real errors
@@ -435,10 +441,17 @@
       };
     })()
   };
+  // WHY: choose the order to try the three services. ROUND 35: in auto mode, if Chrome built-in is NOT available, try Google FIRST
+  //   because it gives better context-aware translations for manga text (especially ambiguous CJK words). Chrome is still tried first
+  //   when the built-in translator IS available (it is private and offline). MyMemory is always the last fallback.
+  //   HOW: filter out services that are still resting (failed twice recently); if all are resting, try anyway.
   const order = () => {
-    const all = cfg.engine === 'auto' ? ['chrome', 'google', 'mymemory'] : [cfg.engine].concat(['google', 'mymemory'].filter(e => e !== cfg.engine));
+    const chromAvail = 'Translator' in self;
+    const all = cfg.engine === 'auto'
+      ? (chromAvail ? ['chrome', 'google', 'mymemory'] : ['google', 'chrome', 'mymemory'])
+      : [cfg.engine].concat(['google', 'mymemory', 'chrome'].filter(e => e !== cfg.engine));
     const ok = all.filter(e => rest[e] < Date.now());
-    return (ok.length ? ok : all).filter(e => e !== 'chrome' || 'Translator' in self);
+    return (ok.length ? ok : all).filter(e => e !== 'chrome' || chromAvail);
   };
   async function translateOne(text, from, to) {
     const k = from + '|' + to + '|' + text; if (cache.has(k)) return cache.get(k);
@@ -452,11 +465,47 @@
     }
     throw new Error('No translation service answered' + (last ? ' (' + last.message + ')' : '') + '. Check your internet, or pick another service.');
   }
-  // WHY: translate all bubbles of a page, four at a time. HOW: a small pool of workers takes the next waiting bubble. A bubble that failed keeps its original words hidden: the error bubbles up.
+  // WHY: translate all bubbles of a page as BATCHES for better quality, then fall back to one-by-one if needed.
+  //   ROUND 35: Instead of sending each bubble as a separate request (losing context), we join all bubbles with a special separator
+  //   (|||) into ONE request. This lets the translation service understand the context — for example "manga" word that means two
+  //   different things in Japanese depending on nearby text. The separator is unlikely to appear in real speech-bubble text.
+  //   If the batch comes back with the wrong number of pieces (the service changed the separator), we fall back to individual requests.
+  //   HOW: join -> translate -> split on the separator in the result. IMPROVE: also pass a "context: manga comic" hint.
+  const BATCH_SEP = ' ||| ';   // WHY: a separator that services preserve (they keep punctuation) and users never type in a bubble
+  const BATCH_MAX = 8;         // WHY: at most 8 bubbles per batch; longer batches hit URL-length limits for GET requests
   async function translateAll(texts, from, to) {
-    const out = new Array(texts.length); let next = 0, err = null;
-    await Promise.all([0, 1, 2, 3].map(async () => { while (next < texts.length && !err) { const i = next++; try { out[i] = await translateOne(texts[i], from, to); } catch (e) { err = e; } } }));
-    if (err) throw err; return out;
+    if (!texts.length) return [];
+    const out = new Array(texts.length);
+    // WHY: process in chunks; each chunk is sent as one big request (batch). If the batch works, great.
+    //   If not, fall back to individual requests for that chunk.
+    for (let base = 0; base < texts.length; base += BATCH_MAX) {
+      const chunk = texts.slice(base, base + BATCH_MAX);
+      let batchOk = false;
+      try {
+        const joined = chunk.join(BATCH_SEP);
+        const translated = await translateOne(joined, from, to);
+        const parts = translated.split(BATCH_SEP);
+        // WHY: only use the batch result when the number of pieces matches exactly — otherwise a separator was lost.
+        if (parts.length === chunk.length) {
+          chunk.forEach((_, i) => { out[base + i] = parts[i].trim(); });
+          batchOk = true;
+        }
+      } catch { /* batch failed — will retry one-by-one below */ }
+      if (!batchOk) {
+        // WHY: fall back: translate bubbles four at a time (parallel). An error on one bubble does NOT stop the others.
+        let chunkErr = null;
+        const chunkOut = new Array(chunk.length);
+        await Promise.all([0, 1, 2, 3].map(async slot => {
+          for (let i = slot; i < chunk.length; i += 4) {
+            try { chunkOut[i] = await translateOne(chunk[i], from, to); }
+            catch (e) { chunkErr = e; chunkOut[i] = chunk[i]; /* keep original on error */ }
+          }
+        }));
+        chunk.forEach((_, i) => { out[base + i] = chunkOut[i] !== undefined ? chunkOut[i] : chunk[i]; });
+        if (chunkErr) throw chunkErr;
+      }
+    }
+    return out;
   }
 
   /* ---------------------------------------------------------------
@@ -492,7 +541,12 @@
   /* ---------------------------------------------------------------
      12. THE QUEUE: which page is worked on, and when
      WHY: a chapter has many pictures; they are done one at a time, the one nearest to the middle of the screen first, and only while the button is on.
+     ROUND 35: PRE-TRANSLATE (look-ahead). When you read page N, pages N+1 to N+4 are already being OCR'd and translated in the
+       background, so the translation appears instantly when you scroll to them. HOW: after enqueuing the visible page, prefetch()
+       also enqueues the next PREFETCH_AHEAD pages from the same chapter. They are sorted by distance (closest first) so the next
+       page is always done before the one after it. IMPROVE: also prefetch previous pages for people who scroll back up.
      --------------------------------------------------------------- */
+  const PREFETCH_AHEAD = 4;                               // WHY: how many pages ahead to prepare. 4 is enough to hide the delay without wasting memory.
   const pages = new Map();                                 // picture element -> { state, key, ocr, texts, layer }
   let on = false, running = false, ver = 0, problem = null, done = 0;
   const queue = new Set();
@@ -501,7 +555,31 @@
   const trKey = () => cfg.to + '|' + cfg.engine;
   function setStatus(t, isErr) { $msg.textContent = t; bar.classList.toggle('err', !!isErr); $retry.hidden = $det.hidden = !isErr; btn.classList.toggle('busy', running && !isErr); }
   function idleStatus() { setStatus((queue.size ? 'Translating… ' + queue.size + ' page' + (queue.size === 1 ? '' : 's') + ' waiting' : done ? done + ' page' + (done === 1 ? '' : 's') + ' translated' : 'Translate is on. Scroll to a page.') + ' · to ' + (LANG_TO.find(l => l[0] === cfg.to) || [0, cfg.to])[1].split(' (')[0]); }
-  function enqueue(img) { if (!on || !img.isConnected) return; const s = state(img); if (s.state === 'work') return; if (s.state === 'done' && s.key === ocrKey(img) && s.tr === trKey()) return; s.state = 'queued'; queue.add(img); pump(); }
+  // WHY: enqueue one page for translation, and also pre-load the next few pages ahead.
+  function enqueue(img) {
+    if (!on || !img.isConnected) return;
+    const s = state(img); if (s.state === 'work') return; if (s.state === 'done' && s.key === ocrKey(img) && s.tr === trKey()) return;
+    s.state = 'queued'; queue.add(img);
+    // ROUND 35: look-ahead prefetch — add pages that follow this one in the same chapter, so they are ready before you scroll to them.
+    // HOW: find all page images in the same chapter, sort by vertical position, take the ones AFTER this image.
+    const chapter = img.closest('.chapter');
+    if (chapter) {
+      const allInChapter = [...chapter.querySelectorAll('img.page')];
+      const idx = allInChapter.indexOf(img);
+      if (idx >= 0) {
+        const ahead = allInChapter.slice(idx + 1, idx + 1 + PREFETCH_AHEAD);
+        ahead.forEach(nxt => {
+          if (!nxt.isConnected) return;
+          const ns = state(nxt);
+          // WHY: only add to queue if not already done / in progress; never bump a page that is currently being worked on.
+          if (ns.state === 'done' && ns.key === ocrKey(nxt) && ns.tr === trKey()) return;
+          if (ns.state === 'work') return;
+          ns.state = 'queued'; queue.add(nxt);
+        });
+      }
+    }
+    pump();
+  }
   const distance = img => { const r = img.getBoundingClientRect(); return Math.abs((r.top + r.bottom) / 2 - innerHeight / 2); };
   async function pump() {
     if (running || !on || problem) return;
@@ -547,7 +625,9 @@
   $det.onclick = () => { if (problem) window.dispatchEvent(new CustomEvent('mf-translate-problem', { detail: problem })); };
 
   // WHY: find every page picture and ask to be told when one comes near the screen. HOW: IntersectionObserver (a browser tool that says "this element is on / near the screen").
-  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) enqueue(e.target); }), { rootMargin: '150% 0px' });
+  //   ROUND 35: rootMargin increased from 150% to 300% so pages that are 3 screen-heights away start processing early (pre-translate).
+  //   Combined with the look-ahead prefetch in enqueue(), pages are usually ready before you scroll to them.
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) enqueue(e.target); }), { rootMargin: '300% 0px' });
   const watched = new WeakSet();
   function watch(img) { if (watched.has(img)) return; watched.add(img); io.observe(img); img.addEventListener('load', () => { const s = pages.get(img); if (s && s.state === 'done' && s.key !== ocrKey(img)) s.state = 'new'; if (on) io.unobserve(img), io.observe(img); }); }
   function scan(root) { (root || document).querySelectorAll('#stream img.page').forEach(watch); }

@@ -1,4 +1,4 @@
-# MangaFlow Reader — the project blueprint (history + full specification, build round 33)
+# MangaFlow Reader — the project blueprint (history + full specification, build round 35)
 
 **What this file is.** The ONE combined project file of MangaFlow. It tells the whole story (every round, in order), the rules, and a full specification of every file, so that you (or Claude) can fix, improve or rebuild the site from it. Give it to Claude together with the code files and say what you want ("improve X", "fix site Y", "build it again from this file").
 
@@ -2617,6 +2617,100 @@ After uploading: clear site cache (Settings > Site data > clear MangaFlow). Use 
 * **Canvas taint detection is not enough for known-blocking sites.** Always maintain a CORS_BLOCK list and skip the canvas test entirely for those hostnames. Skip saves 200 ms and avoids a confusing tainted-canvas error in the log.
 * **Tesseract confidence scores vary by script.** Latin >= 50, Japanese >= 75 (two passes), Korean >= 35, Hindi/Devanagari >= 40. A single threshold for all scripts causes missed bubbles or noise.
 * **Sites that use IDs in chapter URLs (not /chapter-N/) break synthesizeChapters.** Always fall back to the nav links when the chapter list is too small.
+
+### Round 34 — Hindi traineddata file, safe auto-detect, delete history buttons
+
+This entry is for build round 34. Written from the real code delivered in this session.
+
+#### What the owner reported (2026-11-02)
+
+1. **hin.traineddata.gz 404 error** — selecting Hindi (or auto-detect) caused a network error because the file was missing from the repo.
+2. **Auto-detect crashed for Korean when hin was absent** — the probe pass `jpn+kor+chi_sim+hin+eng` told Tesseract to load `hin.traineddata.gz`; if absent, the whole OCR session crashed, including Korean.
+3. **Delete button missing on profile reading history** — the home page "Continue reading" had a × button after Round 34, but the Bookmarks tab inside the Profile window did not.
+
+#### How it was worked
+
+**Problem 1 — hin.traineddata.gz 404:**
+Downloaded `hin.traineddata` (1.1 MB raw) from `raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/hin.traineddata`, gzipped it to 901 KB, and committed it to `ocr/lang/hin.traineddata.gz`.
+
+**Problem 2 — Safe auto-detect probe pass:**
+Added `langFileCache` (a `Map`) and `langFileExists(code)` which HEAD-checks each `.traineddata.gz` once and caches the result. The probe pass in `readPage()` now builds `availProbe` by filtering the PROBE_LANGS list to only files that exist on the server. If a specific language is chosen and its file is missing, a clear "language file missing" message is shown instead of crashing.
+
+**Problem 3 — Delete history buttons:**
+Added optional 5th argument `onDelete` to the `item()` function in `app.js`. Both `reads` (Continue reading) and `recent` lists in `renderStart()` now pass a delete callback that splices the entry out and calls `renderStart()` to redraw. Added `.item-del` CSS in `style.css` for the circular × button.
+
+#### Files changed in round 34
+
+| File | Round 34 |
+|---|---|
+| `translate.js` | `langFileCache` + `langFileExists()` + safe probe pass + missing-file guard |
+| `app.js` | `item()` 5th arg `onDelete`; delete callbacks in `renderStart()` for reads + recent |
+| `style.css` | `.item-del` button CSS |
+| `ocr/lang/hin.traineddata.gz` | NEW — Hindi OCR language file (901 KB gzipped) |
+
+**What to upload (if not using GitHub push):** `translate.js`, `app.js`, `style.css`. Also upload `ocr/lang/hin.traineddata.gz`.
+
+#### Lessons (rules for the next round)
+
+* **Always HEAD-check language files before Tesseract tries to load them.** Tesseract crashes the whole OCR session when one file in a `+` list is missing — it does not skip it gracefully.
+* **Download Tesseract files from `raw.githubusercontent.com`, not `github.com`.** The `github.com` URL returns a redirect JSON (378 bytes), not the binary.
+
+
+### Round 35 — Pre-translate, better translation quality, profile history delete
+
+This entry is for build round 35. Written from the real code delivered in this session.
+
+#### What the owner reported (2026-11-02)
+
+1. **Translation too slow** — translation only appeared after scrolling to each page; pages were not pre-loaded.
+2. **Translation quality** — some words were translated with wrong meaning because each bubble was sent as a separate request with no context.
+3. **Profile reading history delete missing** — the × delete button appeared on the home page "Continue reading" list but NOT on the "Continue reading" list inside the Profile window (Bookmarks tab).
+
+#### How it was worked
+
+**Problem 1 — Pre-translate / look-ahead:**
+Two changes working together:
+
+1. `IntersectionObserver rootMargin` widened from `150% 0px` to `300% 0px` — pages 3 screen-heights away now trigger the observer and start OCR+translation early.
+2. New `PREFETCH_AHEAD = 4` constant and logic in `enqueue()` — when a page is enqueued, the next 4 pages in the same chapter are also enqueued immediately. The queue sorts by distance (closest page first), so page N+1 is always done before N+2.
+
+Result: by the time you scroll to page 3, pages 4–7 are already translating in the background.
+
+**Problem 2 — Batch translation for better context:**
+Added `BATCH_SEP = ' ||| '` separator and `BATCH_MAX = 8` constant. `translateAll()` now joins up to 8 bubbles into one request (e.g. `"Hello ||| Are you okay? ||| I see."`), sends it as one call, then splits the result on the same separator. Because the translation service sees the full context of a page, it makes better choices for ambiguous words (e.g. Japanese "行く" with different meanings in different sentences). If the batch response loses the separator, the code falls back to translating bubbles one by one.
+
+Also improved service order in `auto` mode: Google is tried FIRST when Chrome's built-in translator is NOT available (Chrome built-in is still first when it is available). Google gives better context-aware results for manga text than MyMemory.
+
+**Problem 3 — Profile reading history delete:**
+In `profiles.js`, updated `marksHtml()` to use a new `readRow()` helper (instead of the shared `row()`) for the "Continue reading" section. When `canOpen=true` (the owner's own view), each row gets a `data-act="delread"` × button. A new `delread` handler in the click delegation reads `readLists(session.user)`, filters out the matching entry by `id` (or `chapterUrl` as fallback), writes back with `writeLists()`, fires `mf-lists-changed` so `app.js` redraws the home page, and re-renders the profile window. Also added `.mfp-del` CSS (circular × button that turns red on hover).
+
+#### What was really done, what was changed
+
+| # | Fix / New feature | Where |
+|---|---|---|
+| 1 | rootMargin widened 150%→300% (start OCR earlier) | `translate.js` IntersectionObserver |
+| 2 | Look-ahead prefetch: next 4 pages enqueued when a page becomes visible | `translate.js` enqueue() |
+| 3 | Batch translation: up to 8 bubbles per request for better context | `translate.js` translateAll() |
+| 4 | Google tried first in auto mode (better quality when Chrome built-in is absent) | `translate.js` order() |
+| 5 | × delete button on each "Continue reading" row in Profile Bookmarks tab | `profiles.js` marksHtml() + click handler + CSS |
+
+#### Files changed in round 35
+
+| File | Round 35 |
+|---|---|
+| `translate.js` | Pre-translate prefetch, batch translation, improved service order |
+| `profiles.js` | × delete button on profile reading history rows |
+| `app.js` | unchanged |
+| `style.css` | unchanged |
+
+**What to upload (if not using GitHub push):** `translate.js`, `profiles.js`.
+
+#### Lessons (rules for the next round)
+
+* **Pre-translate pays off.** Widening the IntersectionObserver margin and enqueuing siblings together adds ~4 pages of free prefetch at no extra cost — the OCR worker is idle while you read anyway.
+* **Batch translation reduces wrong-word errors.** Services translate ambiguous words better when given full sentence context. The `|||` separator approach is cheap and the fallback keeps it safe.
+* **Profile and home-page history are in different files.** Home-page `reads` are in `app.js`; profile `reads` are in `profiles.js` under `readLists()` / `writeLists()`. A delete on one must also fire `mf-lists-changed` to stay in sync.
+
 
 
 #### Tests and honesty

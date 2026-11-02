@@ -336,6 +336,11 @@
     background:linear-gradient(135deg,#25a8ff,#7a3cff 55%,#c020ff);box-shadow:0 0 14px rgba(80,90,255,.5);}
   #mfProf .mfp-btn.ghost{background:#ffffff10;border-color:#ffffff40;box-shadow:none;} #mfProf .mfp-btn.red{background:#c92a2a55;border-color:#ff6b6b;box-shadow:none;}
   #mfProf .mfp-btn.small{min-height:34px;padding:4px 12px;font-size:.8rem;}
+  /* ROUND 35: × delete button on each Continue reading row. WHY: lets the user remove one entry without clearing all history.
+     HOW: a circular × button at the right of the row. On hover it turns red to signal "this will remove it". */
+  #mfProf .mfp-del{min-width:30px!important;min-height:30px!important;width:30px;height:30px;padding:0!important;border-radius:50%!important;font-size:.9rem;display:grid;place-items:center;flex:none;margin-left:2px;}
+  #mfProf .mfp-del:hover{background:#c92a2a!important;border-color:#ff6b6b!important;box-shadow:0 0 8px rgba(200,42,42,.5)!important;}
+  #mfProf .mfp-del:active{transform:scale(.9);}
   #mfProf .mfp-row{display:flex;gap:8px;flex-wrap:wrap;} #mfProf .mfp-row>*{flex:1;}
   #mfProf .mfp-note{font:500 .78rem/1.45 system-ui,sans-serif;color:#aab4e8;margin:0;}
   #mfProf .mfp-msg{padding:8px 12px;border-radius:10px;font:600 .85rem system-ui,sans-serif;background:#c92a2a33;border:1px solid #ff6b6b;}
@@ -380,13 +385,24 @@
   // WHY: the three big numbers above a history list. HOW: counts from the items.
   const stats = items => '<div class="mfp-stats"><div class="mfp-stat"><b>' + items.filter(x => x.type === 'read').length + '</b><span>chapters read</span></div><div class="mfp-stat"><b>' + items.filter(x => x.type === 'download').length + '</b><span>downloads</span></div><div class="mfp-stat"><b>' + new Set(items.map(x => x.title)).size + '</b><span>manga</span></div></div>';
   // WHY: bookmarks + "continue reading" of one profile (from its saved lists). canOpen=false for the admin's read-only view.
+  // ROUND 35: added × delete button to each "Continue reading" row (canOpen=true only — the admin's read-only view has no delete).
+  //   HOW: each row gets a data-act="delread" button with data-id set to the entry's id (or chapterUrl as fallback key).
+  //   The click handler below saves the updated list back and re-renders. Works for both local and cloud profiles.
   function marksHtml(state, canOpen) {
     const books = (state && state.books) || [], reads = (state && state.reads) || [];
+    // WHY: one row for bookmarks and admin-view reads (no delete button). esc() prevents HTML injection in titles.
     const row = (t, s, url, ico) => '<li class="mfp-it"><span class="ico">' + ico + '</span><span class="txt"><div class="t">' + esc(t) + '</div><div class="s">' + esc(s) + '</div></span>' + (canOpen && safeHttp(url) ? '<button class="mfp-btn small ghost" data-act="openpage" data-url="' + esc(url) + '">Open</button>' : '') + '</li>';
-    // WHY: the bookmark and continue-reading lists. HOW: row() builds one line; esc() protects against HTML in titles; the
+    // WHY: one row for "Continue reading" with an optional × delete button (only when canOpen=true = the owner's own view).
+    //   HOW: data-act="delread" + data-id carries the entry's unique id so the click handler knows which item to remove.
+    const readRow = r => {
+      const delBtn = canOpen ? '<button class="mfp-btn small ghost mfp-del" data-act="delread" data-id="' + esc(r.id || r.chapterUrl || '') + '" title="Remove from history" aria-label="Remove from history">&#215;</button>' : '';
+      const openBtn = (canOpen && safeHttp(r.chapterUrl)) ? '<button class="mfp-btn small ghost" data-act="openpage" data-url="' + esc(r.chapterUrl) + '">Open</button>' : '';
+      return '<li class="mfp-it"><span class="ico">&#128214;</span><span class="txt"><div class="t">' + esc(r.title || r.chapterUrl) + '</div><div class="s">' + esc([r.host, r.chapterLabel].filter(Boolean).join(' · ')) + '</div></span>' + openBtn + delBtn + '</li>';
+    };
+    // WHY: the bookmark and continue-reading lists. HOW: row() builds one line; esc() protects against HTML in titles.
     // Open button only appears for real web addresses.
     return '<h3>&#11088; Bookmarks (' + books.length + ')</h3>' + (books.length ? '<ul class="mfp-list">' + books.slice(0, 100).map(b => row(b.title || b.url, b.url, b.url, '&#11088;')).join('') + '</ul>' : '<div class="mfp-empty">No bookmarks yet.</div>') +
-      '<h3>&#128214; Continue reading (' + reads.length + ')</h3>' + (reads.length ? '<ul class="mfp-list">' + reads.slice(0, 50).map(r => row(r.title || r.chapterUrl, [r.host, r.chapterLabel].filter(Boolean).join(' · '), r.chapterUrl, '&#128214;')).join('') + '</ul>' : '<div class="mfp-empty">Nothing yet.</div>');
+      '<h3>&#128214; Continue reading (' + reads.length + ')</h3>' + (reads.length ? '<ul class="mfp-list">' + reads.slice(0, 50).map(readRow).join('') + '</ul>' : '<div class="mfp-empty">Nothing yet.</div>');
   }
   // WHY: bug reports as a list (admin: all, or one profile's). Each report opens as text; the admin can delete it.
   function bugsHtml(bugs, canDel) {
@@ -511,6 +527,22 @@
       else if (act === 'del') { if (confirm('Delete the profile "' + u + '" and its history? This cannot be undone.')) { await API().remove(u); if (u === session.user) { session = null; LS.del('mf_session'); location.reload(); return; } view.sel = ''; setMsg('Profile deleted.', true); } }
       else if (act === 'reset') { const c = prompt('New 6-digit code for "' + u + '":'); if (c !== null) { await API().reset(u, c); setMsg('Code changed for ' + u + '.', true); } }
       else if (act === 'delbug') { await API().delBug(+b.dataset.id || b.dataset.id); setMsg('Report deleted.', true); }
+      // ROUND 35: delete one "Continue reading" entry from the owner's Bookmarks tab.
+      // WHY: the user asked for a × button on each reading-history row in the profile. HOW: find the entry by its id (or chapterUrl
+      //   as fallback), remove it from the reads list, save it back under the signed-in profile's key, and re-render the window.
+      //   If the profile is cloud-synced, the change is queued and sent on the next sync.
+      else if (act === 'delread' && session) {
+        const lists = readLists(session.user);
+        const oldReads = (lists.reads || []);
+        const entryId = b.dataset.id;
+        // WHY: match by id first (newer entries), then by chapterUrl (older entries saved without an id).
+        const newReads = oldReads.filter(r => r.id !== entryId && (r.chapterUrl || '') !== entryId);
+        lists.reads = newReads;
+        writeLists(session.user, lists);
+        // WHY: keep app.js in sync — tell it the list changed so it redraws the start page "Continue reading" section.
+        window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { reads: newReads } }));
+        setMsg('Removed from reading history.', true);
+      }
       else if (act === 'syncnow') { const ch = await syncAll(); setMsg('Synced: history and bookmarks are saved on the server.', true); if (ch) { location.reload(); return; } }
       else if (act === 'copyworker') {
         let code = ''; try { const r = await fetch('accounts-worker.js', { cache: 'no-store' }); if (!r.ok) throw 0; code = await r.text(); } catch { throw new Error('accounts-worker.js is not next to index.html on this site. Upload it to GitHub, then try again.'); }
