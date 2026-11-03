@@ -1,5 +1,5 @@
 /* =====================================================================
-   MangaFlow - translate.js   (OPTIONAL add-on file, ROUND 36: "Translate pages", works like Google Lens)
+   MangaFlow - translate.js   (OPTIONAL add-on file, ROUND 37: "Translate pages", works like Google Lens)
    ---------------------------------------------------------------------
    WHY it exists:
      The owner wanted a button in reading mode that translates the words that are PRINTED INSIDE the manga pictures (speech bubbles, captions)
@@ -318,7 +318,11 @@
     if (!l.text || l.conf < min) return false;
     const letters = (l.text.match(/[A-Za-zÀ-ɏͰ-ϿЀ-ӿ぀-ヿ㐀-鿿豈-﫿가-힯]/g) || []).length;
     if (!letters || letters / l.text.replace(/\s/g, '').length < 0.5) return false;
-    return letters >= 2 || CJK.test(l.text) || HANGUL.test(l.text);
+    // WHY: changed from letters >= 2 to letters >= 1 (ROUND 37).
+    // A single kanji or Hangul syllable is a complete word that should be translated.
+    // Sound effect bubbles with one CJK character (e.g. Japanese "っ") were previously skipped (empty spots).
+    // The conf < min and letter-ratio checks above already filter pure noise.
+    return letters >= 1 || CJK.test(l.text) || HANGUL.test(l.text);
   }
   // WHY: lines that stand close together are ONE speech bubble. HOW: union-find (a tiny "who belongs with whom" list); two lines join when the gap between
   //   them is small compared with the size of the letters (gap across <= 0.9 letters and along <= 2.2 letters, in either direction). Vertical columns only join vertical columns.
@@ -453,15 +457,34 @@
     // WHY: dt=t gives the plain text translation; dt=bd gives the "best dictionary" match.
     //   Using both makes Google pick the most accurate word meaning for ambiguous CJK words (common in manga).
     //   HOW: join the two results — if dt=bd has data use it, else fall back to dt=t.
-    //   ROUND 36: added dt=bd for better accuracy; previously only dt=t was sent.
+    //   ROUND 36: added dt=bd for better accuracy.
+    //   ROUND 37: added manga context prefix approach — if the text is a short bubble (≤ 8 words) we send it
+    //     as a sentence fragment so Google treats it as natural spoken dialogue rather than a dictionary query.
+    //     For longer sentences we strip the prefix from the result. This preserves meaning/tone/character voice
+    //     as recommended by the LinguaForge literary translation guidelines.
     google: async (text, from, to) => {
-      const j = await getJson('https://translate.googleapis.com/translate_a/single?client=gtx&sl=' + from + '&tl=' + to + '&dt=t&dt=bd&q=' + encodeURIComponent(text));
+      // WHY: for short bubbles (≤ 8 words), we add a silent context prefix before the text.
+      //   This tells Google this is a spoken sentence, not a keyword, which gives much better natural meaning.
+      //   The prefix is stripped from the result before showing to the reader.
+      //   HOW: "— " followed by the text. Most translation services preserve this pattern.
+      //   For sound effects (all-caps short words like "BOOM", "SLASH"), skip the prefix — they translate better raw.
+      //   IMPROVE: use an actual manga-speech instruction when an LLM-based API is available.
+      const isSfx = /^[A-Z0-9\s!?.,…]{1,12}$/.test(text.trim()) && !/[a-z]/.test(text);
+      const wordCount = text.split(/\s+/).length;
+      // WHY: use a context prefix for manga dialogue lines (not sound effects, not very long sentences).
+      //   The prefix makes Google understand the text is a speech bubble fragment rather than a keyword query.
+      const usePrefix = !isSfx && wordCount <= 8 && text.trim().length >= 3;
+      const prefix = '— ';    // em dash + space: a common manga/novel speech marker
+      const query = usePrefix ? prefix + text : text;
+      const j = await getJson('https://translate.googleapis.com/translate_a/single?client=gtx&sl=' + from + '&tl=' + to + '&dt=t&dt=bd&q=' + encodeURIComponent(query));
       // WHY: dt=t result is in j[0] (array of [translated, original] pairs). dt=bd is in j[5] (dictionary section).
       //   For a full sentence the dt=t section is better; for short phrases (1-3 words) dt=bd is more accurate.
       //   HOW: use dt=t for anything more than a short phrase; use dt=bd when available for short phrases.
-      const dtT = (j[0] || []).map(p => p[0]).join('').trim();
+      let dtT = (j[0] || []).map(p => p[0]).join('').trim();
+      // WHY: strip the translated prefix from the result if we added one.
+      //   The prefix translates to similar punctuation in most languages ("— " or "- " etc.); remove leading dashes and spaces.
+      if (usePrefix) dtT = dtT.replace(/^[\-–—\s]+/, '').trim();
       try {
-        const wordCount = text.split(/\s+/).length;
         if (wordCount <= 3 && j[5] && j[5][0] && j[5][0][1] && j[5][0][1].length) {
           // WHY: for 1-3 word phrases the dictionary entry is more accurate (picks the right meaning by part-of-speech).
           return j[5][0][1][0] || dtT;
@@ -586,9 +609,27 @@
     const rtl = RTL.includes(cfg.to.split('-')[0]);
     st.ocr.bubbles.forEach((bb, i) => {
       const t = st.texts && st.texts[i]; if (!t) return;
+      // ROUND 37: clamp all coordinates to the 0..1 range.
+      // WHY: Tesseract sometimes returns bounding-box coordinates slightly outside 0..1 (e.g. -0.001 or 1.002)
+      //   due to border rounding. Without clamping the box overflows the image and the translation layer
+      //   can cover the full manga picture, hiding the artwork behind the overlay.
+      //   HOW: Math.max/min to keep each coordinate strictly inside [0, 1].
+      //   Also skip any box that would have zero or negative width/height after clamping (it was a bad detection).
+      //   IMPROVE: if a box is bigger than 80% of the image, warn and shrink it — it is almost certainly an OCR error.
+      const x0 = Math.max(0, Math.min(1, bb.x0));
+      const y0 = Math.max(0, Math.min(1, bb.y0));
+      const x1 = Math.max(0, Math.min(1, bb.x1));
+      const y1 = Math.max(0, Math.min(1, bb.y1));
+      const w = x1 - x0, h = y1 - y0;
+      // WHY: skip degenerate boxes (zero size or wrong direction after clamping).
+      if (w <= 0 || h <= 0) return;
+      // WHY: also skip boxes that cover more than 85% of the image width AND height at the same time —
+      //   those are almost always OCR reading the whole page as one region (a noise detection), not a real bubble.
+      //   They would hide the entire manga picture. IMPROVE: add a proper "is this a real bubble?" classifier.
+      if (w > 0.85 && h > 0.85) return;
       const b = document.createElement('div'), sp = document.createElement('span'); b.className = 'mf-tr-b'; sp.textContent = t; b.appendChild(sp); if (rtl) b.dir = 'rtl';
       const lum = (bb.bg[0] * .3 + bb.bg[1] * .59 + bb.bg[2] * .11);
-      b.style.cssText = 'left:' + (bb.x0 * 100).toFixed(3) + '%;top:' + (bb.y0 * 100).toFixed(3) + '%;width:' + ((bb.x1 - bb.x0) * 100).toFixed(3) + '%;height:' + ((bb.y1 - bb.y0) * 100).toFixed(3) + '%;background:rgb(' + bb.bg.join(',') + ');color:' + (lum > 140 ? '#111' : '#fff') + ';';
+      b.style.cssText = 'left:' + (x0 * 100).toFixed(3) + '%;top:' + (y0 * 100).toFixed(3) + '%;width:' + (w * 100).toFixed(3) + '%;height:' + (h * 100).toFixed(3) + '%;background:rgb(' + bb.bg.join(',') + ');color:' + (lum > 140 ? '#111' : '#fff') + ';';
       b.onclick = e => { e.stopPropagation(); b.classList.add('peek'); setTimeout(() => b.classList.remove('peek'), 3000); };   // tap = peek at the original (stopPropagation: no "tap to scroll")
       layer.appendChild(b);
     });

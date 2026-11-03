@@ -2211,7 +2211,23 @@
       // WHY: find the largest group. HOW: loop and keep the longest array.
       let best = []; groups.forEach(g => { if (g.length > best.length) best = g; });
       // WHY: avoid tiny lists on series pages. HOW: accept it for chapter pages, or if it has 3 or more links.
-      if (asChapter || best.length >= 3) pick = best;
+      // ROUND 37: on a chapter page, if the url's seriesKey is null (meaning its URL has no chapter-number pattern),
+      //   we still check the fallback group: if its key does NOT start with any sub-path of the current URL,
+      //   it is almost certainly a "recommended manga" sidebar (different manga entirely).
+      //   HOW: compare the best group's key against the current URL's path prefix. If they share no sub-path, return empty
+      //   so analyze() moves on to loadSeriesList() which fetches the REAL list from the series page.
+      //   IMPROVE: remember per hostname which path prefixes are sidebar links so the check can skip them faster.
+      if (asChapter && best.length > 0) {
+        let curPath = ''; try { curPath = new URL(url).pathname.replace(/\/+$/, ''); } catch { /* leave empty */ }
+        const bestKey = best[0] ? (seriesKey(best[0].url) || '') : '';
+        // WHY: check that the best group's series key is a sub-path of the current page's path.
+        //   If the current chapter is at /manga/baby-raising-devil/chapter-44/ (seriesKey = /manga/baby-raising-devil)
+        //   but the "best" group has key /manga/the-10th-class-lout/ — they share no path prefix: reject it.
+        //   Only accept when the key appears in the current URL path, OR the current path appears in the key.
+        const keysRelated = bestKey && curPath && (curPath.startsWith(bestKey) || bestKey.startsWith(curPath.replace(/\/[^/]+$/, '')));
+        if (!keysRelated) { /* best group is from a different manga — don't use it */ }
+        else pick = best;
+      } else if (asChapter || best.length >= 3) pick = best;
     }
     // WHY: always return a list. HOW: the pick or an empty array.
     return pick || [];
@@ -2418,7 +2434,8 @@
                          and then try to complete the list (chapterPictures, further down).
      IMPROVE: let the owner add reader-box names in Settings; also read pictures that are CSS background images. */
   // WHY: the places where sites put the pages of ONE chapter. HOW: a CSS selector text; each name is known from real sites. IMPROVE: add a name when you meet a new theme.
-  const READER_BOX = '.reading-content, .reader, #manga-page, .page-content, .chapter-content, .comic-page, [class*="reader"], [id*="reader"], #chapter-content, [id*="chapter-content"], .image-based';
+  // ROUND 37: added #chapter-container (arenascan / mangareader theme), .entry-content (WordPress default), .manga-reading-area, .page-break (common WP manga selectors).
+  const READER_BOX = '.reading-content, .reader, #manga-page, .page-content, .chapter-content, .comic-page, [class*="reader"], [id*="reader"], #chapter-content, [id*="chapter-content"], .image-based, #chapter-container, .manga-reading-area, .page-break, .entry-content';
   // WHY: pictures in these blocks are NEVER the pages of the chapter (they are menus, "recommended manga" covers, comment avatars). HOW: img.closest(SIDE_BOX) is checked in readerSlots.
   const SIDE_BOX = 'aside, nav, footer, header, [class*="sidebar" i], [class*="widget" i], [class*="recommend" i], [class*="related" i], [class*="popular" i], [class*="comment" i]';
   // WHY: tell if a text is the address of a picture. HOW: no spaces, not a data:/javascript: address, and it ends with a picture ending (a ?query after it is fine).
@@ -2427,12 +2444,33 @@
     v = String(v || '').trim();
     // WHY: spaces mean a sentence or a srcset list, not ONE address. HOW: test for any space character.
     if (v.length < 5 || v.length > 1500 || /^(?:data|javascript|blob):/i.test(v) || /\s/.test(v)) return false;
-    return IMG_EXT.test(v);
+    // WHY: standard case — a URL ending with a known image extension.
+    if (IMG_EXT.test(v)) return true;
+    // ROUND 37: also accept URLs that look like image CDN paths without a file extension.
+    // WHY: some sites (mangareader theme, arenascan CDN) serve images from paths like
+    //   "https://cdn.example.com/uploads/manga/chapter-1/1" with no .jpg/.webp extension.
+    //   These are still real image addresses — the server sends the right content-type.
+    // HOW: accept any http(s) URL that is at least 12 chars long and has a path with 2+ segments,
+    //   as long as the last path segment looks like a numbered page (digits only, or digits+alpha).
+    // IMPROVE: per-site whitelist would be more precise and would never accidentally accept a non-image URL.
+    if (/^https?:\/\//.test(v)) {
+      try {
+        const p = new URL(v).pathname;
+        const last = p.split('/').filter(Boolean).pop() || '';
+        // last segment is pure digits (page number) or digits+extension already caught above
+        if (/^\d{1,5}$/.test(last)) return true;
+      } catch { /* bad URL, fall through */ }
+    }
+    return false;
   }
   // WHY: find the real address of ONE <img>, and tell WHICH attribute held it (the report shows this, it helps to fix new sites). HOW: see the long comment above.
   // Returns { url, attr } - url is '' when the picture has no address (an empty slot).
   function imgAddressInfo(img, base) {
-    const KNOWN = ['data-src', 'data-lazy-src', 'data-original', 'data-url', 'data-lazy', 'src'];
+    // ROUND 37: added 'data-page-src' (arenascan / mangareader theme) and 'data-original-src' (another WP manga theme).
+    // WHY: sites using the mangareader theme store image addresses in data-page-src instead of data-src.
+    //   Adding them here means they are tried FIRST (highest priority), before the fallback scan.
+    //   IMPROVE: load this list from a small per-site config so new themes can be added without code changes.
+    const KNOWN = ['data-src', 'data-lazy-src', 'data-original', 'data-url', 'data-lazy', 'data-page-src', 'data-original-src', 'src'];
     // 1) the attributes we already know. A "data:" address (a tiny built-in drawing) is skipped on purpose.
     let attr = KNOWN.find(a => { const v = img.getAttribute(a); return v && v.trim() && !v.trim().startsWith('data:'); }) || '';
     let raw = attr ? img.getAttribute(attr).trim() : '';

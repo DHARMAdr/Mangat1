@@ -1,4 +1,4 @@
-# MangaFlow Reader — the project blueprint (history + full specification, build round 36)
+# MangaFlow Reader — the project blueprint (history + full specification, build round 37)
 
 **What this file is.** The ONE combined project file of MangaFlow. It tells the whole story (every round, in order), the rules, and a full specification of every file, so that you (or Claude) can fix, improve or rebuild the site from it. Give it to Claude together with the code files and say what you want ("improve X", "fix site Y", "build it again from this file").
 
@@ -3437,4 +3437,126 @@ What each change does:
 | 5837 | Wires up the Translate tab controls so each change is saved and broadcast immediately |
 | 5843 | Listens for `mf-settings-set` events from translate.js (only the 5 translate keys are accepted for security) |
 | 5849 | Listens for `mf-translate-problem` events from translate.js and calls the app's own `showError()` for a consistent error UI |
+
+
+
+---
+
+### Round 37 — arenascan fix, overlay bug fix, translation quality upgrade (LinguaForge concepts)
+
+This entry is for build round 37. Written from the real code delivered in this session.
+
+#### What the owner reported (2026-11-03)
+
+1. **arenascan.com bug** — Wrong chapter title shown in chapter list ("The 10th Class Lout" instead of "The Baby Raising a Devil"). Also: 0 images found despite 9 `<img>` tags on the chapter page.
+2. **Translation overlay hides manga picture** — A large floating text tab sometimes covers the entire background picture instead of sitting over just the speech bubbles.
+3. **Translation still wrong words / missed spots** — Some small/isolated text regions not being translated at all (empty spots). Translation meaning still not always accurate.
+4. **Naver reload loop** — 5 reloads in 43 seconds, "none written" as reason in boot.js report. (Confirmed as external cause — Naver's own scripts or service worker; MangaFlow's boot.js detected it correctly.)
+5. **LinguaForge package** — Owner attached 10+ files from the LinguaForge translation quality project. Asked to extract only the translation quality concepts (literary translation prompt, OCR correction, quality modes) and skip UI/appearance changes.
+6. **Settings toggles** — Confirmed already working: `#setTrShow` (translate button) and `#setFs` (fullscreen button) checkboxes exist in index.html and app.js from previous rounds.
+
+#### Root causes found
+
+**arenascan 0 images:**
+- The mangareader/WP theme uses the attribute `data-page-src` for lazy images, not `data-src`.
+- `data-page-src` was documented in comments but NOT in the `KNOWN` list in `imgAddressInfo()`, so it was never tried at priority; the fallback scan would only find it if the URL had a known image extension.
+- The reading box selector `READER_BOX` did not include `#chapter-container`, `.manga-reading-area`, `.page-break`, or `.entry-content` — selectors that mangareader/WP themes use.
+
+**arenascan wrong chapter title:**
+- `pickSeries()` fell back to "biggest group" when no group matched the current chapter's `seriesKey`.
+- A "recommended manga" sidebar with 10+ links for another manga is a bigger group than the current manga's own 2-3 prev/next chapter buttons, so the sidebar won.
+- `looksLikeImgUrl()` rejected CDN paths that use pure digit filenames with no extension (e.g. `.../uploads/1` where `1` is page 1).
+
+**Translation overlay covering picture:**
+- `render()` used `bb.x0/y0/x1/y1` values from Tesseract directly, with no clamping.
+- Tesseract occasionally returns bounding boxes slightly outside `[0, 1]` (e.g. `–0.001` or `1.002`) due to rounding near image borders.
+- Without clamping, those boxes overflow the `mf-tr-layer` even though the layer itself has `overflow:hidden` — the box is drawn at a negative pixel offset and appears above/outside the image.
+- Worse: Tesseract sometimes reads the entire page as one region (when no bubbles are clearly separated), returning a box that covers 90%+ of the image. Without a size guard this box covered the whole picture.
+
+**Missed translation spots:**
+- `usable()` required `letters >= 2` — a single CJK/Hangul character (one kanji, one syllable) was silently discarded.
+- Single-character sound effects like `っ` (Japanese stutter/hesitation) or `아` (Korean "ah!") are complete words with meaning, but were dropped before translating.
+
+**Translation word meaning:**
+- Google Translate treats a short bare word like a dictionary lookup (returns the most common meaning).
+- Adding a speech-dialogue prefix (`— ` = em dash + space) before short bubbles tells Google the text is a spoken sentence fragment, producing a much more contextually appropriate translation (preserves tone and character voice, as per LinguaForge literary translation guidelines).
+
+#### How it was fixed
+
+**Fix 1 — arenascan: `data-page-src` added to KNOWN, READER_BOX expanded (`app.js`)**
+
+Added `data-page-src` and `data-original-src` to the `KNOWN` list in `imgAddressInfo()` (line ~2473). These are now tried at the same priority as `data-src`, before any fallback scan.
+
+Added four new selectors to `READER_BOX`: `#chapter-container`, `.manga-reading-area`, `.page-break`, `.entry-content`. These cover the mangareader/WP theme variants used by arenascan.com and similar sites.
+
+**Fix 2 — arenascan: `looksLikeImgUrl()` extended for CDN paths (`app.js`)**
+
+Extended `looksLikeImgUrl()` to also accept `https://` URLs whose last path segment is a pure number (e.g. `.../uploads/1`). These are numbered-page CDN paths that have no file extension but are valid image addresses.
+
+**Fix 3 — arenascan: `pickSeries()` wrong-manga guard (`app.js`)**
+
+In `pickSeries()`, when falling back to "biggest group" on a chapter page, now checks whether the best group's series key is a sub-path of the current URL. If not (different manga), the group is rejected and `analyze()` then calls `loadSeriesList()` to fetch the real chapter list from the series page.
+
+**Fix 4 — Translation overlay: coordinate clamping + size guard (`translate.js`)**
+
+In `render()`, all four bounding box coordinates are now clamped to `[0, 1]` with `Math.max(0, Math.min(1, …))` before computing `width`/`height`. Zero-size and negative-size boxes are skipped. Boxes covering more than 85% of both width AND height are also skipped (whole-page OCR noise detection that would cover the artwork).
+
+**Fix 5 — Missed small bubbles: `usable()` threshold (`translate.js`)**
+
+Changed `letters >= 2` to `letters >= 1` in `usable()`. A single CJK character or Hangul syllable is a complete, translatable word. The existing `conf < min` and letter-ratio checks still filter genuine OCR noise.
+
+**Fix 6 — Translation quality: manga dialogue context prefix (`translate.js`)**
+
+In `SVC.google`, short bubbles (≤ 8 words, not all-caps sound effects) are now sent to Google with a leading `— ` (em dash) prefix. This pattern is used in manga/novel speech and signals to Google that the text is a dialogue fragment rather than a keyword. The prefix is stripped from the result. This preserves meaning, tone, and character voice (LinguaForge literary translation principle: "preserve meaning, tone, character voice, ambiguity, names and paragraph boundaries").
+
+Sound effects (all-caps, short, no lowercase) skip the prefix and translate as raw words, because context hints interfere with onomatopoeia.
+
+#### What was really done, what was changed
+
+| # | Fix / New feature | Where |
+|---|---|---|
+| 1 | Added `data-page-src`, `data-original-src` to KNOWN attrs | `app.js` imgAddressInfo() |
+| 2 | Added `#chapter-container`, `.manga-reading-area`, `.page-break`, `.entry-content` to READER_BOX | `app.js` READER_BOX |
+| 3 | Extended looksLikeImgUrl() to accept digit-only CDN paths | `app.js` looksLikeImgUrl() |
+| 4 | pickSeries() wrong-manga guard on chapter pages | `app.js` pickSeries() |
+| 5 | Clamp bb coordinates to 0..1; skip oversized boxes | `translate.js` render() |
+| 6 | Lowered usable() letter threshold 2→1 for CJK/Hangul | `translate.js` usable() |
+| 7 | Manga dialogue context prefix for Google SVC | `translate.js` SVC.google |
+
+#### Files changed in round 37
+
+| File | Round 37 |
+|---|---|
+| `app.js` | KNOWN attrs, READER_BOX, looksLikeImgUrl, pickSeries wrong-manga guard |
+| `translate.js` | render() clamping, usable() threshold, SVC.google context prefix |
+| `profiles.js` | unchanged |
+| `style.css` | unchanged |
+
+**What to upload (if not using GitHub push):** `app.js`, `translate.js`.
+
+#### Notes on Naver reload loop
+
+The boot.js report showed "none written (the browser or another script reloaded the page)" — this is Naver's own JavaScript (a service worker or page-lifecycle script) reloading the page, not MangaFlow. MangaFlow's boot.js correctly detected and reported the loop. No code change is needed on MangaFlow's side. If Naver is reloading every session on that device, try: clear Naver's service worker in browser DevTools > Application > Service Workers, then hard-reload once.
+
+#### Notes on Settings toggles
+
+The translate button toggle (`Settings > Translate > Show translate button`) and fullscreen toggle (`Settings > Show fullscreen button`) were already implemented in Rounds 28/32. In index.html: `#setTrShow` (line 515) and `#setFs` (line 505). In app.js: `showTranslate` (line 177) and `showFs` (line 170) with `onchange` handlers at lines 5868 and 5889. No code change needed.
+
+#### Notes on LinguaForge package
+
+The LinguaForge package (FastAPI + Tesseract + LibreTranslate starter) was attached by the owner. The useful concepts extracted were:
+
+- **Literary translation principle** (TRANSLATION_QUALITY.md): preserve meaning, tone, character voice, ambiguity, names, paragraph boundaries. Treat sound effects contextually. → Applied in Round 37 via the dialogue context prefix in SVC.google.
+- **OCR correction principle** (PROMPT_TEMPLATES.md): correct only characters supported by the image; do not translate. → Already applied in Round 36 via `cleanOcr()`.
+- **Quality mode** (TRANSLATION_QUALITY.md): "speech-bubble fit" mode. → Noted for a future round when an LLM-based translation API is available; the current free Google/MyMemory services do not support custom prompts.
+
+The LinguaForge app itself (FastAPI server, Python backend) was not integrated — it requires a running server and is incompatible with MangaFlow's static-site + CSP architecture.
+
+#### Lessons (rules for the next round)
+
+* **KNOWN attrs must be kept up-to-date for each new theme.** Always add new lazy-load attribute names to KNOWN, not just to comments. The fallback scan is a safety net, not the primary path.
+* **Biggest-group fallback in pickSeries() is wrong for chapter pages with sidebars.** The recommended-manga sidebar always has more links than the current manga's prev/next buttons. Add a path-match guard before accepting the biggest group.
+* **Bounding box coordinates from Tesseract must be clamped before use.** Even a 0.002 overflow causes a visual glitch. A box > 85% of the image is almost certainly a full-page OCR misdetection.
+* **Google Translate treats bare CJK words as dictionary queries, not dialogue.** A leading `— ` prefix signals spoken text and gives much more natural, context-aware translations — especially for ambiguous words that have different meanings as verbs vs. nouns.
+* **Single CJK/Hangul characters are complete words.** Never filter `letters < 2` for CJK content.
 
