@@ -227,6 +227,12 @@
   settings.proxies = Array.from(new Set(settings.proxies.map(fixProxy).filter(p => p && !isExample(p))));
   // ROUND 19: one-time upgrade: put the built-in proxy FIRST for everybody (a person who removes it later keeps it removed because ver is raised).
   if (settings.ver < 13) { if (!settings.proxies.includes(BUILTIN_PROXY)) settings.proxies.unshift(BUILTIN_PROXY); settings.ver = 13; }
+  // ROUND 38 — SECURITY: keepAwake must NEVER persist across page loads/refreshes/tab reopen.
+  // WHY: keeping the screen awake drains battery and is a privacy risk (screen stays on after the reader walks away).
+  //   The user asked for it to auto-OFF every time the page loads. HOW: after loading all saved settings, unconditionally
+  //   reset keepAwake to false. The user must manually switch it ON each time they want it. The setting is NOT saved
+  //   when keepAwake changes — only the other settings are saved. IMPROVE: show a small toast "Screen-awake was reset".
+  settings.keepAwake = false;
 
   // ROUND 14: keep the screen awake while reading (optional). WHY: phones dim and lock during long reading. HOW: the Screen Wake Lock API
   // gives a "lock" object; we ask for it when the switch is on and the page is visible, and let go when either changes. A browser
@@ -240,7 +246,12 @@
       else if (wakeLock) { await wakeLock.release(); wakeLock = null; }
     } catch { wakeLock = null; /* refused (battery saver, not allowed): ignore */ }
   }
-  document.addEventListener('visibilitychange', syncWake);   // the browser drops the lock when the page hides, so ask again when it returns
+  // WHY: 'visibilitychange' fires when the tab is hidden/shown; 'pageshow' fires when navigating back (bfcache restore); 'focus' catches
+  //   a window that was minimised and brought back. All three events can put the page back into view without a 'visibilitychange', so all
+  //   three must try to re-acquire the lock. Without pageshow/focus the screen could go dark even when keepAwake is ON. ROUND 38.
+  document.addEventListener('visibilitychange', syncWake);
+  window.addEventListener('pageshow', syncWake);
+  window.addEventListener('focus', syncWake);
   // WHY: puts the current settings onto the page and saves them. HOW: sets theme and button side as data attributes (CSS
   // reads them), sets the width as a CSS variable - -w, and updates the browser theme colour meta tag. IMPROVE: call it
   // only when something changed.
@@ -1124,7 +1135,8 @@
   // it was there, keeps only 20 and saves. IMPROVE: also store a small cover picture.
   function addRecent(url, title) {
     if (settings.noHistory) return;                   // privacy option (Settings > Security)
-    recent = [{ url, title: (title || url).slice(0, 80), host: hostOf(url), at: Date.now() }, ...recent.filter(r => r.url !== url)].slice(0, 20);
+    // WHY: raised from 20 to 500 — users want ALL history visible in the profile tab (cloud stores everything). ROUND 38.
+    recent = [{ url, title: (title || url).slice(0, 80), host: hostOf(url), at: Date.now() }, ...recent.filter(r => r.url !== url)].slice(0, 500);
     // WHY: save the Recent list. HOW: store.set writes it (under the profile's own key if someone is signed in).
     store.set('recent', recent);
   }
@@ -1132,7 +1144,8 @@
   // id, keeps 30, then saves. IMPROVE: save the scroll position too.
   function saveRead(info) {              // newest first, one entry per manga (same id replaces the old one)
     if (settings.noHistory) return;
-    reads = [info, ...reads.filter(r => r.id !== info.id)].slice(0, 30);
+    // WHY: raised from 30 to 500 — keep all manga the user ever read, not just the last 30. ROUND 38.
+    reads = [info, ...reads.filter(r => r.id !== info.id)].slice(0, 500);
     // WHY: save the Continue reading list. HOW: same as above.
     store.set('reads', reads);
   }
@@ -2940,14 +2953,18 @@
     if (!links.length) return none;
     let pu; try { pu = new URL(pageUrl); } catch { return none; }
     const cm = PAGER_RE.exec(pu.pathname + pu.search), curN = cm ? parseInt(cm[1] || cm[2], 10) : 1;
-    const maxN = Math.min(links[links.length - 1].n, 40), example = links[links.length - 1].url;
+    // WHY: raised from 40 to 200 so sites like arenascan (chapters 1-190 spread across many pages) load completely.
+    //   The old cap of 40 cut off the first 150+ chapters on paginated lists. ROUND 38: 200 pages × ~20 chapters each = 4 000 chapters max.
+    //   IMPROVE: detect the real max from the pager links and remove the hard cap entirely.
+    const maxN = Math.min(links[links.length - 1].n, 200), example = links[links.length - 1].url;
     // WHY: the numbers shown in a pager can skip ("1 2 3 … 5"). HOW: the address of page n is the example link with its number replaced.
     const addr = n => (links.find(l => l.n === n) || {}).url || example.replace(/(\/page\/)\d+/i, '$1' + n).replace(/([?&](?:page|paged|pg|p)=)\d+/i, '$1' + n);
     const todo = []; for (let n = 1; n <= maxN; n++) if (n !== curN) todo.push(n);
     const all = new Map(); (firstList || []).forEach(c => all.set(c.url, c));
     const missed = [], t0 = Date.now();
     for (let i = 0; i < todo.length; i += 3) {
-      if (Date.now() - t0 > 40000) { missed.push(...todo.slice(i)); break; }          // never wait for ever on a slow site
+      // WHY: raised from 40s to 90s — 200 pages at 3 at a time = 67 batches; slow sites need the extra time. ROUND 38.
+      if (Date.now() - t0 > 90000) { missed.push(...todo.slice(i)); break; }          // never wait for ever on a slow site
       if (progress) progress(todo[i], maxN);
       await Promise.all(todo.slice(i, i + 3).map(async n => {
         try { const p = await fetchDoc(addr(n)); accept(detectChapters(p.doc, p.base)).forEach(c => { if (!all.has(c.url)) all.set(c.url, c); }); }
@@ -4697,6 +4714,75 @@
     return out;
   };
 
+  // ROUND 38: TRANSLATED PDF OVERLAY
+  // WHY: When a chapter has been translated, the PDF download should include the translated text on top of each page
+  //   image (not the original text). HOW: translate.js stores translated bubble data on each <img> element's _mfTr
+  //   property (set by window.MangaFlowTranslate.getPageData). If translation data is found for the page, we decode
+  //   the image on a canvas, draw the translated text boxes on top (white/black fill + text, same as the on-screen
+  //   overlay), then save the composited canvas as a JPEG for the PDF.
+  //   This only runs when ALL of the following are true:
+  //     1. The translate add-on (translate.js) is loaded (window.MangaFlowTranslate exists)
+  //     2. The image element is passed and has translation data
+  //     3. The image has been fully translated (state = 'done')
+  //   IMPROVE: use the exact same font + fit algorithm as translate.js for pixel-perfect matching.
+  async function addPageImageWithTranslation(pdf, bytes, mode, imgEl) {
+    // WHY: check if the translate add-on is active and has data for this image. HOW: MangaFlowTranslate.getPageData(img)
+    //   returns { bubbles, texts } or null. If no translation data, fall back to normal rendering.
+    const tr = imgEl && window.MangaFlowTranslate && window.MangaFlowTranslate.getPageData && window.MangaFlowTranslate.getPageData(imgEl);
+    if (!tr || !tr.bubbles || !tr.texts || !tr.bubbles.length) {
+      // WHY: no translation for this page — use the standard (original image) path.
+      return addPageImage(pdf, bytes, mode);
+    }
+    // WHY: decode the image to a canvas so we can draw the translation overlay on top. HOW: createImageBitmap reads the bytes.
+    const bmp = await createImageBitmap(new Blob([bytes]));
+    try {
+      const iw = bmp.width, ih = bmp.height;
+      const c = document.createElement('canvas'); c.width = iw; c.height = ih;
+      const g = c.getContext('2d');
+      // WHY: draw the original page image as the background. HOW: drawImage copies the full bitmap at full size.
+      g.drawImage(bmp, 0, 0, iw, ih);
+      // WHY: draw each translated text bubble over the original text. HOW: each bubble has normalised coordinates (0–1)
+      //   and background colour. We scale them to pixel coordinates, fill the background, then draw the text.
+      tr.bubbles.forEach((bb, i) => {
+        const t = tr.texts[i]; if (!t) return;
+        // WHY: clamp coordinates to 0–1 (Tesseract can return values slightly outside). HOW: Math.max/min.
+        const x0 = Math.max(0, Math.min(1, bb.x0)), y0 = Math.max(0, Math.min(1, bb.y0));
+        const x1 = Math.max(0, Math.min(1, bb.x1)), y1 = Math.max(0, Math.min(1, bb.y1));
+        let bx = x0 * iw, by = y0 * ih, bw = (x1 - x0) * iw, bh = (y1 - y0) * ih;
+        if (bw <= 0 || bh <= 0) return;
+        // ROUND 38: same vertical-bubble expansion logic as translate.js render():
+        // WHY: vertical-source (tall-narrow) bubbles need horizontal space for the translated text.
+        //   Expand width to match the old height, shrink height to match the old width, centre on the original position.
+        const isVert = bh > bw * 1.5;
+        if (isVert) {
+          const cx = bx + bw / 2, cy = by + bh / 2;
+          const nw = Math.min(bh, iw * 0.9), nh = Math.max(bw * 0.8, iw * 0.06);
+          bx = Math.max(0, Math.min(iw - nw, cx - nw / 2));
+          by = Math.max(0, Math.min(ih - nh, cy - nh / 2));
+          bw = nw; bh = nh;
+        }
+        // WHY: fill the background of the bubble so the original text is hidden. HOW: use the detected background colour.
+        const lum = (bb.bg[0] * .3 + bb.bg[1] * .59 + bb.bg[2] * .11);
+        g.fillStyle = 'rgb(' + bb.bg.join(',') + ')';
+        g.fillRect(bx, by, bw, bh);
+        // WHY: draw the translated text. HOW: auto-size the font to fit the box width; wrap long text.
+        g.fillStyle = lum > 140 ? '#111' : '#fff';
+        g.textAlign = 'center'; g.textBaseline = 'middle';
+        // WHY: pick a font size that fits the box. HOW: start at 1/4 of box height; shrink until text fits in width; min 8px.
+        let fs = Math.max(8, Math.round(bh / 3));
+        g.font = fs + 'px system-ui, Arial, sans-serif';
+        while (fs > 8 && g.measureText(t).width > bw * 0.92) { fs -= 1; g.font = fs + 'px system-ui, Arial, sans-serif'; }
+        g.fillText(t, bx + bw / 2, by + bh / 2, bw);
+      });
+      // WHY: encode the composited page (image + text) as JPEG for the PDF. HOW: toBlob with JPEG quality from the profile.
+      const P = PDF_PROFILES[mode || settings.pdfMode] || PDF_PROFILES.balanced;
+      const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', P.q || 0.85));
+      if (!blob) throw new Error('canvas toBlob failed');
+      const u8 = new Uint8Array(await blob.arrayBuffer());
+      return pdf.addJpeg(u8);
+    } finally { if (bmp.close) bmp.close(); }
+  }
+
   // WHY: Puts one picture into the PDF with the chosen quality. HOW: Gets the profile, finds the picture type, and tries
   // to copy JPEG or PNG bytes untouched when allowed; otherwise it decodes with createImageBitmap. IMPROVE: Return a clear
   // error for unknown formats.
@@ -5347,10 +5433,18 @@
         // Then err keeps the error message. IMPROVE: none needed.
         job.deadRun = r.e ? job.deadRun + 1 : 0; job.pageN++;
         let err = r.e && r.e.message;
-        // WHY: put the picture in the PDF. HOW: addPageImage encodes it; a decode error becomes the message. IMPROVE: none
-        // needed.
+        // WHY: put the picture in the PDF. HOW: addPageImage encodes it; a decode error becomes the message.
+        // ROUND 38: when translate.js has already translated this page, use addPageImageWithTranslation so the
+        //   translated text appears in the downloaded PDF. HOW: find the <img> element that is showing this URL
+        //   (currentSrc or src match), then pass it to addPageImageWithTranslation. If not found or not translated,
+        //   falls back to the normal addPageImage path. IMPROVE: pre-translate all pages before the download starts.
         if (r.b) {
-          try { await addPageImage(strip, r.b, mode); }
+          try {
+            // WHY: find the page <img> in the DOM to retrieve its translate.js data. HOW: match by currentSrc or src.
+            const pageImgEl = document.querySelector('#stream img.page[src="' + CSS.escape(urls[k]) + '"]') ||
+              [...document.querySelectorAll('#stream img.page')].find(i => (i.currentSrc || i.src) === urls[k]);
+            await addPageImageWithTranslation(strip, r.b, mode, pageImgEl || null);
+          }
           catch (e) { err = 'could not decode the picture (' + e.message + ')'; }
         }
         if (r.b && !err) { okPages++; job.okTotal = (job.okTotal || 0) + 1; }    // round 18

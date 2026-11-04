@@ -629,7 +629,27 @@
       if (w > 0.85 && h > 0.85) return;
       const b = document.createElement('div'), sp = document.createElement('span'); b.className = 'mf-tr-b'; sp.textContent = t; b.appendChild(sp); if (rtl) b.dir = 'rtl';
       const lum = (bb.bg[0] * .3 + bb.bg[1] * .59 + bb.bg[2] * .11);
-      b.style.cssText = 'left:' + (x0 * 100).toFixed(3) + '%;top:' + (y0 * 100).toFixed(3) + '%;width:' + (w * 100).toFixed(3) + '%;height:' + (h * 100).toFixed(3) + '%;background:rgb(' + bb.bg.join(',') + ');color:' + (lum > 140 ? '#111' : '#fff') + ';';
+      // ROUND 38: VERTICAL TEXT BOX SIZING FIX.
+      // WHY: Japanese manga uses vertical text columns — the OCR box is tall and narrow (height >> width).
+      //   When we overlay translated horizontal English text into a tall-narrow box, the text is squeezed and unreadable
+      //   because there is no room for horizontal letters to lay out. The fix expands the box WIDTH and reduces the HEIGHT
+      //   so horizontal text can flow naturally. HOW: if the source bubble was vertical (height > 1.5 × width), we swap the
+      //   dimensions: the new box has the same AREA but is wide instead of tall, centred on the original box.
+      //   The expansion is capped at 90% of image width so we never overflow the image. IMPROVE: position the expanded box
+      //   smarter (avoid overlapping adjacent bubbles).
+      let bx0 = x0, by0 = y0, bw = w, bh = h;
+      const isVertSrc = h > w * 1.5;    // the source bubble was a vertical Japanese text column
+      const isHorizTarget = !rtl;       // translating TO a left-to-right language (English, Hindi, etc.)
+      if (isVertSrc && isHorizTarget) {
+        // WHY: swap width and height so the box has room for horizontal text. Keep the same centre point.
+        const cx = x0 + w / 2, cy = y0 + h / 2;
+        // WHY: the new width = old height (expanded), new height = old width (compressed), capped to avoid overflow.
+        bw = Math.min(h * 1.0, 0.90);     // new width = old height (or 90% of image, whichever is smaller)
+        bh = Math.max(w * 0.8, 0.06);     // new height = old width (or at least 6% of image height for readability)
+        bx0 = Math.max(0, Math.min(1 - bw, cx - bw / 2));   // keep the box inside the image horizontally
+        by0 = Math.max(0, Math.min(1 - bh, cy - bh / 2));   // keep the box inside the image vertically
+      }
+      b.style.cssText = 'left:' + (bx0 * 100).toFixed(3) + '%;top:' + (by0 * 100).toFixed(3) + '%;width:' + (bw * 100).toFixed(3) + '%;height:' + (bh * 100).toFixed(3) + '%;background:rgb(' + bb.bg.join(',') + ');color:' + (lum > 140 ? '#111' : '#fff') + ';';
       b.onclick = e => { e.stopPropagation(); b.classList.add('peek'); setTimeout(() => b.classList.remove('peek'), 3000); };   // tap = peek at the original (stopPropagation: no "tap to scroll")
       layer.appendChild(b);
     });
@@ -833,7 +853,18 @@
       '--- diary ---'].concat(logLines.slice(-25)).join('\n');
   }
 
-  window.MangaFlowTranslate = { version: 1, el: btn, report, info: () => ({ on, done, queue: queue.size, cfg: { ...cfg, proxies: cfg.proxies.length }, autoLang }), langs: { LANG_TO, OCR_LANGS },
+  // ROUND 38: getPageData — used by app.js PDF download to composite translated text onto each page.
+  // WHY: app.js needs access to the OCR bubble coords and translated texts for each translated image, so it can
+  //   draw them on a canvas before adding the page to the PDF. HOW: given an <img> element, look it up in the
+  //   pages Map and return { bubbles, texts } when the page is fully translated (state='done').
+  //   Returns null when the page has not been translated (not translated, translation in progress, or failed).
+  //   IMPROVE: also expose the autoLang for pages translated from 'auto' so the PDF can note the source language.
+  function getPageData(img) {
+    const s = pages.get(img);
+    if (!s || s.state !== 'done' || !s.ocr || !s.texts || !s.texts.length) return null;
+    return { bubbles: s.ocr.bubbles, texts: s.texts };
+  }
+  window.MangaFlowTranslate = { version: 1, el: btn, report, getPageData, info: () => ({ on, done, queue: queue.size, cfg: { ...cfg, proxies: cfg.proxies.length }, autoLang }), langs: { LANG_TO, OCR_LANGS },
     // used by the tests: run the pure parts without a browser page
     _test: { groupLines, dedupe, usable, tidy, guessLang } };
   scan();

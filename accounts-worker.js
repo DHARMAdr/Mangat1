@@ -85,11 +85,12 @@ export default {
     const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
     const cors = { 'Access-Control-Allow-Origin': allowed.length ? (allowed.includes(origin) ? origin : 'null') : '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Vary': 'Origin' };
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });          // the browser's pre-check
-    if (request.method === 'GET' && new URL(request.url).pathname.replace(/\/+$/, '') === '/ping') return json({ ok: true, version: 4, note: 'accounts-worker.js round 22 is running' }, 200, cors);
+    if (request.method === 'GET' && new URL(request.url).pathname.replace(/\/+$/, '') === '/ping') return json({ ok: true, version: 4, note: 'accounts-worker.js round 38 is running' }, 200, cors);
     // WHY: refuse web pages that are not yours. HOW: when ALLOWED_ORIGINS is set, any other Origin gets 403. IMPROVE: log
     // refused origins.
     if (allowed.length && !allowed.includes(origin)) return json({ error: 'this site is not allowed' }, 403, cors);
     // ROUND 22: opening  <worker address>/ping  in a browser tab (a GET) now shows the version, so you can SEE that the new file is deployed. Everything else still needs POST.
+    // ROUND 38: added /activity/delete (delete one entry by user+t+url) and /activity/clear (wipe all entries for the user).
     if (request.method !== 'POST') return json({ error: 'POST only' }, 405, cors);
     if (!env.DB) return json({ error: 'The D1 binding named DB is missing (see step 3 at the top of accounts-worker.js).' }, 500, cors);
 
@@ -206,6 +207,28 @@ export default {
       return json({ ok: true }, 200, cors);
     }
     if (path === '/clear-me') { await DB.prepare('DELETE FROM acts WHERE user = ?').bind(me.user).run(); return json({ ok: true }, 200, cors); }
+
+    // --- ROUND 38: delete ONE activity entry from the cloud (profiles.js delact handler). ----------------------------
+    // WHY: when the user taps × on a history entry in the profile tab, it should also disappear from the cloud,
+    //   not just from their browser. HOW: match by user + timestamp + url. All three must match so random people
+    //   cannot delete each other's rows. IMPROVE: add an integer id to the history rows so delete is instant.
+    if (path === '/activity/delete') {
+      const t = +body.t || 0, url = txt(body.url, 400);
+      // WHY: refuse if the caller did not give us the timestamp or url (both needed to identify the row).
+      if (!t || !url) return json({ error: 'Need t and url.' }, 400, cors);
+      await DB.prepare('DELETE FROM acts WHERE user = ? AND t = ? AND url = ?').bind(me.user, t, url).run();
+      return json({ ok: true }, 200, cors);
+    }
+
+    // --- ROUND 38: wipe ALL activity entries for this user from the cloud (profiles.js clear handler). ---------------
+    // WHY: the user clicked "Clear history" in the profile tab — delete everything from the cloud too,
+    //   not just from the browser's localStorage. HOW: same SQL as /clear-me but reached via a different
+    //   route so profiles.js can call it without touching the older /clear-me path. IMPROVE: add a "confirm" flag.
+    if (path === '/activity/clear') {
+      await DB.prepare('DELETE FROM acts WHERE user = ?').bind(me.user).run();
+      return json({ ok: true }, 200, cors);
+    }
+
     if (path === '/delete-me') {
       if (admin) return json({ error: 'The admin lives in the Worker variables.' }, 400, cors);
       await wipe(DB, me.user); await DB.prepare('DELETE FROM tokens WHERE user = ?').bind(me.user).run();
