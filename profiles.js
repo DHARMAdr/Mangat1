@@ -336,8 +336,14 @@
     border:1px solid #ffffff3a;background:#05060f;color:#fff;font:500 16px ui-monospace,Consolas,monospace;}
   #mfProf input:focus{outline:2px solid #7ff6ff;border-color:transparent;}
   #mfProf .mfp-code{letter-spacing:.5em;text-align:center;font-size:20px;}
+  /* ROUND 39 FIX: buttons now use inline-flex to CENTER their text/icon both ways. WHY: before this, a button that
+     ended up taller than its own text (because a row-sibling button wrapped to two lines, stretching every button in
+     that row to match) left its single-line text sitting at the top instead of in the middle — looking "misaligned".
+     white-space:nowrap stops the button's OWN text from wrapping in the first place; the row above now gives every
+     button a 140px floor so there is normally room for the label on one line. */
   #mfProf .mfp-btn{min-height:44px;padding:8px 16px;border-radius:12px;border:1px solid #7ff6ff88;cursor:pointer;color:#fff;font:700 .9rem system-ui,sans-serif;
-    background:linear-gradient(135deg,#25a8ff,#7a3cff 55%,#c020ff);box-shadow:0 0 14px rgba(80,90,255,.5);}
+    background:linear-gradient(135deg,#25a8ff,#7a3cff 55%,#c020ff);box-shadow:0 0 14px rgba(80,90,255,.5);
+    display:inline-flex;align-items:center;justify-content:center;text-align:center;white-space:nowrap;gap:6px;}
   #mfProf .mfp-btn.ghost{background:#ffffff10;border-color:#ffffff40;box-shadow:none;} #mfProf .mfp-btn.red{background:#c92a2a55;border-color:#ff6b6b;box-shadow:none;}
   #mfProf .mfp-btn.small{min-height:34px;padding:4px 12px;font-size:.8rem;}
   /* ROUND 35: × delete button on each Continue reading row. WHY: lets the user remove one entry without clearing all history.
@@ -345,7 +351,15 @@
   #mfProf .mfp-del{min-width:30px!important;min-height:30px!important;width:30px;height:30px;padding:0!important;border-radius:50%!important;font-size:.9rem;display:grid;place-items:center;flex:none;margin-left:2px;}
   #mfProf .mfp-del:hover{background:#c92a2a!important;border-color:#ff6b6b!important;box-shadow:0 0 8px rgba(200,42,42,.5)!important;}
   #mfProf .mfp-del:active{transform:scale(.9);}
-  #mfProf .mfp-row{display:flex;gap:8px;flex-wrap:wrap;} #mfProf .mfp-row>*{flex:1;}
+  /* ROUND 39 FIX — button/row alignment. WHY: "flex:1" on every direct child of .mfp-row also stretched the small
+     "From:"/"To:" text labels in the date row to the SAME width as the date inputs next to them, leaving a big gap
+     of empty space inside each label and squashing the actual date boxes — this is the misalignment the user saw.
+     HOW: give row children a sane minimum width (140px) instead of growing from zero, so buttons/inputs wrap onto a
+     new line cleanly on narrow phones rather than being squeezed/stretched unevenly; the date-row labels below get
+     flex:0 so they stay their natural (small) width and never compete with the input for space. IMPROVE: none needed. */
+  #mfProf .mfp-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;} #mfProf .mfp-row>*{flex:1 1 140px;}
+  #mfProf .mfp-daterow{row-gap:6px;} #mfProf .mfp-daterow label{flex:0 0 auto;}
+  #mfProf .mfp-daterow input[type=date]{flex:1 1 120px;min-width:0;}
   #mfProf .mfp-note{font:500 .78rem/1.45 system-ui,sans-serif;color:#aab4e8;margin:0;}
   #mfProf .mfp-msg{padding:8px 12px;border-radius:10px;font:600 .85rem system-ui,sans-serif;background:#c92a2a33;border:1px solid #ff6b6b;}
   #mfProf .mfp-msg.ok{background:#2f9e4433;border-color:#51cf66;}
@@ -372,6 +386,23 @@
 
   /* ---- 10. the window --------------------------------------------------------------------------------------------------------------- */
   const dlg = document.createElement('dialog'); dlg.id = 'mfProf'; dlg.setAttribute('aria-label', 'Profile'); document.body.appendChild(dlg);
+  // ROUND 39 FIX — "click/tap outside to close" was missing from the Profile window.
+  // WHY: app.js already gives every <dialog> this behaviour (see its "CLICK OUTSIDE = CLOSE" section, round 11), but
+  //   it does that ONCE, early, by looping over the <dialog> elements that exist in index.html at that moment. This
+  //   #mfProf dialog is created by THIS file instead, later — profiles.js only runs after the page's 'load' event —
+  //   so it was never in that list and never got the close-on-outside-tap behaviour, even though every other floating
+  //   window on the site (Settings, the download window, error reports) already has it. HOW: the exact same two-step
+  //   pointerdown+click pattern as app.js: a press must both START and END on the dark backdrop (outside the white
+  //   box), so selecting text inside the window and releasing the mouse outside it does NOT close it by accident.
+  //   This never fires while the form is mid-submit (the 'submit' handler below calls preventDefault + awaits the
+  //   server before anything closes), so a sign-in/create in progress is never interrupted. IMPROVE: a small
+  //   closing animation, shared with app.js's copy of this code.
+  (function addClickOutsideClose() {
+    let downOut = false;
+    const outside = e => { const r = dlg.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
+    dlg.addEventListener('pointerdown', e => { downOut = e.target === dlg && outside(e); });
+    dlg.addEventListener('click', e => { if (downOut && e.target === dlg && outside(e)) dlg.close(); downOut = false; });
+  })();
   const icon = { read: '&#128214;', download: '&#11015;&#65039;' };   // little pictures for the history rows
   const setMsg = (m, ok) => { view.msg = m || ''; view.ok = !!ok; };   // the coloured message line at the top of the window
 
@@ -554,12 +585,29 @@
   });
   dlg.addEventListener('input', e => {
     if (e.target.id === 'mfpFilter') { view.filter = e.target.value; const pos = e.target.selectionStart; render().then(() => { const f = $('#mfpFilter'); if (f) { f.focus(); f.setSelectionRange(pos, pos); } }); }
-    // ROUND 38: date range inputs — update view timestamps and re-render immediately.
-    // WHY: <input type=date> fires 'input' on each change; we convert YYYY-MM-DD to a millisecond timestamp for the filter. IMPROVE: none needed.
-    if (e.target.id === 'mfpFrom') { const d = e.target.value; view.dateFrom = d ? new Date(d).getTime() : 0; render(); }
-    if (e.target.id === 'mfpTo')   { const d = e.target.value; view.dateTo   = d ? (new Date(d).getTime() + 86399999) : Infinity; render(); }
+    // ROUND 39 FIX: date inputs are handled on 'change' below now, NOT here. See that handler for why.
   });
-  dlg.addEventListener('change', e => { if (e.target.id === 'mfpAuto') LS.set('mf_autobug', e.target.checked); });   // the automatic-bug switch
+  dlg.addEventListener('change', e => {
+    if (e.target.id === 'mfpAuto') LS.set('mf_autobug', e.target.checked);   // the automatic-bug switch
+    // ROUND 39 FIX — date range inputs were stuck on the default date and could not be changed.
+    // WHY (root cause): the OLD code listened on 'input', which a native <input type=date> fires on EVERY partial
+    //   keystroke — typing just the day or month before the year is filled in counts as one. Each of those partial
+    //   edits gave e.target.value = '' (not a full date yet), which set view.dateFrom/dateTo back to the empty
+    //   default and immediately re-rendered the whole dialog — wiping out what the person was in the middle of
+    //   typing before they could finish. Using the calendar pop-up had the same problem: the dialog re-rendered
+    //   (replacing the <input> element) while the native picker was still interacting with the old element.
+    // HOW (fix): listen on 'change' instead — it fires exactly ONCE, after the date is actually complete (the
+    //   picker closes or the typed value is valid), so the filter only updates when there is a real date to apply.
+    //   A regex double-checks the value is a full YYYY-MM-DD before converting it, so a browser quirk can never
+    //   produce an invalid timestamp. Uses safeRender() (round 38's lock) instead of a bare render() so this can
+    //   never race with a history delete tap. IMPROVE: none needed.
+    if (e.target.id === 'mfpFrom' || e.target.id === 'mfpTo') {
+      const d = e.target.value, valid = /^\d{4}-\d{2}-\d{2}$/.test(d);
+      if (e.target.id === 'mfpFrom') view.dateFrom = valid ? new Date(d + 'T00:00:00').getTime() : 0;
+      else view.dateTo = valid ? (new Date(d + 'T00:00:00').getTime() + 86399999) : Infinity;
+      safeRender();
+    }
+  });
 
   // ROUND 38 — RENDERING LOCK. WHY: the old handler called render() without await, so two rapid × taps could both finish
   //   "removing" the entry before either render() ran. The second render() re-fetched from the API and put the deleted item back.

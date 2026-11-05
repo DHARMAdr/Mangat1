@@ -102,6 +102,13 @@
       <button id="btnSettings" title="Settings" aria-label="Settings">&#9881;</button>
     </header>
 
+    <!-- ROUND 39: "Open on <site>" — a small pinned button below the right side of the header, shown ONLY while an
+         actual page of an external manga site is open in the mini-browser (never on the start page or a search
+         results list — see updateNav() in app.js). Tapping it opens that exact page on the real site in a new tab,
+         for when a button/script on the original page does not work through MangaFlow's proxy. Hidden by default;
+         app.js un-hides it. Styled and positioned in style.css (search "btnOrigSite"). -->
+    <button id="btnOrigSite" type="button" title="Open this page on the original site" aria-label="Open on the original site" hidden>&#8599; Open original site</button>
+
     <!-- WHY: thin progress line shown while a page is loading (feedback on slow proxies). -->
     <div id="loadbar"></div>
 

@@ -195,6 +195,23 @@ input[type="text"]:focus { outline: 2px solid var(--accent); border-color: trans
   box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
 }
 
+/* ROUND 39 — "Open on <site>" pinned button. WHY: a quick, always-reachable way to jump from a manga site shown
+   inside MangaFlow's mini-browser to that exact page on the REAL site, in a new tab (useful when a button or
+   script on the original page cannot work through the proxy). HOW: position:fixed, pinned just below the navbar
+   on the right (matches the "below the right header" placement asked for); hidden by default (index.html), only
+   un-hidden by app.js (updateNav) while an actual external page — not the start page, not a search list — is on
+   screen, so it never gets in the way otherwise. z-index sits above the iframe like #fabRead; a lighter, "ghost"
+   style (instead of the solid accent colour of #fabRead) keeps it from competing for attention with the main
+   Reading-mode button. IMPROVE: let people drag it out of the way of content underneath on very small screens. */
+#btnOrigSite {
+  position: fixed; top: calc(60px + var(--safe-t)); right: 10px; z-index: 19;
+  height: 34px; padding: 0 12px; border-radius: 999px; font-size: .78rem; font-weight: 600;
+  background: var(--bar); border: 1px solid var(--line); color: var(--fg);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .25); white-space: nowrap;
+}
+#btnOrigSite:hover { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 760px) { #btnOrigSite { top: auto; bottom: calc(76px + var(--safe-b)); right: 10px; } }
+
 /* ---------- 4b. SEARCH PILL + FLOATING SEARCH BAR (small screens) ----------
    WHY: on a phone the long address input was squeezed next to six buttons and showed almost nothing.
         Under 760px wide the input is hidden, the navbar wraps into two rows, and a full-width "pill"

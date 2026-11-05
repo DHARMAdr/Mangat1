@@ -1492,7 +1492,30 @@
     // 5) tabs: show every tab body (a script would show one at a time) ONLY for the chapter tab area, not everywhere
     '.tab-content>.tab-pane{display:block!important;opacity:1!important}' +
     // 6) a page set to hide its body while "loading"
-    'html.js body,body.loading,body.is-loading,body.no-js-hidden{opacity:1!important;visibility:visible!important}';
+    'html.js body,body.loading,body.is-loading,body.no-js-hidden{opacity:1!important;visibility:visible!important}' +
+    // ROUND 39 — more "a script would have shown/hidden this" patterns, added after the owner reported that many
+    // buttons and shortcuts on other manga sites could not be seen or used while browsing them inside MangaFlow.
+    // 7) a few more JS-framework "wait for JavaScript to reveal me" markers (Alpine.js, Vue, generic "js-" prefixed
+    // helper classes). WHY: these sites show NOTHING at all for the element until their own script runs; since we
+    // never run it (a safety rule — see the CSP a few lines below), such elements must be forced visible by hand,
+    // same idea as rule 6 above but with more class/attribute names.
+    // NOTE: deliberately does NOT touch ".fade" alone — Bootstrap uses that same class on modals/alerts/carousels,
+    // which rule 2 above correctly keeps hidden until JS adds ".show"; a generic ".fade" rule here would have
+    // fought that and un-hidden things that are supposed to stay closed (popups, modal backdrops).
+    '[x-cloak],.js-hidden:not(.js-visible),.invisible.js-show{opacity:1!important;visibility:visible!important;display:revert!important}' +
+    // 8) PAGINATION / "load more" controls that normally fetch the next batch of pages with a script. We cannot run
+    // that script, but many of these are still plain <a href="page/2/"> links underneath — keep them visible and
+    // clickable instead of letting a wrapper's "display:none until scrolled into view" rule hide them.
+    '.pagination,.page-numbers,.nav-links,.wp-pagenavi{display:flex!important;visibility:visible!important;opacity:1!important}' +
+    // 9) ICON-ONLY buttons/links (an <i> or <span> with an icon-font class and NO visible text) are often how a
+    // site's menu, filter chips or social-share row are built. If the icon font itself failed to load — blocked,
+    // slow, or simply not reachable since MangaFlow strips <script> (some icon fonts are loaded by a tiny inline
+    // script) — the glyph never appears, so the whole button looks like empty, unusable blank space, even though
+    // the link underneath it still works fine. A faint dashed outline makes that empty clickable area visible so
+    // it can still be tapped for "the same purpose as the original site", without changing anything for a site
+    // where the icon DOES render (the outline is subtle and sits behind/around a real glyph without covering it).
+    // IMPROVE: detect common icon-font unicode ranges and draw a plain geometric fallback shape instead of a box.
+    '.fa:empty,.fas:empty,.far:empty,.fab:empty,.icon:empty,[class*="icon-"]:empty,.material-icons:empty{min-width:1.1em;min-height:1.1em;display:inline-block;outline:1px dashed currentColor;outline-offset:1px;opacity:.55;border-radius:3px}';
   function renderFrame(doc, base) {
     // WHY: never change the original saved page. HOW: cloneNode(true) makes a deep copy that we can edit freely.
     const d = doc.cloneNode(true);
@@ -2004,7 +2027,10 @@
       // WHY: swap the start screen for the page. HOW: hide the start screen and show the frame.
       $('#start').hidden = true; frame.hidden = false;
       // ROUND 18: the Google panel is not needed any more, and the address bar remembers THIS page so a refresh returns here (not to the start page).
-      hideGview(); rememberView(isSearch && engines ? 'q' : 'p', isSearch && engines ? String(input).trim() : url);
+      // ROUND 39: this navigate() call's OWN `push` argument decides whether this is a real new Back/Forward step
+      // (a person opening a page / following a link) or a passive re-render (goHist stepping through our OWN
+      // history, or resumeFromHash restoring a saved page) — those must never push a SECOND entry on top.
+      hideGview(); rememberView(isSearch && engines ? 'q' : 'p', isSearch && engines ? String(input).trim() : url, push);
       // WHY: keep back/forward history. HOW: when push is true, cut off forward entries, add the url, move the pointer hi to
       // the end.
       if (push) { hist = hist.slice(0, hi + 1); hist.push(url); hi = hist.length - 1; }
@@ -2110,7 +2136,9 @@
   function goHist(d) { const n = hi + d; if (n < 0 || n >= hist.length) return; hi = n; navigate(hist[hi], false); }
   // WHY: go back to the start screen. HOW: hide the frame, show start, forget the current page, clear the address and
   // refresh.
-  function goHome() { frame.hidden = true; hideGview(); $('#start').hidden = false; cur = null; lastView = null; rememberView(null); setAddress(''); renderStart(); updateNav(); }   // round 18: also closes the Google panel and forgets the address-bar memory
+  // ROUND 39: push:true — pressing Home is a deliberate navigation step too, same as opening a page, so Back can
+  // return to whatever chapter/page you were on before you pressed it.
+  function goHome() { frame.hidden = true; hideGview(); $('#start').hidden = false; cur = null; lastView = null; rememberView(null, null, true); setAddress(''); renderStart(); updateNav(); }   // round 18: also closes the Google panel and forgets the address-bar memory
   // WHY: keep toolbar buttons correct. HOW: set each button state from history position and the current page.
   function updateNav() {
     // WHY: nothing to go back to at the first page. HOW: disabled is true when hi is 0 or less.
@@ -2121,6 +2149,12 @@
     $('#fabRead').hidden = !cur || !!cur.isSearch;   // round 17: a results list has nothing to read, so no Reading-mode button
     // WHY: show if this page is bookmarked. HOW: a filled star if any bookmark has the same url, else an empty star.
     $('#btnStar').textContent = cur && books.some(b => b.url === cur.url) ? '★' : '☆';
+    // ROUND 39: the "Open on <site>" button (below the header) only makes sense while an actual external manga
+    // site's page is on screen — not on the start page, and not on a search-results list (there is no single
+    // "original page" for a list of results to open). HOW: same condition already used for #fabRead above, so the
+    // two buttons always agree on whether a real external page is open.
+    const origBtn = $('#btnOrigSite');
+    if (origBtn) { origBtn.hidden = !cur || !!cur.isSearch; if (!origBtn.hidden) origBtn.title = 'Open this page on ' + hostOf(cur.url); }
   }
 
   /* ---------------------------------------------------------------
@@ -2136,13 +2170,28 @@
   const CH_RE = /(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:/]*(\d+(?:[._-]\d+)?)/i;
   // WHY: get a chapter number from text or an address. HOW: run the pattern; if it matches, turn the number into a float,
   // changing - or _ into a dot.
+  // ROUND 39 FIX — "some mangas in other sites were not detectable, named in different points/numbers".
+  // WHY (root cause): some site themes build their chapter address as "chapter-1.199375" — the real chapter
+  //   number (1) followed by a DOT and the site's own internal database ID (199375), which has nothing to do
+  //   with the chapter number at all (rawkuma.net does exactly this). The old code treated ANY "number.number"
+  //   it found as ONE fractional chapter number, so "chapter-1.199375" was read as chapter "1.199375" — a
+  //   meaningless value that threw off anything comparing or sorting chapters by number.
+  // HOW (the fix): a genuine fractional/half chapter (an extra chapter numbered "12.5", "7.1") almost always has
+  //   a SHORT fractional part — one or two digits. A site's internal ID glued on after a dot is typically much
+  //   longer (3 or more digits, often 5-6, since it is a database row number). So: keep the fractional part only
+  //   when it has 1-2 digits; a longer one is dropped and only the whole-number part in front of the dot is used
+  //   as the chapter number. This never changes a normal "chapter 12.5" site, and fixes sites that glue on an ID.
+  function cleanChapterNum(whole, frac) {
+    if (!frac) return parseFloat(whole);
+    return frac.length <= 2 ? parseFloat(whole + '.' + frac) : parseFloat(whole);
+  }
   function numFrom(s) {
     const m = CH_RE.exec(s || '');
-    if (m) return parseFloat(m[1].replace(/[_-]/, '.'));
+    if (m) { const p = m[1].split(/[._-]/); return cleanChapterNum(p[0], p[1] || ''); }
     // WHY: some addresses end with /c012. HOW: a second pattern checks the end of the text.
-    const c = /\/c(\d{1,4}(?:[._]\d+)?)\/?$/i.exec(s || '');          // round 8: addresses ending in /c012
-    // WHY: return the number or null. HOW: parseFloat, turning _ into a dot; null means not found.
-    return c ? parseFloat(c[1].replace('_', '.')) : null;
+    const c = /\/c(\d{1,4})(?:[._](\d+))?\/?$/i.exec(s || '');          // round 8: addresses ending in /c012
+    // WHY: return the number or null. HOW: the same short-fraction-vs-ID rule as above; null means not found.
+    return c ? cleanChapterNum(c[1], c[2] || '') : null;
   }
   // ROUND 28: a link whose "address" is only plain words. WHY: the Init Manga theme (mgread.io) puts a read-aloud bar on every chapter with links such as <a href="Previous sentence">.
   // Turned into an address that became ".../chapter-1/Previous%20sentence" and looked like a chapter, so the report showed it as the previous / next chapter. HOW: two or more plain
@@ -2615,8 +2664,27 @@
   // IMPROVE: let a per-site rule override this.
   function scanPictures(doc, base) {
     const rs = readerSlots(doc, base);
-    // WHY: a box with 3 or more real pictures, or with 2 or more EMPTY slots next to enough pictures, is the chapter. HOW: return it as it is.
-    if (rs.list.length >= 3 || (rs.holders >= 2 && rs.list.length + rs.holders >= 3)) return { list: rs.list, holders: rs.holders, box: rs.box, how: 'reader' };
+    // WHY: a box with 3 or more real pictures is trusted as-is — no need to look further.
+    if (rs.list.length >= 3) return { list: rs.list, holders: rs.holders, box: rs.box, how: 'reader' };
+    // ROUND 39 FIX — "no images found" on sites whose reader box is ALL empty lazy-load slots (weloma.net and
+    //   similar sites using a generic "lazyload.js" library: every page <img> starts as a tiny placeholder GIF or a
+    //   captcha/loading image, and the real addresses are never written as a normal attribute at all).
+    // WHY (root cause): the line below used to return IMMEDIATELY whenever there were 2+ holders, even when
+    //   rs.list.length was ZERO — so generalPictures()'s fromScripts() fallback (which reads a JSON list of the
+    //   real picture addresses straight out of a <script> tag, WITHOUT running any of the site's own code) was
+    //   never even tried. The diagnostic tool shows this data IS there ("picture addresses found inside scripts:
+    //   111" for weloma.net) — scanPictures() just never looked.
+    // HOW: when the reader box itself found FEW real addresses (under 3) even though it saw holders, also try
+    //   fromScripts() here and use whichever source found more complete pictures, before deciding "nothing found".
+    //   This never changes behaviour for a page that already had 3+ real addresses (handled above), so sites that
+    //   worked before are untouched.
+    if (rs.holders >= 2 && rs.list.length + rs.holders >= 3) {
+      if (rs.list.length < 3) {
+        const sc = fromScripts(doc, base);
+        if (sc.length > rs.list.length) return { list: sc, holders: Math.max(0, rs.holders - sc.length), box: rs.box, how: 'reader' };
+      }
+      return { list: rs.list, holders: rs.holders, box: rs.box, how: 'reader' };
+    }
     const g = generalPictures(doc, base);
     if (g.length >= 3) return { list: g, holders: 0, box: null, how: 'page' };
     // WHY: a short chapter (1 or 2 pictures) inside a reader box. HOW: give those back, like the older code did through the general rules.
@@ -3242,7 +3310,24 @@
   //   'wall'   - the chapter's own text (menus, side blocks and comments are cut away by mainText) says log in / locked / coins / premium (LOCK_RE) and there are only a few pictures (10 or fewer):
   //              they are the promo pictures around the wall. A page with a reading box never gets here (how 'reader'). Returns 'series', 'wall' or ''. IMPROVE: add a sign for the blurred-picture walls.
   function wrongPage(doc, base, ref, list) {
+    // ROUND 39 FIX — rawkuma.net (and similar sites) were wrongly rejected as "the site sent the main page instead
+    //   of the chapter" even though the page clearly WAS the chapter (its own <title> said "Chapter 1", it had 22
+    //   real pictures, and it even linked to "Chapter 2" as the next chapter).
+    // WHY (root cause): the 'series' check below only looked at the canonical/og:url tag. Some chapter-reader
+    //   pages (JS-driven sites, or ones with buggy SEO tags) point their canonical/og:url at the SERIES page even
+    //   though the page itself is a real, individual chapter — tricking the old check into thinking the site had
+    //   redirected to the series page. HOW: before trusting the canonical/og:url guess, look for a genuine
+    //   "next chapter" or "previous chapter" link (findNavLinks — already used elsewhere to build the chapter
+    //   list) that points to a DIFFERENT chapter number than the one we asked for. A manga's main/series page
+    //   never links to "chapter 2" as ITS next chapter — only a real chapter page does — so finding one is solid
+    //   proof this is not the wrong page, and overrides the canonical-tag guess. IMPROVE: also check the page's
+    //   own JSON-LD "@type":"ComicStory" block, when present, the same way.
+    let hasChapterNav = false;
     try {
+      const nav = findNavLinks(doc, base, ref), myNum = chapterNumOf(ref);
+      hasChapterNav = [nav.prev, nav.next].some(u => { if (!u) return false; const n = chapterNumOf(u); return n != null && (myNum == null || n !== myNum); });
+    } catch { /* an odd address: ignore, the other signs still apply */ }
+    if (!hasChapterNav) try {
       const link = doc.querySelector('link[rel="canonical"][href]') || doc.querySelector('meta[property="og:url"][content]');
       const c = link && (link.getAttribute('href') || link.getAttribute('content'));
       if (c) {
@@ -3250,7 +3335,7 @@
         if (chapterNumOf(ref) != null && cp.length > 1 && cp !== rp && rp.startsWith(cp + '/') && !CH_RE.test(cp)) return 'series';
       }
     } catch { /* an odd address: the other sign decides */ }
-    if (list.length <= 10 && LOCK_RE.test(mainText(doc))) return 'wall';
+    if (!hasChapterNav && list.length <= 10 && LOCK_RE.test(mainText(doc))) return 'wall';
     return '';
   }
   // WHY: tell the reader plainly when only part of a chapter could be found. HOW: a box (class ch-msg) with one sentence and three buttons: Retry, Open on the site (the chapter's own
@@ -3629,6 +3714,10 @@
     if (!cur) { toast('Open a manga page first'); return false; }
     // WHY: Avoid starting twice. HOW: stop when the busy box is visible, unless quiet.
     if (!$('#busy').hidden && !opts.quiet) return false;                  // already starting
+    // ROUND 39: reset the history-save throttle (see updateCurrent) so the FIRST position of this freshly opened
+    // manga always saves right away, instead of possibly being skipped because its chapter index happens to match
+    // whatever was last saved for a previous manga.
+    lastSavedIdx = -1; lastSavedAt = 0;
     // WHY: Show progress. HOW: setBusy.
     setBusy('Detecting chapters…');
     // WHY: Result holder. HOW: info is filled by analyze().
@@ -3667,7 +3756,10 @@
     $('#rdAddr').value = cur.url;
     // WHY: Start at the top. HOW: scroll to 0, reset lastY, show the UI.
     window.scrollTo(0, 0); lastY = 0; showUi();
-    rememberChapter(R.cur);                                              // history knows this chapter right away
+    // ROUND 39: push:true — starting reading mode is a real navigation step (Back should return to the page you
+    // were on before). lastSavedIdx/lastSavedAt are set here too so the scroll-driven save (updateCurrent) does not
+    // immediately push a SECOND, redundant entry for this same chapter a moment later.
+    rememberChapter(R.cur, true); lastSavedIdx = R.cur; lastSavedAt = Date.now();
     updatePrevBar();                                                     // round 9: show the "earlier chapters" area
     // WHY: Watch the end marker. HOW: reconnect the observer.
     io.disconnect(); io.observe(sentinel);
@@ -4367,6 +4459,9 @@
   // downAcc add up small moves; lastInput is the time of the last real user input; holdUi blocks hiding for a moment;
   // saveTimer and ticking limit work. IMPROVE: Group them in one object.
   let lastY = 0, upAcc = 0, downAcc = 0, lastInput = 0, holdUi = 0, saveTimer, ticking = false;
+  // ROUND 39 — PERFORMANCE FIX: remembers the chapter + time of the last history save so updateCurrent() (below) can
+  // skip re-saving when nothing really changed. See the full explanation where these are used.
+  let lastSavedIdx = -1, lastSavedAt = 0;
   // ROUND 8 fix: holdUi = "a deliberate jump (chapter key, End) happened a moment ago, do not hide the keys".
   // WHY: with the REAL keyboard keys our handler runs first and the generic "person is scrolling" marker (markInput)
   // runs second, so lastInput = 0 was overwritten and the jump hid the keys. holdUi is not touched by markInput.
@@ -4423,7 +4518,27 @@
     const pct = Math.max(0, Math.min(1, (mid - r.top) / Math.max(1, r.height)));
     $('#progress i').style.width = (pct * 100).toFixed(1) + '%';
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => rememberChapter(idx), 600);       // wait until scrolling calms down, then save
+    // ROUND 39 — PERFORMANCE FIX: "the site has gotten slow since the updates".
+    // WHY (root cause): this function runs on every scroll frame while reading. Until now, EVERY time scrolling paused
+    //   for 600ms it called rememberChapter(idx) — even when idx (the chapter on screen) had not changed at all, i.e.
+    //   on every short pause while just reading down a page. rememberChapter() writes the chapter into the address bar
+    //   AND calls saveRead(), which JSON.stringify()s and re-saves the WHOLE history array to localStorage, then fires
+    //   an 'mf-activity' event that profiles.js may push to the cloud. Round 38 raised the history size kept from
+    //   20/30 entries up to 500 (so "My History" can show everything) — so this already-frequent save went from
+    //   cheap (small array) to a real, repeated cost (large array) on a very hot path, which is what made normal
+    //   reading feel slower. HOW: only actually save when the chapter really changed, or at most once every 20
+    //   seconds while staying on the same chapter (so "Continue reading"'s timestamp still stays roughly fresh even
+    //   if someone reads one long chapter for a while without switching). IMPROVE: move the save itself onto
+    //   requestIdleCallback if the browser supports it.
+    saveTimer = setTimeout(() => {
+      if (idx !== lastSavedIdx || Date.now() - lastSavedAt > 20000) {
+        // ROUND 39: push a real Back/Forward step only when the CHAPTER actually changed (changed===true) — the
+        // periodic 20s keep-alive save (changed===false) must never add its own history entry, or Back would have
+        // to be pressed many times just to leave a chapter you spent a while reading.
+        const changed = idx !== lastSavedIdx;
+        lastSavedIdx = idx; lastSavedAt = Date.now(); rememberChapter(idx, changed);
+      }
+    }, 600);
   }
   // Save "this manga, this chapter, now" in the history (used by Continue reading).
   // WHY: Saves where you are so Continue reading and page refresh work. HOW: Writes the chapter link into the page address
@@ -4434,12 +4549,19 @@
           With no profiles.js nothing happens. The event is skipped when "do not save history" is on in Settings > Security.
      IMPROVE: add 'open' events for pages opened in the mini browser. */
   function announce(d) { if (settings.noHistory) return; try { window.dispatchEvent(new CustomEvent('mf-activity', { detail: d })); } catch { /* never break reading because of logging */ } }
-  function rememberChapter(idx) {
+  function rememberChapter(idx, push) {
     const ch = R.chapters[idx]; if (!ch) return;
     // ROUND 9b: write the chapter into the address of THIS page (#r=<chapter link>). WHY: a refresh used to drop you on the
     // start page. Now start-up reads it back (see resumeFromHash). The same address, opened on another device, also resumes
     // at this chapter (the reading list itself cannot travel between devices: it lives only in each browser).
-    if (!settings.noHistory) { try { history.replaceState(null, '', location.pathname + location.search + '#r=' + encodeURIComponent(ch.url)); } catch { /* address bar not writable: fine */ } }
+    // ROUND 39: `push` (true only when the chapter actually changed, or when reading mode just started — never for
+    //   the plain "still on the same chapter" keep-alive save) adds a real Back/Forward step. See rememberView above
+    //   for the full explanation.
+    if (!settings.noHistory) {
+      const hash = '#r=' + encodeURIComponent(ch.url), full = location.pathname + location.search + hash;
+      const changed = full !== (location.pathname + location.search + location.hash);
+      try { if (push && !suppressPush && changed) history.pushState(null, '', full); else history.replaceState(null, '', full); } catch { /* address bar not writable: fine */ }
+    }
     saveRead({
       id: new URL(R.chapters[0].url).origin + '|' + R.title,
       // WHY: what is saved so 'Continue reading' can reopen this chapter. HOW: an object with title, host, series address and
@@ -4456,6 +4578,15 @@
   // chapter pictures too.
   function leaveReader() {
     io.disconnect(); closeMenu();
+    // ROUND 39 FIX — "refresh on the home page reopens the last chapter" bug.
+    // WHY (root cause): while scrolling a chapter, onScroll() debounces rememberChapter() with a 600ms setTimeout (saveTimer),
+    //   which writes '#r=<chapter>' into the address bar. If the person left reading mode (tapped Home, pressed Escape, etc.)
+    //   WITHIN that 600ms window, the pending timer was never cancelled — it still fired half a second later and silently
+    //   wrote '#r=...' back into the address bar even though the screen was already showing the home page. The address bar
+    //   then looked like a normal home-page visit, but a refresh at that moment read the stale '#r=' and reopened the old
+    //   chapter, which looked like "the site randomly reopens my last manga". HOW: cancel the pending timer the moment
+    //   reading mode is left, before rememberView() below gets a chance to write the clean (chapter-free) address.
+    clearTimeout(saveTimer);
     rememberView(lastView && lastView.k, lastView && lastView.v);   // round 18: forget #r=, but keep #p= / #q= so a refresh returns to the page / search behind the reader
     // WHY: go back to the browsing page. HOW: hide the reader and show the browser area.
     reader.hidden = true; $('#browser').hidden = false;
@@ -5629,9 +5760,15 @@
   // ROUND 17: the popup's paste button and clipboard arrow use the same helpers as the start page (pasteInto / openClip, defined in the start-page part below).
   $('#btnPaste').onclick = () => pasteInto($('#addr2'));
   $('#popClip').onclick = () => openClip($('#popClip'), $('#addr2'));
-  // WHY: back and forward buttons. HOW: goHist moves through history by -1 or +1. IMPROVE: none needed.
-  $('#btnBack').onclick = () => goHist(-1);
-  $('#btnFwd').onclick = () => goHist(1);
+  // ROUND 39: back and forward buttons now call the browser's OWN history.back()/forward() instead of the old
+  // goHist() (our separate, page-only stack). WHY: the owner asked for these two buttons to behave EXACTLY like
+  // the browser's/device's own Back and Forward — stepping through chapters and pages the same way, not just pages.
+  // Since every real navigation (pages, searches, chapters, Home) now also calls history.pushState (see
+  // rememberView/rememberChapter above), the browser's native history already has the full, correct list to step
+  // through; history.back()/forward() moving it fires 'popstate' (handled above), which puts the right screen back
+  // up. HOW: none needed beyond this swap.
+  $('#btnBack').onclick = () => history.back();
+  $('#btnFwd').onclick = () => history.forward();
   // WHY: reload button. HOW: removes the cached copy then loads the page again. IMPROVE: none needed.
   $('#btnReload').onclick = () => { if (cur) { cache.delete(cur.url); navigate(cur.url, false); } };
   // WHY: home and star buttons. HOW: each button calls one function. IMPROVE: none needed.
@@ -6457,10 +6594,36 @@
   // with history.replaceState (no new history entry, no reload). #r= (the chapter being read) is written by rememberChapter and wins while reading.
   // IMPROVE: store the scroll position too.
   let lastView = null;
-  function rememberView(kind, value) {
+  // ROUND 39 — REAL BACK / FORWARD BUTTON SUPPORT.
+  // WHY: the owner reported that pressing the browser's (or the phone's) own Back button, or the device's back
+  //   gesture, closed reading mode completely and dropped you straight out to the site's home page or even out of
+  //   the site entirely — with no way to use Forward to get back. ROOT CAUSE: every navigation inside MangaFlow
+  //   (opening a manga page, switching chapters, going Home) only ever called history.REPLACEState — which edits
+  //   the CURRENT browser-history entry in place instead of adding a new one. With replaceState only, a whole
+  //   reading session (however many pages or chapters you opened) is still just ONE history entry, so Back has
+  //   nothing of ours to step back through — it jumps straight to whatever was open before MangaFlow, which looks
+  //   like "it closes completely".
+  // HOW (the fix, in short): rememberView() and rememberChapter() (below) now take an extra `push` argument. When
+  //   true, and the address is actually about to change, history.PUSHState is used instead — adding a real new
+  //   entry, exactly like clicking a link on a normal website. Now: opening a manga page, pressing "Reading mode",
+  //   switching chapters, and pressing Home each add one step; Back/Forward (the browser's own buttons, the
+  //   device's back gesture, AND the new on-screen header buttons added below) walk through them one at a time,
+  //   using the browser's OWN history stack — so once MangaFlow's own steps run out, Back correctly leaves the
+  //   site (whatever was open before), exactly like any other website. A 'popstate' listener (further down) re-
+  //   opens whichever page/chapter/search the browser just stepped to. `suppressPush` stops that restore itself
+  //   from pushing ANOTHER entry (which would otherwise fight with Back/Forward and break the stack).
+  // IMPROVE: also remember and restore the exact scroll position, not just which chapter/page.
+  let suppressPush = false;
+  function rememberView(kind, value, push) {
     if (kind && value) lastView = { k: kind, v: value };
     if (settings.noHistory) return;                       // "Do not save my reading history" also means: no address-bar memory
-    try { history.replaceState(null, '', location.pathname + location.search + (kind && value ? '#' + kind + '=' + encodeURIComponent(value) : '')); } catch { /* address bar not writable: fine */ }
+    const hash = (kind && value ? '#' + kind + '=' + encodeURIComponent(value) : '');
+    const full = location.pathname + location.search + hash;
+    const changed = full !== (location.pathname + location.search + location.hash);
+    try {
+      if (push && !suppressPush && changed) history.pushState(null, '', full);
+      else history.replaceState(null, '', full);
+    } catch { /* address bar not writable: fine */ }
   }
 
   /* ---- 18b. GOOGLE PROGRAMMABLE SEARCH ------------------------------------------------------------------------------------------------------------------ */
@@ -6614,7 +6777,8 @@
     } finally { if (seq === navSeq) setLoading(false); }
     cur = null; $('#fabRead').hidden = true;              // nothing to read on a results panel
     if (push) { hist = hist.slice(0, hi + 1); hist.push('mf-google:' + words); hi = hist.length - 1; }
-    rememberView('q', words); updateNav();
+    rememberView('q', words, push);   // ROUND 39: same push flag as the hist[] update just above, so both stay in sync
+    updateNav();
     return true;
   }
   // ROUND 25: dark mode - results panel should be light for readability in both themes
@@ -6803,6 +6967,30 @@
   }
   // WHY: Run the resume check on start. HOW: calls the async function without waiting. IMPROVE: catch errors from it.
   resumeFromHash();
+  // ROUND 39 — THE OTHER HALF OF REAL BACK/FORWARD SUPPORT: what happens when the browser (or the device's back
+  //   gesture, or the header's Back/Forward buttons, now wired to history.back()/forward() — see btnBack/btnFwd
+  //   below) actually moves to a different entry. The 'popstate' event fires AFTER the address bar has already
+  //   changed; this listener's only job is to make the SCREEN match whatever the address bar now says.
+  // WHY suppressPush: without it, restoring a page here would call the same navigate()/rememberChapter() functions
+  //   used for normal browsing, which would see "the address changed" and push YET ANOTHER entry — turning one
+  //   Back press into a Back-then-forward-again loop. Setting suppressPush during the restore (and only clearing
+  //   it once the restore's own async work has finished) stops that.
+  // IMPROVE: keep the exact scroll position per chapter, not just which chapter is open.
+  window.addEventListener('popstate', () => {
+    const h = location.hash;
+    suppressPush = true;
+    const release = () => { suppressPush = false; };
+    try {
+      if (!/^#[rpq]=./.test(h)) {
+        // the browser stepped to a plain (Home) entry, or to the very first entry MangaFlow ever wrote
+        if (document.body.classList.contains('reading')) leaveReader();
+        goHome();
+        release();
+        return;
+      }
+      resumeFromHash().then(release, release);
+    } catch { release(); }
+  });
   // START PAGE SEARCH CARD (round 10): same behaviour as the address bar (a link opens in reading mode, words search).
   // WHY: Make the big search card on the start page work. HOW: on submit, stops the page reload and opens the trimmed text
   // if not empty. The paste button reads the clipboard and fires an input event so other code reacts; on failure it shows
@@ -6811,6 +6999,12 @@
   // site in a new browser tab (where its own scripts run); X = dismiss.
   $('#pageNoteReport').onclick = () => { const n = noteBar(); showError(($('#pageNoteText').textContent || 'Page looks incomplete').replace(/^\u26A0\s*/, ''), { title: n.dataset.title || 'Page looks incomplete', hint: 'Copy the report and send it to Claude together with MANGAFLOW.md. "Open original" shows the real site in a new tab.', details: n.dataset.report || '' }); };
   $('#pageNoteOpen').onclick = () => { if (cur && cur.url) window.open(cur.url, '_blank', 'noopener,noreferrer'); };
+  // ROUND 39 — "Open on <site>" button. WHY: the owner asked for a quick way to jump from a manga site shown
+  // inside MangaFlow (the mini-browser) straight to that SAME page on the real site, in a new tab — useful when a
+  // button or script on the original page does not work through the proxy (see the round-39 notes on this in
+  // MANGAFLOW.md). HOW: identical to the existing #pageNoteOpen handler just above (new tab, no referrer sent back
+  // to MangaFlow); its own visibility is kept in sync with #fabRead inside updateNav().
+  $('#btnOrigSite').onclick = () => { if (cur && cur.url) window.open(cur.url, '_blank', 'noopener,noreferrer'); };
   $('#pageNoteX').onclick = hidePageNote;
   // ROUND 15: the Manga / Everything switch under the start-page search box. HOW: two buttons with data-scope; the choice is saved in settings.searchManga.
   $$('#scopeSwitch [data-scope]').forEach(b => { b.onclick = () => { settings.searchManga = b.dataset.scope === 'manga'; syncScope(); applySettings(); }; });

@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference & Build History
 *GitHub Pages site: https://dharmadr.github.io/Mangat1/*
 *Cloudflare Worker: accounts-worker.js (mangaflow-accounts.YOURNAME.workers.dev)*
-*Last updated: Round 38 — 2026-11-04*
+*Last updated: Round 39 — 2026-11-05*
 
 ---
 
@@ -94,7 +94,8 @@ The **accounts Worker** (`accounts-worker.js`) is also deployed separately — i
 | 33–35 | History fixes; more manga sources |
 | 36 | WakeLock v1; settings persistence |
 | 37 | Chapter pagination improvements; date filter planning |
-| **38** | **See full details below** |
+| 38 | Chapter pagination fix, history fixes, PDF translation, wake lock, cloud delete |
+| **39** | **See full details below** |
 
 ---
 
@@ -166,6 +167,61 @@ if (Date.now() - t0 > 90000) { ... break; }
 - New `getPageData(img)` function in translate.js — returns `{ bubbles, texts }` for a translated page
 - `window.MangaFlowTranslate` updated to expose `getPageData`
 - PDF download loop now calls `addPageImageWithTranslation(strip, r.b, mode, pageImgEl)` instead of `addPageImage`
+
+---
+
+## Round 39 — Full Change Log
+
+### 1. My History — button alignment + date filter (profiles.js)
+**Problem:** buttons in "My History" looked misaligned; the From/To date filter showed a default date but could not be changed.
+**Root causes & fixes:**
+- `.mfp-row>*{flex:1}` was also stretching the small "From:"/"To:" text labels to the same width as the date boxes next to them, leaving odd gaps. Labels now get `flex:0 0 auto`; row items get a 140px floor instead of starting from zero width.
+- Buttons now use `display:inline-flex;align-items:center;justify-content:center;white-space:nowrap` so text always stays centred even if a sibling button wraps to two lines.
+- **Date filter root cause:** the date inputs were wired to the `'input'` event, which a native `<input type=date>` fires on *every partial keystroke* (typing just the day before the year is filled in counts as one). Each partial edit reset the filter back to the default before the date could be finished. Fixed by switching to the `'change'` event (fires once, when the date is actually complete) with a regex validating a full `YYYY-MM-DD` value.
+
+### 2. Auto-reopening the last chapter on a plain homepage refresh (app.js)
+**Problem:** refreshing the home page sometimes reopened the last-read chapter instead of staying on the home page.
+**Root cause:** `updateCurrent()` (runs on every scroll frame while reading) debounces a `rememberChapter()` call 600ms after scrolling stops — and used to do this on **every** pause, even when the chapter hadn't changed. If the person left reading mode within that 600ms window, the pending timer still fired afterward and silently rewrote `#r=<chapter>` into the address bar, even though the screen already showed the home page. A refresh at that moment then reopened the stale chapter.
+**Fix:** `leaveReader()` now cancels that pending timer (`clearTimeout(saveTimer)`) the instant reading mode is left.
+
+### 3. Site slowdown "since the updates" (app.js)
+**Root cause:** the same debounced save in `updateCurrent()` ran on *every* scroll-pause, not just on a real chapter change — writing the **entire** history array to localStorage (`JSON.stringify` + `setItem`) each time. Round 38 raised the kept history size from 20/30 entries to 500 so "My History" could show everything — which made this already-frequent save go from cheap (small array) to a real, repeated cost on a very hot path (every pause while just reading).
+**Fix:** the save now only actually runs when the chapter number really changed, or at most once every 20 seconds while staying on the same chapter (so "Continue reading"'s timestamp still stays roughly fresh).
+
+### 4. Floating tabs now close by tapping outside them (profiles.js, translate.js)
+**Problem:** Settings already closed on an outside tap; the Profile window and the Translate settings panel did not.
+**Root cause:** app.js's existing "click outside = close" wiring (round 11) only loops over `<dialog>` elements that exist in `index.html` at page-load time. The Profile dialog is created dynamically by `profiles.js`, and the Translate settings panel is a plain `<div>` (not a `<dialog>`) created by `translate.js` — both run *after* that loop, so neither was ever included.
+**Fix:** the exact same press-starts-and-ends-outside pattern was added directly in each file for its own window/panel.
+
+### 5. "No images found" on sites using generic lazy-load placeholders (app.js — weloma.net)
+**Root cause:** `scanPictures()` returned immediately whenever the reader box found 2+ empty "holder" slots, even when it found **zero** real picture addresses — so the script-scanning fallback (`fromScripts()`, which reads the real addresses straight out of a `<script>` tag, confirmed present by the diagnostic tool: "111 picture addresses found inside scripts") was never even attempted.
+**Fix:** when the reader box's own address count is under 3, `fromScripts()` is now also tried, and whichever source finds more pictures wins.
+
+### 6. "Site sent the main page instead of the chapter" false positive (app.js — rawkuma.net)
+**Root cause:** `wrongPage()`'s "is this really the series/main page?" check only looked at the canonical/`og:url` tag — which some sites point at the series page even on a genuine chapter page. rawkuma.net's chapter page was rejected despite having 22 real pictures, a "Chapter 1" title, and a working "next chapter" link.
+**Fix:** before trusting the canonical-tag guess, `wrongPage()` now checks for a genuine "next"/"previous chapter" link (`findNavLinks`) pointing to a *different* chapter number. A manga's main page never links to "chapter 2" as its own next chapter — only a real chapter page does — so finding one now overrides the canonical-tag guess (and the "locked/login wall" guess too).
+
+### 7. manhuaus.com "several pictures not loading" (no change needed)
+This round-14 report pre-dates the Keeper (round 29d), which already retries failed/stalled pictures automatically with growing backoff, plus a weserv.nl fallback proxy. Current code already covers this; no further change made.
+
+### 8. Real browser Back/Forward support (app.js)
+**Problem:** pressing the browser's own Back button (or the phone's back gesture) closed reading mode completely with no way back via Forward; the header's own Back/Forward buttons did not include chapters at all.
+**Root cause:** every navigation (opening a page, switching chapters, pressing Home) only ever called `history.replaceState` — which edits the *current* history entry instead of adding a new one. A whole reading session was still just one browser-history entry, so Back had nothing of ours to step through and jumped straight to whatever was open before MangaFlow.
+**Fix:**
+- `rememberView()` and `rememberChapter()` now take a `push` argument; when true (a real navigation, not a passive resume) and the address is actually changing, `history.pushState` is used instead of `replaceState`.
+- Pushes happen when: a manga page/search is opened, Home is pressed, reading mode starts, and a chapter actually changes (never on the periodic same-chapter keep-alive save).
+- A new `popstate` listener restores whichever page/chapter the browser just stepped to, using a `suppressPush` guard so the restore itself never adds another entry (which would otherwise fight with Back/Forward).
+- The header's `#btnBack`/`#btnFwd` buttons now call `history.back()`/`history.forward()` directly, so they behave identically to the browser's own buttons and both include chapters.
+
+### 9. "Open on `<site>`" button (app.js, index.html, style.css)
+New pinned button below the top-right of the header, shown only while an actual external manga page is open (never on the home page or a search-results list). Opens that exact page on the real site in a new tab — useful when a button or script on the original page cannot work through MangaFlow's proxy.
+
+### 10. More buttons/shortcuts visible while browsing other sites (app.js)
+Extended `MF_NOJS_CSS` (the stylesheet injected into every proxied page to undo "a script would have shown/opened this") with: Alpine.js/Vue "wait for JS" markers (`[x-cloak]`, `.js-hidden`), pagination/"load more" wrappers, and a faint dashed outline on icon-only buttons/links whose icon font produced no visible glyph — so the clickable area is still visible even when the icon itself is invisible. Deliberately does **not** enable any third-party JavaScript inside the mini-browser — that remains blocked by its own `Content-Security-Policy: script-src 'none'` on purpose (a core safety rule of the whole proxy design, mentioned throughout the code since round 8). A real browser's full compatibility is therefore not achievable without removing that safety rule.
+
+### 11. Chapter numbers with a site ID glued on (app.js — rawkuma.net and similar)
+**Root cause:** some site themes build chapter addresses like `chapter-1.199375` — the real chapter number (1) followed by a dot and the site's own internal database ID (199375), which has nothing to do with the chapter number. The old number-parsing pattern read "1.199375" as one fractional chapter number.
+**Fix:** a genuine fractional/half chapter ("12.5", "7.1") almost always has a short (1-2 digit) fractional part; a database ID glued on the same way is typically 3+ digits. The parser now keeps the fractional part only when it's 1-2 digits, otherwise uses just the whole-number part. This also strengthens fix #6 above (comparing chapter numbers across the main chapter-nav-link check).
 
 ---
 

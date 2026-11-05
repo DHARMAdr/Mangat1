@@ -828,6 +828,16 @@
     if (cfg.from !== lastOcr) { lastOcr = cfg.from; autoLang = ''; redo(true); } else if (trKey() !== lastTr) { lastTr = trKey(); redo(false); }
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && panel.classList.contains('open')) { panel.classList.remove('open'); e.stopPropagation(); } }, true);
+  // ROUND 39 — "tap outside to close". WHY: this little settings panel is a plain <div> (not a <dialog>), so it never
+  //   had app.js's generic click-outside-close behaviour that Settings/the Profile window now have. A capturing
+  //   pointerdown on the whole page closes it whenever the press is outside BOTH the panel and the gear button that
+  //   opens it (pressing the gear button again is its own toggle, handled above — excluding it here stops the two
+  //   handlers from fighting and reopening it instantly). IMPROVE: share one close-on-outside helper across files.
+  document.addEventListener('pointerdown', e => {
+    if (!panel.classList.contains('open')) return;
+    if (panel.contains(e.target) || e.target.closest('#mfTrCfg')) return;
+    panel.classList.remove('open');
+  }, true);
   new MutationObserver(() => { if (!document.body.classList.contains('reading') && on) { /* leaving reading mode: the queue stops by itself (pump checks) */ } else if (on) pump(); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   document.body.classList.toggle('no-translate', !cfg.show);
 
