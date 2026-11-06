@@ -358,8 +358,15 @@
      new line cleanly on narrow phones rather than being squeezed/stretched unevenly; the date-row labels below get
      flex:0 so they stay their natural (small) width and never compete with the input for space. IMPROVE: none needed. */
   #mfProf .mfp-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;} #mfProf .mfp-row>*{flex:1 1 140px;}
-  #mfProf .mfp-daterow{row-gap:6px;} #mfProf .mfp-daterow label{flex:0 0 auto;}
-  #mfProf .mfp-daterow input[type=date]{flex:1 1 120px;min-width:0;}
+  #mfProf .mfp-daterow{row-gap:8px;}
+  /* ROUND 40 FIX — see the matching WHY/HOW comment above the date-row HTML (listHtml). The label+input pair is now
+     ONE flex item (.mfp-dateitem) with a 168px floor, so it wraps as a whole unit on a narrow phone instead of the
+     input being squeezed down alone; min-width:0 only on the item itself lets IT shrink if the dialog is genuinely
+     narrower than 168px, while the input inside always gets whatever room is left in its own row. */
+  #mfProf .mfp-dateitem{display:flex;align-items:center;gap:6px;flex:1 1 168px;min-width:0;}
+  #mfProf .mfp-dateitem label{flex:0 0 auto;margin:0;font-size:.82em;white-space:nowrap;text-transform:none;letter-spacing:normal;color:#9fb0ff;}
+  #mfProf .mfp-dateitem input[type=date]{flex:1;min-width:112px;}
+  #mfProf .mfp-daterow button{flex:0 1 110px;white-space:nowrap;font-size:.82em;}
   #mfProf .mfp-note{font:500 .78rem/1.45 system-ui,sans-serif;color:#aab4e8;margin:0;}
   #mfProf .mfp-msg{padding:8px 12px;border-radius:10px;font:600 .85rem system-ui,sans-serif;background:#c92a2a33;border:1px solid #ff6b6b;}
   #mfProf .mfp-msg.ok{background:#2f9e4433;border-color:#51cf66;}
@@ -433,9 +440,23 @@
     //   outside value goes through esc() first. IMPROVE: paginate long lists.
     return '<div class="mfp-row"><input type="search" id="mfpFilter" placeholder="Search the history…" value="' + esc(view.filter) + '" aria-label="Search the history">' +
       '<span class="mfp-tabs" style="flex:0 0 auto">' + ['all', 'read', 'download'].map(k => '<button data-act="kind" data-v="' + k + '" class="' + (view.kind === k ? 'on' : '') + '" style="min-width:64px">' + k + '</button>').join('') + '</span></div>' +
-      '<div class="mfp-row mfp-daterow"><label for="mfpFrom" style="font-size:0.82em;white-space:nowrap">From:</label><input type="date" id="mfpFrom" data-act="datefrom" value="' + esc(tsToDate(fromTs) || weekAgoDate) + '" max="' + esc(nowDate) + '" style="flex:1" aria-label="History from date">' +
-      '<label for="mfpTo" style="font-size:0.82em;white-space:nowrap">To:</label><input type="date" id="mfpTo" data-act="dateto" value="' + esc(tsToDate(toTs === Infinity ? 0 : toTs) || nowDate) + '" max="' + esc(nowDate) + '" style="flex:1" aria-label="History to date">' +
-      '<button data-act="dateall" style="white-space:nowrap;font-size:0.82em" class="mfp-btn ghost small">All dates</button></div>' +
+      // ROUND 40 FIX — the From/To date pickers worked on a computer but were unusable on a phone.
+      //   WHY: the old markup put FIVE separate flex children (two labels, two <input type=date>, one button) directly
+      //   into one .mfp-row. On a wide desktop window there is enough space for all five side by side. On a phone
+      //   (around 360-400px wide) there is not: flex-wrap let the row "wrap", but each piece wrapped on its own, and the
+      //   date inputs (which had min-width:0 so they COULD shrink) ended up squeezed down to 40-60px — too narrow for
+      //   the phone's own native date widget to show a full day/month/year or for a tap to land on the right digit.
+      //   That is why picking a date looked like it "didn't work" on mobile even though the same code ran fine on a
+      //   desktop browser with more room. HOW: group each label with its own input inside one ".mfp-dateitem" wrapper
+      //   (see the CSS rule of the same name). That wrapper is now the thing that flexes/wraps, as a single unit with a
+      //   guaranteed minimum width wide enough for a native date control, so on a narrow screen the "From" group and
+      //   the "To" group wrap onto their OWN lines (each full-width) instead of both being crushed onto one line.
+      //   IMPROVE: swap <input type=date> for a custom calendar widget if a browser's native one still misbehaves.
+      '<div class="mfp-row mfp-daterow">' +
+        '<span class="mfp-dateitem"><label for="mfpFrom">From:</label><input type="date" id="mfpFrom" data-act="datefrom" value="' + esc(tsToDate(fromTs) || weekAgoDate) + '" max="' + esc(nowDate) + '" aria-label="History from date"></span>' +
+        '<span class="mfp-dateitem"><label for="mfpTo">To:</label><input type="date" id="mfpTo" data-act="dateto" value="' + esc(tsToDate(toTs === Infinity ? 0 : toTs) || nowDate) + '" max="' + esc(nowDate) + '" aria-label="History to date"></span>' +
+        '<button data-act="dateall" class="mfp-btn ghost small">All dates</button>' +
+      '</div>' +
       (rows.length ? '<ul class="mfp-list">' + rows.map(x => {
         // WHY: the × button is only shown when canOpen=true (the profile owner is looking at their own history, not the admin view).
         //   HOW: data-t holds the timestamp (used as part of the composite key); data-url is the other half.
@@ -574,8 +595,24 @@
     if (session.cloud) { try { await pullState(); await flush(false); await pushState(); } catch { /* offline: the next change syncs */ } }
     location.reload();                                          // WHY: app.js reads the profile name once at start
   }
-  // WHY: save a JSON file. HOW: a temporary link with a Blob. IMPROVE: none needed.
-  function download(name, data) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+  // ROUND 40 FIX — the Export/download button did nothing on many phones.
+  // WHY: the old version built the <a download> link but NEVER added it to the page before calling .click() on it.
+  //   On a desktop browser that usually still works, but a lot of mobile browsers (Android Chrome in some modes,
+  //   in-app browsers, older WebViews) only honour a programmatic click + the "download" attribute when the link
+  //   element is actually part of the page's own DOM — clicking a detached, invisible element is silently ignored,
+  //   so nothing happened and there was no error to see. HOW: append the link to document.body (hidden with
+  //   style.display='none' so it never flashes on screen), click it, then remove the element itself along with
+  //   revoking the blob URL. IMPROVE: if a browser still blocks this, add a "navigator.share" fallback so the file
+  //   can be shared/saved through the phone's own share sheet instead.
+  function download(name, data) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.rel = 'noopener'; a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 2000);
+  }
 
   dlg.addEventListener('submit', async e => {
     // WHY: stop the browser's own form submit (it would reload the page). HOW: ignore submits that are not our sign-in form.

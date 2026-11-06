@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference & Build History
 *GitHub Pages site: https://dharmadr.github.io/Mangat1/*
 *Cloudflare Worker: accounts-worker.js (mangaflow-accounts.YOURNAME.workers.dev)*
-*Last updated: Round 39 — 2026-11-05*
+*Last updated: Round 40 — 2026-11-06*
 
 ---
 
@@ -95,7 +95,8 @@ The **accounts Worker** (`accounts-worker.js`) is also deployed separately — i
 | 36 | WakeLock v1; settings persistence |
 | 37 | Chapter pagination improvements; date filter planning |
 | 38 | Chapter pagination fix, history fixes, PDF translation, wake lock, cloud delete |
-| **39** | **See full details below** |
+| 39 | My History alignment/date filter, outside-click-close, refresh bug, real back/forward, "Open on site" button, site-compat fixes |
+| **40** | **See full details below** |
 
 ---
 
@@ -222,6 +223,26 @@ Extended `MF_NOJS_CSS` (the stylesheet injected into every proxied page to undo 
 ### 11. Chapter numbers with a site ID glued on (app.js — rawkuma.net and similar)
 **Root cause:** some site themes build chapter addresses like `chapter-1.199375` — the real chapter number (1) followed by a dot and the site's own internal database ID (199375), which has nothing to do with the chapter number. The old number-parsing pattern read "1.199375" as one fractional chapter number.
 **Fix:** a genuine fractional/half chapter ("12.5", "7.1") almost always has a short (1-2 digit) fractional part; a database ID glued on the same way is typically 3+ digits. The parser now keeps the fractional part only when it's 1-2 digits, otherwise uses just the whole-number part. This also strengthens fix #6 above (comparing chapter numbers across the main chapter-nav-link check).
+
+---
+
+## Round 40 — Full Change Log
+
+Follow-up round based on a phone screenshot of "My History" and the mini-browser toolbar, after round 39's fixes still left three things not quite right.
+
+### 1. Export/download button in "My History" did nothing on many phones (profiles.js)
+**Problem:** tapping "Export" (saves your history as a JSON file) worked on a computer but appeared to do nothing on mobile.
+**Root cause:** the `download()` helper built a `<a href="blob:..." download="...">` link and called `.click()` on it **without ever adding that link to the page**. Desktop browsers are often forgiving about clicking a detached element, but a lot of mobile browsers (Android Chrome in some modes, in-app/WebView browsers) only honour a programmatic click + the `download` attribute when the element is genuinely part of the page's DOM — clicking one that was never attached is silently ignored, with no error shown anywhere.
+**Fix:** the link is now appended to `document.body` (hidden with `display:none` so it's never visible), clicked, then removed again (along with revoking the blob URL) a moment later. This is the same pattern `app.js`'s own PDF-chapter `saveFile()` already used correctly — only this JSON-export copy in `profiles.js` had the bug.
+
+### 2. Date-range filter in "My History" still not usable on a phone (profiles.js)
+**Problem:** round 39 fixed the date filter's *event* (switched from `'input'` to `'change'`), which fixed it on a computer, but on a phone the From/To boxes still didn't work properly.
+**Root cause:** the From/To row packed five separate flex items into one line — two text labels, two `<input type="date">` boxes, and the "All dates" button — with the date inputs set to `min-width:0` so they were the ones allowed to shrink when space ran out. A computer's wide window never ran out of space, so this never showed up there; a phone screen (roughly 360-400px) does not have room for all five, and the date boxes got squeezed down to something like 40-60px wide — too narrow for the phone's own native date picker to display or for a tap to land on the right day/month/year digit.
+**Fix:** each label is now grouped together with its own date input as a single unit (`.mfp-dateitem`), and that whole unit is what wraps onto its own line on a narrow screen — so on a phone you get a full-width "From: [date]" row, then a full-width "To: [date]" row, then the "All dates" button, each with enough room for the native picker to work properly; a computer still shows all three in one line since there's room.
+
+### 3. "Open original site" button looked out of place (index.html, style.css)
+**Problem:** the button added in round 39 was a wide pill with the text "Open original site" on it, floating over the middle of the external site's own page content; on a phone it was additionally moved down near the bottom of the screen (to avoid the header, which wraps onto 2 rows there) — which put it right next to, and visually colliding with, the orange "Reading mode" button.
+**Fix:** redesigned as a small, icon-only, square button — the exact same size and shape as the other header buttons next to it (Back, Forward, Reload, Star, Theme, Settings), showing just the ↗ "opens outside this page" arrow, no text. It now always stays pinned at the **top-right, just under the header**, on every screen size; only the exact pixel offset changes between desktop and phone (to clear the header, which is one row tall on a computer and two rows tall on a phone), so it never needs to jump down to the bottom of the screen any more.
 
 ---
 

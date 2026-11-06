@@ -195,22 +195,37 @@ input[type="text"]:focus { outline: 2px solid var(--accent); border-color: trans
   box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
 }
 
-/* ROUND 39 — "Open on <site>" pinned button. WHY: a quick, always-reachable way to jump from a manga site shown
+/* ROUND 39/40 — "Open on <site>" pinned button. WHY: a quick, always-reachable way to jump from a manga site shown
    inside MangaFlow's mini-browser to that exact page on the REAL site, in a new tab (useful when a button or
    script on the original page cannot work through the proxy). HOW: position:fixed, pinned just below the navbar
-   on the right (matches the "below the right header" placement asked for); hidden by default (index.html), only
-   un-hidden by app.js (updateNav) while an actual external page — not the start page, not a search list — is on
-   screen, so it never gets in the way otherwise. z-index sits above the iframe like #fabRead; a lighter, "ghost"
-   style (instead of the solid accent colour of #fabRead) keeps it from competing for attention with the main
-   Reading-mode button. IMPROVE: let people drag it out of the way of content underneath on very small screens. */
+   on the right; hidden by default (index.html), only un-hidden by app.js (updateNav) while an actual external
+   page — not the start page, not a search list — is on screen, so it never gets in the way otherwise.
+   ROUND 40 FIX — this used to be a wide pill with the text "Open original site" on it, and on phones a media
+   query moved it down near the BOTTOM of the screen (to dodge the navbar wrapping onto 2 rows there), which put
+   it floating in the middle of the actual page content, right next to the "Reading mode" button — the two
+   overlapped and looked messy (see the screenshot that reported this). HOW (fix): the button is now the exact
+   same small SQUARE icon-button shape as its neighbours in the header (Back/Forward/Reload/Star/Theme/Settings —
+   see the plain `button{...}` rule near the top of this file, which it now matches instead of overriding with
+   its own pill look), just the single &#8599; arrow with no label text, so it is small enough to stay pinned at
+   the TOP RIGHT, under the header, on every screen size — it never needs to move to the bottom any more.
+   The only thing that changes between desktop and phone is the "top" offset, because the header itself grows
+   taller on a phone (the address bar wraps onto its own row above the row of small buttons there — see the
+   "@media (max-width:760px) { .navbar {...} }" rule above); the offset below is just tall enough to clear
+   whichever layout the header is currently using. z-index sits above the iframe like #fabRead.
+   IMPROVE: read the header's real height with getBoundingClientRect() instead of these two fixed numbers, so it
+   never needs adjusting again if the header's own height changes. */
 #btnOrigSite {
-  position: fixed; top: calc(60px + var(--safe-t)); right: 10px; z-index: 19;
-  height: 34px; padding: 0 12px; border-radius: 999px; font-size: .78rem; font-weight: 600;
-  background: var(--bar); border: 1px solid var(--line); color: var(--fg);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .25); white-space: nowrap;
+  position: fixed; top: calc(58px + var(--safe-t)); right: 8px; z-index: 19;
+  width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.05rem; line-height: 1;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .3);
 }
-#btnOrigSite:hover { border-color: var(--accent); color: var(--accent); }
-@media (max-width: 760px) { #btnOrigSite { top: auto; bottom: calc(76px + var(--safe-b)); right: 10px; } }
+#btnOrigSite:hover, #btnOrigSite:focus-visible { border-color: var(--accent); color: var(--accent); }
+/* WHY: on a narrow screen the navbar wraps into 2 rows (address pill on its own row, then the small buttons row
+   below it), so the header is taller there — this pushes the button down far enough to clear BOTH rows instead
+   of sitting on top of them. right stays the same 8px so it lines up with the header's own right edge. */
+@media (max-width: 760px) { #btnOrigSite { top: calc(106px + var(--safe-t)); right: 8px; } }
 
 /* ---------- 4b. SEARCH PILL + FLOATING SEARCH BAR (small screens) ----------
    WHY: on a phone the long address input was squeezed next to six buttons and showed almost nothing.
