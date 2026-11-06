@@ -252,6 +252,24 @@
   document.addEventListener('visibilitychange', syncWake);
   window.addEventListener('pageshow', syncWake);
   window.addEventListener('focus', syncWake);
+  // ROUND 41 FIX — "Keep screen awake" would stop working partway through a session even though the switch was
+  // still ON. WHY: a phone's own battery-saving software (several Android makers — Xiaomi, Oppo, Vivo, and others
+  // — are the most aggressive about this) can quietly take the Wake Lock away from a background web page's JS
+  // engine without the browser ever firing a 'visibilitychange'/'pageshow'/'focus' event for it — those three only
+  // cover the cases the BROWSER itself reports, not every case the PHONE's OS can force. When that happens,
+  // `wakeLock` silently becomes null (the 'release' listener in syncWake still runs) and nothing asks for it again
+  // until one of those three events happens to fire, which on a phone sitting untouched on a desk might be never.
+  // HOW: two safety nets, both calling the same syncWake() used everywhere else (so they fully respect the ON/OFF
+  // switch and do nothing at all when it's OFF): (1) a 15-second timer that simply tries again if no lock is
+  // currently held; (2) re-trying on the next tap/scroll, since a few browsers only allow asking for a NEW wake
+  // lock from inside a fresh user action, not from a timer alone. Both are harmless no-ops whenever a lock is
+  // already held, thanks to the `if (!wakeLock)` check already inside syncWake().
+  // IMPROVE: if a specific phone still turns its screen off, that phone's own battery/app-optimisation setting for
+  // this browser likely needs to be turned off by hand in the phone's Settings app — no website's code can
+  // override that part of the operating system.
+  setInterval(syncWake, 15000);
+  document.addEventListener('touchstart', syncWake, { passive: true });
+  document.addEventListener('click', syncWake, { passive: true });
   // WHY: puts the current settings onto the page and saves them. HOW: sets theme and button side as data attributes (CSS
   // reads them), sets the width as a CSS variable - -w, and updates the browser theme colour meta tag. IMPROVE: call it
   // only when something changed.
@@ -291,7 +309,14 @@
     if (meta) meta.content = settings.theme === 'dark' ? '#000000' : '#ffffff';
     // WHY: remember the choices for next visit. HOW: store.set saves the whole settings object as text. IMPROVE: save only
     // changed values.
-    store.set('settings', settings);
+    // ROUND 41 FIX — this used to save `settings` exactly as it was in memory, which meant that the moment the
+    // "Keep screen awake" switch was turned ON, the very next call to applySettings() (it calls itself, see
+    // syncWake() above) wrote `keepAwake:true` straight into localStorage — exactly what round 38's comment above
+    // (search "SECURITY: keepAwake must NEVER persist") says should never happen. HOW: save a COPY of settings with
+    // keepAwake forced back to false, so the live, in-memory `settings.keepAwake` (which syncWake() actually reads)
+    // is untouched and the switch keeps working normally for the rest of this visit, but the version written to
+    // disk always comes back OFF next time the page loads, same as round 38 intended.
+    store.set('settings', Object.assign({}, settings, { keepAwake: false }));
     // ROUND 32: tell the add-ons that listen (translate.js) what the settings are now. WHY an event: the add-on does not share variables with this file. HOW: a copy of the object travels in detail.
     try { window.dispatchEvent(new CustomEvent('mf-settings', { detail: Object.assign({}, settings) })); } catch { /* an add-on must never stop the settings from saving */ }
   }
@@ -4485,12 +4510,27 @@
     if (reader.hidden) return;
     const y = window.scrollY, dy = y - lastY; lastY = y;
     if (dy < 0 && y < 700 && R.first > 0 && Date.now() - lastInput < 1500) loadPrev();   // round 9: scrolled up near the top -> earlier chapters
-    if (Date.now() - lastInput < 1500 && Date.now() > holdUi) {   // only react to scrolling the person did on purpose (and not to our own jumps)
+    // ROUND 41 FIX — scrolling UP to reach the header/buttons could un-hide them for barely a second
+    // before they hid again, making them hard to actually use.
+    // WHY: the old code required BOTH directions (showing on scroll-up AND hiding on scroll-down) to
+    // happen within 1.5s of markInput() — which only runs from an explicit tap-to-scroll (see tapScroll()
+    // above). If the person scrolled by dragging their finger instead of tapping, or simply paused for
+    // over 1.5s, that "recent tap" window closed — and while it was closed, scrolling up could no longer
+    // bring the bar back AT ALL. It would then only reappear once a fresh tap happened to land inside that
+    // same 1.5s window as the up-scroll, which felt random and often looked like "it hides again almost
+    // immediately" from the person's side.
+    // HOW: showing the UI is always a safe thing to do (it never interrupts anything), so scrolling up no
+    // longer needs that "recent tap" gate at all — it works every time, from a tap OR a drag. Hiding is the
+    // one that still needs the gate (so an automatic/background scroll, like the picture-preloader jumping
+    // the page, never sneaks in a hide on its own). A short holdUi window right after a show additionally
+    // blocks any hide for the next 900ms, so a little scroll jitter right after the bar reappears cannot
+    // immediately hide it again.
+    if (Date.now() > holdUi) {
       if (y < 40) showUi();                              // at the very top the bar is always visible
       // WHY: show the controls when the person scrolls up a little, hide them when scrolling down. HOW: upAcc / downAcc add up
       // the movement; past 14 px the controls appear.
-      else if (dy < 0) { upAcc -= dy; downAcc = 0; if (upAcc > 14) showUi(); }
-      else if (dy > 0) { downAcc += dy; upAcc = 0; if (downAcc > 14) hideUi(); }
+      else if (dy < 0) { upAcc -= dy; downAcc = 0; if (upAcc > 14) { showUi(); holdUi = Date.now() + 900; } }
+      else if (dy > 0) { downAcc += dy; upAcc = 0; if (downAcc > 14 && Date.now() - lastInput < 1500) hideUi(); }
     }
     // WHY: do the scroll work at most once per screen refresh. HOW: requestAnimationFrame runs it before the next paint;
     // 'ticking' blocks duplicates.
@@ -5827,7 +5867,16 @@
   // WHY: remember where a touch started. HOW: touchY0 is null until a touch begins; the next listener saves the first
   // finger y position. IMPROVE: none needed.
   let touchY0 = null;
-  window.addEventListener('touchstart', e => { touchY0 = e.touches[0].clientY; }, { passive: true });
+  window.addEventListener('touchstart', e => {
+    touchY0 = e.touches[0].clientY;
+    // ROUND 41 FIX — see the long comment inside onScroll() above: hiding the header still requires a
+    // "recent deliberate action" (markInput), which used to only come from an explicit tap-to-scroll.
+    // Someone who reads by dragging their finger across the page (instead of tapping) never triggered
+    // that, so for them the header could never hide at all while reading. A touch starting is just as
+    // deliberate an action as a tap, so it marks input here too — this only affects HIDING (showing no
+    // longer needs this gate at all, fixed above), and only while actually reading.
+    if (!reader.hidden) markInput();
+  }, { passive: true });
   // WHY: finger drag down at the top asks for earlier chapters. HOW: if the finger moved over 30 px down, resets touchY0
   // and calls loadPrev. IMPROVE: none needed.
   window.addEventListener('touchmove', e => { if (!reader.hidden && touchY0 != null && window.scrollY < 40 && e.touches[0].clientY - touchY0 > 30) { touchY0 = null; loadPrev(); } }, { passive: true });

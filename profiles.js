@@ -84,7 +84,10 @@
   // ROUND 38: added dateFrom/dateTo to view state so the date range filter persists while the tab is open.
   // WHY: the filter is applied in listHtml() on every render; keeping it in view means the user's chosen range survives re-renders.
   //   Default: last 7 days (set when the 'me' tab is opened). 0/Infinity = no bound (all dates). IMPROVE: persist across sessions.
-  let view = { tab: 'in', sel: '', filter: '', kind: 'all', msg: '', ok: false, cache: null, dateFrom: Date.now() - 7 * 86400000, dateTo: Infinity };   // what the window currently shows
+  // ROUND 41: bmSel remembers which bookmarks are currently ticked (for "remove selected"), as a Set of each
+  // bookmark's own url (its unique key — see keyOf.books below). Cleared whenever the "marks" tab is left (see
+  // the act==='tab' handler) so a stale selection never carries over into a different tab or a later visit.
+  let view = { tab: 'in', sel: '', filter: '', kind: 'all', msg: '', ok: false, cache: null, dateFrom: Date.now() - 7 * 86400000, dateTo: Infinity, bmSel: new Set() };   // what the window currently shows
 
   /* ---- 3. personal lists (bookmarks etc.) of one profile, kept in this browser -------------------------------------------------- */
   const listKey = (u, k) => 'mf_u:' + u + ':' + k;              // the same key app.js uses
@@ -341,7 +344,18 @@
      that row to match) left its single-line text sitting at the top instead of in the middle — looking "misaligned".
      white-space:nowrap stops the button's OWN text from wrapping in the first place; the row above now gives every
      button a 140px floor so there is normally room for the label on one line. */
-  #mfProf .mfp-btn{min-height:44px;padding:8px 16px;border-radius:12px;border:1px solid #7ff6ff88;cursor:pointer;color:#fff;font:700 .9rem system-ui,sans-serif;
+  /* ROUND 41 FIX — the label inside these buttons (Sync now / Export / Clear history / etc.) could still look
+     a little off-centre even though justify-content/align-items were already both set to "center".
+     WHY: this dialog is attached to the page's <body>, which sets a site-wide line-height of 1.45 for
+     comfortable paragraph reading (style.css). A button's text is only ONE short line, not a paragraph, so
+     that 1.45 just adds empty space above and below the glyph itself ("half-leading") — flexbox centers the
+     LINE BOX, not the ink of the letters inside it, so with that much extra padding baked into the line's own
+     height, the visible text/icon can sit a couple of pixels higher or lower than the button's true middle,
+     especially with a symbol character like the "Sync now" arrow (⟲), whose glyph shape sits differently
+     within its own line than plain letters do. HOW: line-height:1 removes that extra half-leading so the
+     line box hugs the actual text, which makes the centering that was already there land exactly in the
+     middle of the button. */
+  #mfProf .mfp-btn{min-height:44px;padding:8px 16px;border-radius:12px;border:1px solid #7ff6ff88;cursor:pointer;color:#fff;font:700 .9rem system-ui,sans-serif;line-height:1;
     background:linear-gradient(135deg,#25a8ff,#7a3cff 55%,#c020ff);box-shadow:0 0 14px rgba(80,90,255,.5);
     display:inline-flex;align-items:center;justify-content:center;text-align:center;white-space:nowrap;gap:6px;}
   #mfProf .mfp-btn.ghost{background:#ffffff10;border-color:#ffffff40;box-shadow:none;} #mfProf .mfp-btn.red{background:#c92a2a55;border-color:#ff6b6b;box-shadow:none;}
@@ -378,6 +392,12 @@
   #mfProf .mfp-it{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:#ffffff0b;border:1px solid #ffffff1c;}
   #mfProf .mfp-it .ico{font-size:1.1rem;} #mfProf .mfp-it .txt{flex:1;min-width:0;} #mfProf .mfp-it .t{font:600 .88rem system-ui,sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
   #mfProf .mfp-it .s{font:500 .72rem system-ui,sans-serif;color:#9fb0ff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  /* ROUND 41 — the bookmark multi-select checkbox added to each row (see marksHtml/row in the JS below).
+     WHY a fixed size: without one, a checkbox's default rendered size varies a little between browsers/phones,
+     which could make rows look inconsistently spaced. flex:none keeps it from being squeezed by its flexible
+     ".txt" sibling. accent-color tints it to match the dialog's own purple/blue theme instead of the browser's
+     plain default blue, which would otherwise clash. */
+  #mfProf .mfp-it input[type=checkbox]{width:18px;height:18px;flex:none;accent-color:#7a3cff;cursor:pointer;}
   #mfProf .mfp-user{cursor:pointer;} #mfProf .mfp-user:hover,#mfProf .mfp-user.sel{border-color:#7ff6ff;background:#25a8ff1a;}
   #mfProf .mfp-empty{padding:18px;text-align:center;color:#9fb0ff;font:500 .85rem system-ui,sans-serif;}
   #mfProf ol.mfp-steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font:500 .8rem/1.45 system-ui,sans-serif;color:#cfd6ff;}
@@ -474,8 +494,24 @@
   //   The click handler below saves the updated list back and re-renders. Works for both local and cloud profiles.
   function marksHtml(state, canOpen) {
     const books = (state && state.books) || [], reads = (state && state.reads) || [];
-    // WHY: one row for bookmarks and admin-view reads (no delete button). esc() prevents HTML injection in titles.
-    const row = (t, s, url, ico) => '<li class="mfp-it"><span class="ico">' + ico + '</span><span class="txt"><div class="t">' + esc(t) + '</div><div class="s">' + esc(s) + '</div></span>' + (canOpen && safeHttp(url) ? '<button class="mfp-btn small ghost" data-act="openpage" data-url="' + esc(url) + '">Open</button>' : '') + '</li>';
+    // ROUND 41 — bookmarks could be ADDED (the star button on a manga page) but never REMOVED from inside this
+    // window. WHY: the star only ever pushed a new entry into the books list; nothing ever took one back out
+    // again except editing localStorage by hand. HOW: every bookmark row (when canOpen = this is the owner's
+    // own view, not the admin's read-only view of someone else) now gets a × button, the exact same
+    // single-item-removal pattern the "Continue reading" rows already had since round 35 (see readRow/delread
+    // below) — one tap removes just that one bookmark. A checkbox is also added to each row so several can be
+    // picked at once and removed together with the "Remove selected" button drawn above the list (see
+    // bulkBar) — view.bmSel (a Set of each bookmark's own url, its unique key) remembers which ones are ticked
+    // across re-renders. esc() prevents HTML injection in titles.
+    const row = (t, s, url, ico) => {
+      const checked = canOpen && view.bmSel.has(url);
+      return '<li class="mfp-it">' +
+        (canOpen ? '<input type="checkbox" class="mfp-bchk" data-u="' + esc(url) + '"' + (checked ? ' checked' : '') + ' aria-label="Select this bookmark to remove it">' : '') +
+        '<span class="ico">' + ico + '</span><span class="txt"><div class="t">' + esc(t) + '</div><div class="s">' + esc(s) + '</div></span>' +
+        (canOpen && safeHttp(url) ? '<button class="mfp-btn small ghost" data-act="openpage" data-url="' + esc(url) + '">Open</button>' : '') +
+        (canOpen ? '<button class="mfp-btn small ghost mfp-del" data-act="delmark" data-u="' + esc(url) + '" title="Remove this bookmark" aria-label="Remove this bookmark">&#215;</button>' : '') +
+      '</li>';
+    };
     // WHY: one row for "Continue reading" with an optional × delete button (only when canOpen=true = the owner's own view).
     //   HOW: data-act="delread" + data-id carries the entry's unique id so the click handler knows which item to remove.
     const readRow = r => {
@@ -485,7 +521,18 @@
     };
     // WHY: the bookmark and continue-reading lists. HOW: row() builds one line; esc() protects against HTML in titles.
     // Open button only appears for real web addresses.
-    return '<h3>&#11088; Bookmarks (' + books.length + ')</h3>' + (books.length ? '<ul class="mfp-list">' + books.slice(0, 100).map(b => row(b.title || b.url, b.url, b.url, '&#11088;')).join('') + '</ul>' : '<div class="mfp-empty">No bookmarks yet.</div>') +
+    // ROUND 41 — the "Select all" / "Remove selected (N)" bar above the bookmark list. WHY: lets several
+    // bookmarks be removed in one tap instead of one × at a time. HOW: only drawn when canOpen (the owner's own
+    // view) and there is at least one bookmark; "Select all" turns into "Unselect all" once every bookmark on
+    // screen is already ticked (compares the ticked count against the full list length); the remove button
+    // shows how many are currently selected and does nothing (it is simply left out, not drawn, when no boxes
+    // are selected, so there is never a visible-but-does-nothing button).
+    const selCount = books.filter(b => view.bmSel.has(b.url)).length;
+    const bulkBar = (canOpen && books.length) ? '<div class="mfp-row" style="margin:0 0 8px">' +
+        '<button class="mfp-btn ghost small" data-act="marksall">' + (selCount && selCount === books.length ? 'Unselect all' : 'Select all') + '</button>' +
+        (selCount ? '<button class="mfp-btn red small" data-act="delmarksel">Remove selected (' + selCount + ')</button>' : '') +
+      '</div>' : '';
+    return '<h3>&#11088; Bookmarks (' + books.length + ')</h3>' + bulkBar + (books.length ? '<ul class="mfp-list">' + books.slice(0, 100).map(b => row(b.title || b.url, b.url, b.url, '&#11088;')).join('') + '</ul>' : '<div class="mfp-empty">No bookmarks yet.</div>') +
       '<h3>&#128214; Continue reading (' + reads.length + ')</h3>' + (reads.length ? '<ul class="mfp-list">' + reads.slice(0, 50).map(readRow).join('') + '</ul>' : '<div class="mfp-empty">Nothing yet.</div>');
   }
   // WHY: bug reports as a list (admin: all, or one profile's). Each report opens as text; the admin can delete it.
@@ -622,7 +669,24 @@
   });
   dlg.addEventListener('input', e => {
     if (e.target.id === 'mfpFilter') { view.filter = e.target.value; const pos = e.target.selectionStart; render().then(() => { const f = $('#mfpFilter'); if (f) { f.focus(); f.setSelectionRange(pos, pos); } }); }
-    // ROUND 39 FIX: date inputs are handled on 'change' below now, NOT here. See that handler for why.
+    // ROUND 39 FIX: date inputs are handled on 'change' below now, NOT here (see that handler for why) — EXCEPT:
+    // ROUND 41 FIX — a few mobile browsers were found to not reliably fire 'change' at all after a date is
+    // picked from their native calendar widget (only 'input'), which is why some phones still looked broken
+    // even after round 40's fixes. WHY it's still safe to also listen here: the regex below only ever ACTS on
+    // a value that is already a complete, valid YYYY-MM-DD date — an incomplete value (the actual round 39
+    // bug: a partial date mid-typing) is simply ignored and changes nothing, instead of resetting the filter
+    // like the old code did. So a phone that fires 'input' gets the fix from here; a phone that fires 'change'
+    // gets it from the other handler; a phone that fires both just applies the same (already-correct) value
+    // twice, which is harmless. HOW: shares the exact same deferred safeRender() pattern as the 'change'
+    // handler, for the same reason (let the native picker's own closing sequence finish first).
+    else if (e.target.id === 'mfpFrom' || e.target.id === 'mfpTo') {
+      const d = e.target.value;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        if (e.target.id === 'mfpFrom') view.dateFrom = new Date(d + 'T00:00:00').getTime();
+        else view.dateTo = new Date(d + 'T00:00:00').getTime() + 86399999;
+        setTimeout(() => safeRender(), 0);
+      }
+    }
   });
   dlg.addEventListener('change', e => {
     if (e.target.id === 'mfpAuto') LS.set('mf_autobug', e.target.checked);   // the automatic-bug switch
@@ -642,6 +706,26 @@
       const d = e.target.value, valid = /^\d{4}-\d{2}-\d{2}$/.test(d);
       if (e.target.id === 'mfpFrom') view.dateFrom = valid ? new Date(d + 'T00:00:00').getTime() : 0;
       else view.dateTo = valid ? (new Date(d + 'T00:00:00').getTime() + 86399999) : Infinity;
+      // ROUND 41 FIX — still unreliable on phones even after round 40's layout fix.
+      // WHY: render() replaces the WHOLE dialog's HTML, including throwing away and recreating this very
+      // <input> element. On a computer the native date dropdown closes instantly the moment a date is picked,
+      // so by the time 'change' fires the picker is already fully gone and replacing the input a moment later
+      // is harmless. On a lot of phones, picking a date from the native calendar/wheel involves the picker's
+      // OWN closing animation and a focus-return step that is still finishing in the background exactly when
+      // 'change' fires — tearing the input out of the page synchronously, in the middle of that still-running
+      // native sequence, is what the round 39 comment above was already warning about for the OLD 'input'-based
+      // code, and it turns out 'change' was not fully immune to it either on some phones. HOW: let that
+      // in-flight browser sequence finish on its own first (setTimeout 0 defers to the next free moment, right
+      // after the current event finishes) and only THEN rebuild the dialog. IMPROVE: none needed.
+      setTimeout(() => safeRender(), 0);
+    }
+    // ROUND 41 — ticking/un-ticking one bookmark's checkbox (for the bulk "Remove selected" button).
+    // WHY: a checkbox is not a [data-act] button, so it never reaches the click handler above — it needs its
+    // own 'change' listener. HOW: add or remove this one url from view.bmSel, then safeRender() so the
+    // "Remove selected (N)" button's count (and the Select-all/Unselect-all label) updates right away.
+    if (e.target.classList && e.target.classList.contains('mfp-bchk')) {
+      const u2 = e.target.dataset.u;
+      if (e.target.checked) view.bmSel.add(u2); else view.bmSel.delete(u2);
       safeRender();
     }
   });
@@ -670,6 +754,7 @@
         // WHY: clear cache on tab switch so the new tab loads fresh data. Without this, switching back to 'me' shows stale
         //   data from a previous view. IMPROVE: add a TTL (refresh if older than 60 s).
         view.cache = null;
+        view.bmSel = new Set();                                  // ROUND 41: leaving the tab drops any bookmark selection
         view.tab = b.dataset.v; setMsg('');
       }
       else if (act === 'kind') view.kind = b.dataset.v;
@@ -719,6 +804,46 @@
         // WHY: keep app.js in sync — tell it the list changed so it redraws the start page "Continue reading" section.
         window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { reads: newReads } }));
         setMsg('Removed from reading history.', true);
+      }
+      // ROUND 41 — remove ONE bookmark (the × button added to each row in marksHtml above).
+      // WHY: the star button could only ever ADD a bookmark; this is the missing "take it back off" action.
+      // HOW: same pattern as delread just above — find the bookmark by its url (a bookmark's own unique key,
+      // see keyOf.books), filter it out of the books list, save, and tell app.js so the home page's star icons
+      // and bookmark section redraw immediately.
+      else if (act === 'delmark' && session) {
+        const lists = readLists(session.user);
+        const newBooks = (lists.books || []).filter(x => (x && x.url) !== u);
+        lists.books = newBooks;
+        writeLists(session.user, lists);
+        view.bmSel.delete(u);
+        window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { books: newBooks } }));
+        setMsg('Bookmark removed.', true);
+      }
+      // ROUND 41 — remove every CURRENTLY TICKED bookmark in one go (the "Remove selected" button in bulkBar).
+      // WHY: the user asked to be able to remove several bookmarks "at the same time" instead of one × at a
+      // time. HOW: keep only the bookmarks whose url is NOT in view.bmSel, save once, clear the selection (the
+      // ticked ones are gone, so nothing should still look ticked), tell app.js the list changed.
+      else if (act === 'delmarksel' && session) {
+        const lists = readLists(session.user);
+        const removed = (lists.books || []).filter(x => x && view.bmSel.has(x.url)).length;
+        const newBooks = (lists.books || []).filter(x => !(x && view.bmSel.has(x.url)));
+        lists.books = newBooks;
+        writeLists(session.user, lists);
+        view.bmSel = new Set();
+        window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { books: newBooks } }));
+        setMsg(removed + (removed === 1 ? ' bookmark removed.' : ' bookmarks removed.'), true);
+      }
+      // ROUND 41 — "Select all" / "Unselect all" toggle above the bookmark list.
+      // WHY: ticking every box by hand before a bulk-remove is tedious with a long bookmark list.
+      // HOW: if every bookmark currently shown is already ticked, empty the selection (= "Unselect all");
+      // otherwise tick all of them. The bulk bar (and this action) only ever appears on the signed-in user's
+      // OWN bookmarks tab (canOpen is false in the admin's read-only view of someone else), so this always
+      // reads session.user's own list, fresh from storage — never a stale count from an earlier render.
+      else if (act === 'marksall' && session) {
+        const lists = readLists(session.user);
+        const urls = (lists.books || []).map(b => b && b.url).filter(Boolean);
+        const allSelected = urls.length > 0 && urls.every(x => view.bmSel.has(x));
+        view.bmSel = allSelected ? new Set() : new Set(urls);
       }
       // ROUND 36 / ROUND 38: delete one activity-log entry from the "My History" tab.
       // WHY: the user asked for a × button on each row in the "My History" activity log — this is the listHtml() tab,

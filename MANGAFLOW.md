@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference & Build History
 *GitHub Pages site: https://dharmadr.github.io/Mangat1/*
 *Cloudflare Worker: accounts-worker.js (mangaflow-accounts.YOURNAME.workers.dev)*
-*Last updated: Round 40 — 2026-11-06*
+*Last updated: Round 41 — 2026-11-06*
 
 ---
 
@@ -96,7 +96,8 @@ The **accounts Worker** (`accounts-worker.js`) is also deployed separately — i
 | 37 | Chapter pagination improvements; date filter planning |
 | 38 | Chapter pagination fix, history fixes, PDF translation, wake lock, cloud delete |
 | 39 | My History alignment/date filter, outside-click-close, refresh bug, real back/forward, "Open on site" button, site-compat fixes |
-| **40** | **See full details below** |
+| 40 | Export/download button fix, mobile date-filter CSS, "Open on site" button redesign |
+| **41** | **See full details below** |
 
 ---
 
@@ -243,6 +244,47 @@ Follow-up round based on a phone screenshot of "My History" and the mini-browser
 ### 3. "Open original site" button looked out of place (index.html, style.css)
 **Problem:** the button added in round 39 was a wide pill with the text "Open original site" on it, floating over the middle of the external site's own page content; on a phone it was additionally moved down near the bottom of the screen (to avoid the header, which wraps onto 2 rows there) — which put it right next to, and visually colliding with, the orange "Reading mode" button.
 **Fix:** redesigned as a small, icon-only, square button — the exact same size and shape as the other header buttons next to it (Back, Forward, Reload, Star, Theme, Settings), showing just the ↗ "opens outside this page" arrow, no text. It now always stays pinned at the **top-right, just under the header**, on every screen size; only the exact pixel offset changes between desktop and phone (to clear the header, which is one row tall on a computer and two rows tall on a phone), so it never needs to jump down to the bottom of the screen any more.
+
+---
+
+## Round 41 — Full Change Log
+
+A long follow-up round covering a new site-compatibility report, a repeated slowness complaint, a repeated mobile date-filter complaint, a button-centering complaint, and four new feature/bug requests (bookmark removal, header auto-hide, keep-awake, and another pass over "My History").
+
+### 1. roliascan.com Chapter 1 reported as LOCKED/REMOVED — confirmed correct, no code change
+**Report:** MangaFlow said "Chapter 1 may be LOCKED or REMOVED... MangaFlow cannot log in for you" for a chapter on roliascan.com.
+**Investigation:** fetched the chapter page directly to check whether this was a false alarm (like round 39's weloma.net/rawkuma.net reports turned out to be). It is not — the page itself shows a **"Login Required"** modal ("Create a free account to continue reading and unlock all chapters") together with an **"Access Restricted — This content is not available anymore"** notice. roliascan.com itself is blocking this specific chapter behind a login wall (or has pulled it), independently of MangaFlow. The diagnostic tool's message was accurate; there is nothing in MangaFlow's own code to fix here. If the manga is otherwise readable on that site when logged in, that is expected — MangaFlow (correctly, for safety) never logs in anywhere on your behalf.
+
+### 2. General site slowness — re-audited, nothing further found
+Re-checked the whole app for anything that could be adding to page/chapter load time since round 39's scroll-save fix (which was a confirmed, real slowdown, now fixed). Reviewed the Keeper's background preload interval, the proxy page-cleaning pass, and everything added in rounds 39-40 (wake-lock timer, bookmark checkboxes, date-filter listeners) — none of it runs on a hot path or adds meaningful cost; the new wake-lock safety timer (round 41, #6 below) only fires once every 15 seconds and does nothing when the lock is already held. **This needs more specific information to debug further**: please say exactly where it feels slow next time (the home page loading, opening a chapter, switching chapters, searching another site, something else) and roughly how slow — "slow" by itself does not point at any one piece of code, and changing the page-cleaning security pass by guesswork risks weakening it for no proven benefit.
+
+### 3. My History: Export button not quite centred (profiles.js)
+**Root cause:** the dialog is attached to `<body>`, which sets a comfortable **line-height of 1.45** for reading paragraphs. A button's label is one short line, not a paragraph, so that line-height was adding invisible space above and below the text/icon ("half-leading") — the button was already centred by `justify-content`/`align-items`, but centring the *line box* is not quite the same as centring the *ink* when the line box is taller than it needs to be, especially with a symbol character like the "Sync now" ⟲ arrow, whose glyph shape sits differently inside its line than plain letters.
+**Fix:** `line-height:1` added to `.mfp-btn`, so the line box now hugs the text/icon exactly and the existing centring lands in the true middle of the button.
+
+### 4. Bookmarks could be added but never removed (profiles.js)
+**Problem:** the star button only ever added a bookmark; there was no way to take one back off from inside the Profile window, and no way to remove several at once.
+**Fix:** every bookmark row now has its own **×** button (the same single-item-removal pattern "Continue reading" rows already had since round 35) for a quick one-at-a-time removal, PLUS a checkbox on each row and a **"Select all" / "Remove selected (N)"** bar above the list for removing several at once. Removing a bookmark (one or many) immediately tells the home page to redraw its bookmark section and star icons, the same way deleting a history entry already did.
+
+### 5. My History date filter — still broken on some phones, second pass (profiles.js)
+Round 40 fixed the *layout* (the date boxes were being squeezed too narrow to use). This round targets the *event handling*, which round 40 did not touch:
+- Some phones were found not to reliably fire the `'change'` event at all after picking a date from their native calendar widget — only `'input'`. The filter now also listens on `'input'`, but **only acts when the value is already a complete, valid date** (an incomplete value is simply ignored, never resets the filter) — so this cannot reintroduce round 39's original bug.
+- The dialog's own re-render (which rebuilds the date `<input>` element from scratch) now happens a moment later (`setTimeout(…, 0)`) instead of instantly inside the event handler, giving a phone's native picker-closing animation/focus-return sequence time to fully finish first, instead of potentially having its own `<input>` element torn out from under it mid-sequence.
+
+### 6. "Keep screen awake" stopped working partway through a session (app.js)
+**Root cause (two found):**
+- The switch correctly asked for a Screen Wake Lock, but some phones' own aggressive battery-saving software (several Android makers are known for this) can silently take the lock away without the browser ever firing an event MangaFlow was listening for, and nothing then asked for it again until the phone happened to trigger one of those events — which, left untouched on a desk, might be never.
+- Separately found: saving settings was writing `keepAwake:true` straight into permanent storage, even though round 38 explicitly said this switch must *never* persist across a reload (for battery/privacy reasons) — a real inconsistency, now fixed, though not the direct cause of the screen going dark mid-session.
+**Fix:** a 15-second safety-net timer re-asks for the lock whenever it isn't currently held (harmless no-op if it already is), plus re-asking on the next tap or touch (a few browsers only allow a fresh request from inside a user action). The switch's own live state is untouched by storage now, so it keeps working normally for the rest of the visit either way. **If a specific phone still dims/locks the screen after this**, that phone's own battery/app-optimisation setting for the browser being used likely needs to be turned off by hand in the phone's own Settings app — that part is outside what any website's code can override.
+
+### 7. Header auto-hiding too eagerly while reading (app.js)
+**Problem:** scrolling up to reach the header/buttons while reading could show them for barely a second before they hid again.
+**Root cause:** showing AND hiding the header both required a recent (within 1.5s) tap-to-scroll action — drag-scrolling or simply pausing for a moment closed that window, after which scrolling up could no longer bring the header back at all until a tap happened to line up with it again, which felt random.
+**Fix:** showing the header on scroll-up no longer needs that "recent tap" gate at all (showing is always safe); hiding still requires it, so an automatic/background scroll can never sneak in a hide. A short 900ms hold after showing also blocks any hide right afterward, so a little scroll jitter the moment the header reappears cannot immediately hide it again. A touch starting now also counts as "recent input" (not just an explicit tap-to-scroll), so hiding still works properly for people who read by dragging rather than tapping.
+**Not possible without a bigger change:** the request to also auto-hide the top bar while *browsing other manga sites* (not reading) cannot be done the same way — the mini-browser's `Content-Security-Policy: script-src 'none'` (blocking all third-party JavaScript, a core safety rule of the whole proxy design since round 8) means a site being browsed cannot report anything about its own scroll position back to MangaFlow at all, by design. Doing this would require either running the other site's JavaScript (removing that safety rule) or rebuilding the mini-browser as a true scroll-synced native frame, which is a much larger change — happy to scope that separately if it's wanted badly enough to accept the trade-off.
+
+### 8. A full pass over "every button, shortcut and option" (scope note)
+Went through the items explicitly named this round (all above) plus a re-check of the buttons/shortcuts touched directly by those fixes (header buttons, Settings' keep-awake switch, the Profile window's every tab). A genuine, exhaustive click-through of *every* option on a real phone is not something that can be done from here without an actual device in hand — please flag anything specific that still looks or acts wrong after this round, the same way the screenshot and roliascan.com report were used this time, so it can be checked with real evidence instead of guesswork.
 
 ---
 
