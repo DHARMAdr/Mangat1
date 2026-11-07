@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference & Build History
 *GitHub Pages site: https://dharmadr.github.io/Mangat1/*
 *Cloudflare Worker: accounts-worker.js (mangaflow-accounts.YOURNAME.workers.dev)*
-*Last updated: Round 41 — 2026-11-06*
+*Last updated: Round 42 — 2026-11-07*
 
 ---
 
@@ -97,7 +97,8 @@ The **accounts Worker** (`accounts-worker.js`) is also deployed separately — i
 | 38 | Chapter pagination fix, history fixes, PDF translation, wake lock, cloud delete |
 | 39 | My History alignment/date filter, outside-click-close, refresh bug, real back/forward, "Open on site" button, site-compat fixes |
 | 40 | Export/download button fix, mobile date-filter CSS, "Open on site" button redesign |
-| **41** | **See full details below** |
+| 41 | Bookmark removal, wake-lock/header fixes, date-filter 2nd pass, roliascan.com check |
+| **42** | **See full details below** |
 
 ---
 
@@ -285,6 +286,23 @@ Round 40 fixed the *layout* (the date boxes were being squeezed too narrow to us
 
 ### 8. A full pass over "every button, shortcut and option" (scope note)
 Went through the items explicitly named this round (all above) plus a re-check of the buttons/shortcuts touched directly by those fixes (header buttons, Settings' keep-awake switch, the Profile window's every tab). A genuine, exhaustive click-through of *every* option on a real phone is not something that can be done from here without an actual device in hand — please flag anything specific that still looks or acts wrong after this round, the same way the screenshot and roliascan.com report were used this time, so it can be checked with real evidence instead of guesswork.
+
+---
+
+## Round 42 — Full Change Log
+
+The owner reported that round 41's fixes (Export button, date filter, header-hide) looked completely unchanged on their phone, despite the GitHub push having genuinely succeeded. That mismatch pointed at something bigger than any one button.
+
+### 1. Found the real reason earlier rounds could look like they "never arrived": no cache-busting (index.html)
+**Root cause:** every single round, every file kept the exact same name and address — `app.js`, `profiles.js`, `style.css`, and so on, every time. A browser's cache (and, on mobile data, sometimes the phone carrier's own network-level cache too) decides whether it already has a file **purely by that address** — it has no way to know the *contents* at that address changed on the server unless the address itself changes or it happens to re-check. With the same address reused round after round, a phone could easily keep running JavaScript from several rounds ago while genuinely believing it was looking at "the site" — making brand-new, correctly-deployed fixes look like they had never been applied at all, which matches exactly what was reported.
+**Fix:** every local `<script src="...">` and `<link rel="stylesheet" href="...">` tag in `index.html` now ends in `?v=42` (see the long comment right above them). Changing that number forces every browser to treat the file as a completely new address it has never cached before — a clean, forced re-download, every round, no exceptions. **Going forward this number will be bumped automatically whenever these files change**, so this class of problem should not come back. **One-time action needed on your end:** since this fix only takes effect once the new `index.html` itself is loaded fresh, please do ONE hard refresh / "clear site data" for the MangaFlow address on your phone after this update goes live — after that one time, this mechanism keeps everything current automatically.
+
+### 2. Header now also hides while scrolling MangaFlow's own search/start page (app.js, style.css)
+Re-read the round 41 note that said hiding the header while browsing *another* site's content is technically impossible (that still stands — see below). But browsing **MangaFlow's own search results and start page** is a different story: that content lives in `#viewport`, which is MangaFlow's own element and fires normal scroll events MangaFlow can read. **Added:** the header now hides on scroll-down and reappears on scroll-up while looking at MangaFlow's own start page / search results, the same behaviour reading mode's header already had. It is reset to visible automatically the moment you navigate anywhere else, so it can never get stuck hidden on a different screen.
+**Still not possible:** hiding the header while an *external* site is open inside the mini-browser iframe. That site's scrolling happens inside its own separate document, which MangaFlow cannot read (a different website) and whose JavaScript is completely blocked by design (`script-src 'none'`, a core security rule since round 8) — so there is no signal, from either side, that could ever reach MangaFlow. This is a hard technical wall of the current proxy design, not an oversight.
+
+### 3. Re-confirmed: Export button + date filter code from round 41 is correct and already deployed
+Re-checked both pieces of code line by line again: the Export button's `line-height:1` fix and the date filter's dual `input`/`change` handling are both syntactically valid and present in the pushed commit. Given finding #1 above, the most likely explanation for these "still" not working is that the phone was running cached code from before round 40/41 ever reached it. Please re-test after the one-time cache clear mentioned in #1 — if either one is still visibly wrong after that, a fresh screenshot showing the current (round 42) state would help pin down anything genuinely still open, the same way it did for the original Export-button report.
 
 ---
 

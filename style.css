@@ -134,7 +134,19 @@ input[type="text"]:focus { outline: 2px solid var(--accent); border-color: trans
   padding: 8px 8px 8px; padding-top: calc(8px + var(--safe-t));
   border-bottom: 1px solid var(--line);
   background: var(--bg);
+  /* ROUND 41 — lets the header hide itself while scrolling through MangaFlow's OWN start/search page (NOT
+     while browsing another site inside the iframe — see the long comment in app.js next to "navScrollInit" for
+     why that part genuinely cannot be done). WHY max-height instead of transform: this header sits in NORMAL
+     page flow (it is not position:fixed), so sliding it away with a transform (the trick #readerBar uses, which
+     IS fixed) would leave an empty gap behind where it used to be — #viewport below it would not grow to fill
+     that space, since a transform never changes layout. Smoothly shrinking max-height to 0 instead collapses the
+     header's own box completely, so the flex:1 #viewport area naturally grows to take the freed room, with no
+     gap and no jump. 140px comfortably covers the header's normal one-row desktop height; see the mobile
+     override below for the taller two-row phone layout. */
+  max-height: 140px; overflow: hidden;
+  transition: max-height .22s ease, padding-top .22s ease, padding-bottom .22s ease, border-color .22s ease;
 }
+.navbar.mf-hide { max-height: 0; padding-top: 0; padding-bottom: 0; border-bottom-color: transparent; }
 /* WHY: the address form must take all spare room beside the buttons. HOW: flex:1 means grow to fill; min-width:0 lets */
 /* the input shrink on small screens instead of pushing the buttons out. IMPROVE: none needed. */
 #addrForm { flex: 1; display: flex; gap: 6px; min-width: 0; }
@@ -250,7 +262,7 @@ input[type="text"]:focus { outline: 2px solid var(--accent); border-color: trans
 /* the navbar wraps to two rows, the form hides, the pill shows first (order:-1) at full width (flex: 1 0 100%), and the */
 /* other buttons share row two evenly. IMPROVE: use a variable for 760px. */
 @media (max-width: 760px) {
-  .navbar { flex-wrap: wrap; row-gap: 6px; }
+  .navbar { flex-wrap: wrap; row-gap: 6px; max-height: 220px; }   /* ROUND 41: taller cap for the 2-row mobile layout */
   #addrForm { display: none; }
   #addrPill { display: flex; order: -1; flex: 1 0 100%; min-height: 44px; }
   .navbar > button:not(#addrPill) { flex: 1 1 0; }      /* the six small buttons share the second row evenly */

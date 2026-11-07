@@ -2166,6 +2166,13 @@
   function goHome() { frame.hidden = true; hideGview(); $('#start').hidden = false; cur = null; lastView = null; rememberView(null, null, true); setAddress(''); renderStart(); updateNav(); }   // round 18: also closes the Google panel and forgets the address-bar memory
   // WHY: keep toolbar buttons correct. HOW: set each button state from history position and the current page.
   function updateNav() {
+    // ROUND 41: whenever we navigate anywhere (open a site, go home, start reading...), make sure the header is
+    // visible again. WHY: the scroll-based hide further down (navHideInit) only reacts to #viewport's OWN scroll
+    // events, which stop firing the moment you leave the start/search page (the iframe or the reader takes over
+    // instead) — without this, if the header happened to be hidden right when you tapped a search result, it
+    // could still look hidden on the page you land on, with no more scroll events left on #viewport to reveal
+    // it again. updateNav() already runs after every navigation, so this is a cheap, reliable place for the reset.
+    const navEl = document.querySelector('.navbar'); if (navEl) navEl.classList.remove('mf-hide');
     // WHY: nothing to go back to at the first page. HOW: disabled is true when hi is 0 or less.
     $('#btnBack').disabled = hi <= 0;
     // WHY: nothing ahead at the last page. HOW: compare hi to the last index.
@@ -5841,6 +5848,36 @@
     window.addEventListener(ev, markInput, { passive: true }));
   // WHY: react to scrolling. HOW: calls onScroll with a passive listener. IMPROVE: none needed.
   window.addEventListener('scroll', onScroll, { passive: true });
+
+  // ROUND 41 FEATURE — hide the header while scrolling DOWN through MangaFlow's OWN start/search page, show it
+  // again on scrolling UP, the same idea reading mode's own header already uses (see onScroll/showUi/hideUi
+  // above), requested so the header does not take up screen space while scrolling a long list of search results.
+  // WHY this can only work here, and NOT while browsing another manga site inside the iframe: this works by
+  // listening for scroll events on #viewport, which is OUR OWN element — it fires normally for OUR OWN content
+  // (the start page, search results, your reading lists). A site opened in the iframe instead scrolls INSIDE
+  // that iframe's own separate document, which MangaFlow cannot read (a different, "cross-origin" website) and
+  // whose own JavaScript is completely blocked by that page's Content-Security-Policy (script-src 'none' — a
+  // deliberate security rule put there since round 8, see the renderFrame() comments far above) — so there is no
+  // event, from either side, that could ever tell MangaFlow "the person just scrolled inside that other site".
+  // That is a hard technical wall of the proxy design, not a bug, and is why this feature is scoped to our own
+  // page only.
+  // HOW: a small, self-contained copy of the up/down-accumulator idea the reading-mode header already uses, but
+  // simpler — there is no "ignore the app's own scroll jumps" concern here (the start page never auto-scrolls
+  // the way a reading chapter can), so every scroll is reacted to directly, no extra gating needed. See the
+  // ".navbar" / ".navbar.mf-hide" rule in style.css for how the header actually animates away; updateNav() above
+  // always clears this the moment you navigate anywhere, so it can never get stuck hidden on a different screen.
+  (function navHideInit() {
+    const nav = document.querySelector('.navbar'), vp = $('#viewport');
+    if (!nav || !vp) return;
+    let lastY = 0, upAcc = 0, downAcc = 0;
+    vp.addEventListener('scroll', () => {
+      if (!frame.hidden || !reader.hidden) { nav.classList.remove('mf-hide'); return; }   // only our own start/search page, never the iframe or reading mode
+      const y = vp.scrollTop, dy = y - lastY; lastY = y;
+      if (y < 40) { nav.classList.remove('mf-hide'); upAcc = downAcc = 0; return; }       // always visible near the very top
+      if (dy < 0) { upAcc -= dy; downAcc = 0; if (upAcc > 14) nav.classList.remove('mf-hide'); }
+      else if (dy > 0) { downAcc += dy; upAcc = 0; if (downAcc > 14) nav.classList.add('mf-hide'); }
+    }, { passive: true });
+  })();
 
   // WHY: handles taps on the page in reading mode. HOW: ignores clicks outside the reader, closes the chapter menu on
   // outside taps, and runs tapScroll when the stream is tapped and the option is on. IMPROVE: none needed.
