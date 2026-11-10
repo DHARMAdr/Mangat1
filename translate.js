@@ -99,7 +99,7 @@
     if (!s || typeof s !== 'object') return;
     cfg.show = s.showTranslate !== false;
     cfg.to = LANG_TO.some(l => l[0] === s.trTo) ? s.trTo : 'en';
-    cfg.from = OCR_LANGS[s.trFrom] ? s.trFrom : 'auto';
+    cfg.from = Object.prototype.hasOwnProperty.call(OCR_LANGS, s.trFrom) && OCR_LANGS[s.trFrom] ? s.trFrom : 'auto';   // ROUND 43: 'constructor' / 'toString' used to pass this check and crash every page
     cfg.engine = ['auto', 'chrome', 'google', 'mymemory'].includes(s.trEngine) ? s.trEngine : 'auto';
     cfg.auto = !!s.trAuto;
     cfg.proxies = Array.isArray(s.proxies) ? s.proxies.filter(p => typeof p === 'string' && /^https:\/\//.test(p)) : [];
@@ -214,8 +214,8 @@
   const langFileCache = new Map();
   async function langFileExists(code) {
     if (langFileCache.has(code)) return langFileCache.get(code);
-    try { const r = await fetch(OCR_DIR + 'lang/' + code + '.traineddata.gz', { method: 'HEAD', cache: 'no-store' }); langFileCache.set(code, r.ok); return r.ok; }
-    catch { langFileCache.set(code, false); return false; }
+    try { const r = await fetch(OCR_DIR + 'lang/' + code + '.traineddata.gz', { method: 'HEAD', cache: 'no-store' }); if (r.ok || r.status === 404) langFileCache.set(code, r.ok); return r.ok; }   // ROUND 43: only a real 404 is remembered as 'missing'
+    catch { return false; /* offline for a moment: do NOT remember it as missing (it used to disable that language until a reload) */ }
   }
   function loadScript(src) {
     return new Promise((ok, bad) => {
@@ -494,7 +494,7 @@
     },
     mymemory: async (text, from, to) => {
       const j = await getJson('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text.slice(0, 480)) + '&langpair=' + from + '|' + to);
-      const t = j && j.responseData && j.responseData.translatedText; if (!t || /MYMEMORY WARNING|QUERY LENGTH LIMIT/i.test(t)) throw new Error(t || 'empty answer'); return t;
+      const t = j && j.responseData && j.responseData.translatedText; if (!t || /MYMEMORY WARNING|QUERY LENGTH LIMIT|PLEASE SELECT TWO DISTINCT LANGUAGES|INVALID LANGUAGE PAIR/i.test(t) || (j.responseStatus != null && Number(j.responseStatus) !== 200)) throw new Error(t || 'empty answer'); return t;   // ROUND 43: error texts (and non-200 answers) were shown as if they were translations
     },
     chrome: (() => {
       const made = new Map(), code = c => (c === 'zh-CN' ? 'zh' : c === 'zh-TW' ? 'zh-Hant' : c === 'tl' ? 'fil' : c);

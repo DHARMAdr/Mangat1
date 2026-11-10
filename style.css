@@ -1391,3 +1391,42 @@ body.no-tr-file [data-tab="translate"] { display: none !important; }
 /* WHY: make sure the × button does not get squashed when the title is long. HOW: tell .item to let the .tx column shrink
    but not the delete button. IMPROVE: none needed. */
 .item .tx { flex: 1 1 0; min-width: 0; }
+
+/* ROUND 43 - small phone fixes.
+   WHY: on a phone the 3 "how it works" cards sat in a 2-column grid and left card 3 alone on half a row; and the long placeholder of the start-page box was cut ("Paste a manga l").
+   HOW: an odd last card spans the full row; the placeholder gets a smaller font only on narrow screens (the typed text stays 16px so iOS does not auto-zoom).
+   IMPROVE: none needed. */
+.steps .step:last-child:nth-child(odd) { grid-column: 1 / -1; }
+@media (max-width: 480px) { #heroForm input::placeholder, #popForm input::placeholder { font-size: 13px; } }
+
+/* ROUND 44 — PAGE 2 SCROLL-HIDE. WHY: app.js adds class "p2-hide" to <body> while the person scrolls DOWN inside an outside
+   site (Page 2); the header collapses (.navbar.mf-hide) and these floating buttons fade away so nothing covers the page.
+   Scrolling UP removes the class and everything fades back. HOW: opacity + no clicks (same trick as .ui-hide in reading mode);
+   the transition gives a smooth fade. IMPROVE: add any new floating button's id to this list. */
+#fabRead, #btnOrigSite, #mfSlider, #mfWheel, #mfEdge { transition: opacity .25s; }
+body.p2-hide #fabRead, body.p2-hide #btnOrigSite, body.p2-hide #mfSlider, body.p2-hide #mfWheel, body.p2-hide #mfEdge { opacity: 0; pointer-events: none; }
+
+
+/* ============================================================================================
+   ROUND 56 - icon-only Reading mode button + tiny chapter bar + chapter picker
+   WHY: the pill that said "Reading mode" covered part of the original site. Now it is one small round icon button.
+   HOW: the same pinned corner position as before, but 44x44 px, no padding, only the book picture. The chapter bar (#p2NavBar) sits just above it in the same corner, as three small round buttons.
+   Both fade away while scrolling down (see body.p2-hide above) and come back when scrolling up.
+   IMPROVE: let the person drag the buttons to another corner and remember the place. */
+#fabRead { width: 44px; height: 44px; padding: 0; font-size: 20px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; opacity: .92; }
+#fabRead:hover, #fabRead:focus-visible { opacity: 1; }
+#p2NavBar { position: fixed; right: 16px; bottom: calc(72px + var(--safe-b)); z-index: 20; display: flex; flex-direction: column; gap: 8px; transition: opacity .25s; }
+#p2NavBar[hidden] { display: none; }
+#p2NavBar button { width: 38px; height: 38px; padding: 0; border-radius: 50%; font-size: 20px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; background: var(--bar); color: var(--fg); border: 1px solid var(--line); backdrop-filter: blur(6px); box-shadow: 0 4px 14px rgba(0, 0, 0, .35); opacity: .88; }
+#p2NavBar button:hover, #p2NavBar button:focus-visible { opacity: 1; }
+body.p2-hide #p2NavBar { opacity: 0; pointer-events: none; }
+body.fs.fs-small #p2NavBar { display: none !important; }
+/* the chapter picker window (built by openChapterPicker in app.js) */
+#mfChapPick h3 { margin: 0 0 8px; }
+#mfChapPick input[type=search] { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+#mfChapPick ul { list-style: none; margin: 0; padding: 0; max-height: 55vh; overflow: auto; }
+#mfChapPick li { margin: 0; }
+#mfChapPick li button { width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px; margin-bottom: 4px; }
+#mfChapPick li button.now { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 700; }
+#mfChapPick .muted { opacity: .7; padding: 8px 4px; }
+#mfChapPick .row { display: flex; justify-content: flex-end; margin-top: 10px; }

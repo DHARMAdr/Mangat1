@@ -56,22 +56,22 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cse.google.com https://www.google.com https://www.gstatic.com https://clients1.google.com https://clients1.google.co.in https://*.google.com https://partner.googleadservices.com https://*.googleadservices.com https://pagead2.googlesyndication.com https://*.googlesyndication.com https://syndicatedsearch.goog https://*.syndicatedsearch.goog; style-src 'self' 'unsafe-inline' https:; img-src * data: blob:; media-src * blob:; font-src * data:; connect-src *; frame-src 'self' about: blob: data: https://*.google.com https://*.google.co.in https://*.googleapis.com https://*.gstatic.com https://*.googlesyndication.com https://*.googleadservices.com https://*.doubleclick.net https://*.syndicatedsearch.goog https://syndicatedsearch.goog https://www.google.com https://googleads.g.doubleclick.net https://syndicatedsearch.goog https://*.syndicatedsearch.goog https://*.google.com https://*.googlesyndication.com; object-src 'none'; form-action 'self'">
 
   <title>MangaFlow Reader</title>
-  <!-- ROUND 42 FIX — this is very likely the REAL reason several earlier rounds' fixes looked like they "never
+  <!-- ROUND 42 FIX (version number now 43) — this is very likely the REAL reason several earlier rounds' fixes looked like they "never
        arrived" even after confirming the push to GitHub went through fine: GitHub Pages, and especially mobile
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=42" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=59" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=42" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=59" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=42">
+  <link rel="stylesheet" href="style.css?v=59">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=42"></script>
+  <script src="boot.js?v=59"></script>
 </head>
 <body data-side="right">
 
@@ -204,7 +204,10 @@
     </main>
 
     <!-- Floating corner button: appears once a page is loaded. -->
-    <button id="fabRead" hidden>&#128214; Reading mode</button>
+    <!-- ROUND 56: icon only (no words), so it covers as little of the original site as possible. The name is kept for screen readers in aria-label and for a mouse in title. -->
+    <button id="fabRead" hidden aria-label="Reading mode" title="Reading mode">&#128214;</button>
+    <!-- ROUND 56: tiny chapter bar for Page 2 (previous / chapter list / next). Shown by app.js only on a chapter page whose own chapter buttons cannot be found. -->
+    <div id="p2NavBar" hidden><button id="p2Prev" aria-label="Previous chapter" title="Previous chapter">&#8249;</button><button id="p2List" aria-label="Chapter list" title="Chapter list">&#9776;</button><button id="p2Next" aria-label="Next chapter" title="Next chapter">&#8250;</button></div>
   </div>
 
   <!-- =====================================================================
@@ -608,6 +611,8 @@
             <button type="button" id="fixCheck">Run checks</button>
           </div>
           <ul id="fixList" class="small"></ul>
+          <!-- ROUND 59: when Fix automatically cannot repair something, the complete report appears here (and is copied) so it can be pasted to Claude or any other AI. -->
+          <textarea id="fixReport" class="small" rows="8" readonly hidden style="width:100%" aria-label="Complete error report"></textarea>
           <div class="inline">
             <button type="button" id="fixOpen">Symptoms &amp; answers&hellip;</button>
             <button type="button" id="fixCopy">Copy full report</button>
@@ -639,23 +644,23 @@
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=42"></script>
+  <script src="pdfmaker.js?v=59"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=42"></script>
-  <script src="app.js?v=42"></script>
+  <script src="troubleshoot-data.js?v=59"></script>
+  <script src="app.js?v=59"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=42"></script>
+  <script src="chapter-slider.js?v=59"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=42"></script>
+  <script src="reload-wheel.js?v=59"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=42"></script>
+  <script src="edge-slider.js?v=59"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=42"></script>
+  <script src="translate.js?v=59"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=42"></script>
+  <script src="profiles.js?v=59"></script>
 </body>
 </html>

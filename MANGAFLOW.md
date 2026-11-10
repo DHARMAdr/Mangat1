@@ -1,61 +1,244 @@
-# MANGAFLOW — Project Reference & Build History
-*GitHub Pages site: https://dharmadr.github.io/Mangat1/*
-*Cloudflare Worker: accounts-worker.js (mangaflow-accounts.YOURNAME.workers.dev)*
-*Last updated: Round 42 — 2026-11-07*
+# MANGAFLOW — Project Reference, Code Map & Build History
+*GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
+*Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
+*Last updated: Round 59 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+
+> This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
 ---
 
-## What is MangaFlow?
+## 0. Page names (used when talking about the site — they change NOTHING in the code)
 
-MangaFlow is a **static website** you host for free on GitHub Pages. It lets you read manga from many different manga sites (like MangaDex, Cubari, ArenaScan, etc.) inside one clean reader, with:
+| Name | What it is | Where in the code |
+|------|-----------|-------------------|
+| **Page 1** | The home / start page: search-or-paste-link box, Continue reading, Recent pages, Bookmarks. | `#viewport` content in `index.html`; `app.js` §6 (history lists), §7 (address bar) |
+| **Page 2** | The "main site" view: any outside site or search result opened INSIDE MangaFlow like a mini browser (e.g. www.google.com, a manga site's home page). | `<iframe id="frame">`; `app.js` §3 (fetch through proxy), §7 (renderFrame, hookDoc), §7b (make sites look complete) |
+| **Page 3** | Reading mode: chapters streamed one after another as images. | `#reader`, `#stream`; `app.js` §8–§11 |
 
-- Cloud profile system (sign-in with a 6-digit code, history/bookmarks saved to Cloudflare D1)
-- Translation overlay (OCR + AI translate — bubbles are detected, text replaced in-place)
-- PDF export (download a chapter as a PDF, with translated text overlaid when translate is ON)
-- Keep-screen-awake toggle for reading without the screen dimming
-- Bookmark / "continue reading" / recent pages saved to your cloud profile
-- Admin panel (see all users, their history, bug reports)
-
----
-
-## File Structure
-
-| File | Purpose |
-|------|---------|
-| `index.html` | The page shell. Loads CSS and all JS. CSP header lives here. |
-| `style.css` | All visual styling. Dark/light theme. |
-| `app.js` | Main app — navigation, chapter fetching, PDF download, settings, wake lock. |
-| `translate.js` | OCR + translation layer — detects text bubbles, overlays translations. |
-| `profiles.js` | Profile/cloud tab — sign-in, history, bookmarks, date filter, cloud sync. |
-| `pdfmaker.js` | Low-level PDF builder (MangaPDF class). Used by app.js to encode images. |
-| `accounts-worker.js` | Cloudflare Worker — cloud backend. D1 database. |
-| `worker.js` | Cloudflare proxy Worker — proxies image fetches past CORS restrictions. |
+Rule of thumb for scrolling: on **Page 2 and Page 3** scrolling DOWN hides the header and floating buttons, scrolling UP brings them back. Page 1 hides only the header.
 
 ---
 
-## How the Code Is Connected
+## 1. What is MangaFlow?
+A **static website** (GitHub Pages) that opens manga sites through CORS proxies, shows them cleanly (Page 2), detects chapter images and turns them into an endless-scroll reader (Page 3), with optional extras: cloud/local profiles, history, bookmarks, translation overlay (OCR), PDF download, wake-lock ("keep screen awake"), floating helper widgets and a built-in troubleshooter.
 
-```
-index.html
-  └── loads style.css
-  └── loads app.js          → uses MangaFlowTranslate (translate.js), MangaPDF (pdfmaker.js)
-  └── loads translate.js    → exposes window.MangaFlowTranslate { el, report, getPageData, ... }
-  └── loads profiles.js     → exposes window.MangaFlowProfiles { open }
-  └── loads pdfmaker.js     → exposes window.MangaPDF
-```
+## 2. File map (what each file is for)
 
-The **Cloudflare Worker proxy** (`worker.js`) is deployed separately — it fetches manga images and pages from other sites and re-serves them with the right CORS headers so the browser will load them. Without it, most manga sites refuse direct image requests from GitHub Pages.
+| File | Size (lines) | Purpose |
+|------|--------------|---------|
+| `index.html` | ~660 | Page shell, CSP `<meta>`, every button/dialog, loads all scripts with `?v=NN` cache-busting (now **44**). |
+| `style.css` | ~1410 | All styling, light/dark themes, mobile rules, auto-hide rules. |
+| `app.js` | ~7340 | The main program (sections 0–18 below). |
+| `profiles.js` | ~980 | Profile window: sign-in, My history, Bookmarks, sync, Export, admin. |
+| `translate.js` | ~880 | OCR (Tesseract) + translation overlay on reader images. |
+| `boot.js` | 72 | Runs before first paint: theme + "Reopening…" cover + reload-loop guard. |
+| `pdfmaker.js` | 556 | Tiny PDF writer (no library) used by the download feature. |
+| `chapter-slider.js`, `reload-wheel.js`, `edge-slider.js` | 132/144/127 | Optional floating widgets (previous/next chapter slider, reload wheel, Top/End slider). |
+| `troubleshoot-data.js` | 165 | Plain-text data for Settings → Troubleshoot. |
+| `worker.js` | 232 | Cloudflare proxy Worker (deploy separately). |
+| `accounts-worker.js` | 286 | Cloudflare accounts Worker with D1 database (deploy separately). |
+| `_headers` | small | Security headers — **ignored by GitHub Pages** (only works on Cloudflare Pages/Netlify). The CSP in `index.html` is the one that really applies. |
+| `googledb6fd0cf04d837f7.html` | tiny | Google Search Console ownership file. Keep it. |
+| `.nojekyll` | empty | Tells GitHub Pages not to process files (needed for the `ocr/` folder names). |
+| `ocr/` | 14 files | Tesseract.js, its worker, wasm cores and language data. Self-hosted so the CSP can stay strict. |
 
-The **accounts Worker** (`accounts-worker.js`) is also deployed separately — it stores user data in a Cloudflare D1 (SQL) database: sign-in tokens, history, bookmarks, bug reports.
+Load order: `boot.js` → `style.css` → `pdfmaker.js` → `app.js` → `translate.js` / `profiles.js` / widgets / `troubleshoot-data.js`.
 
 ---
+
+## 3. Code map: WHY / HOW / IMPROVE, per file and per section
+
+### 3.1 `app.js`
+| § | Lines (≈) | WHY it exists | HOW it works | IMPROVE |
+|---|-----------|---------------|--------------|---------|
+| 0 Security basics | 41–68 | Stop outside pages or typed text from running code in our page. | `esc()` for HTML, `safeHttp()` allows only http/https links, CSP in `index.html`. | Add a Trusted Types policy. |
+| 1 Small helpers | 69–133 | One place for tiny tools used everywhere. | `$`, `$$`, localStorage wrapper `LS` (prefix `mf_`, try/catch), timers, string cleaners. | Move helpers to a shared module. |
+| 2 Settings + theme | 134–336 | Remember what the person chose. | One object `settings` saved in `mf_settings`; `applySettings()` writes classes/CSS variables. | Validate with a small schema when loading. |
+| 3 Fetching through a CORS proxy | 337–546 | Browsers block reading other sites. | Tries proxies from the list in order, with timeouts/retries; decodes charset safely (`safeDecode`); `fixProxy` repairs pasted proxy URLs. | Rank proxies by recent success; use `Promise.any` for racing. |
+| 4 URL helpers | 547–577 | Clean, compare and build URLs. | Resolve relative links, strip tracking, host helpers. | Use `URL` everywhere. |
+| 4b Search engines | 578–635 | Typing words (not a link) must search. | Engine list; builds the search URL. | Let the user add engines. |
+| 4c Own results page | 636–784 | Show results inside MangaFlow without a server. | Google programmable search / own list page. | Cache results. |
+| 5 Errors, toast, busy, loading bar | 785–1083 | Tell the person what went wrong in plain words. | Big error dialog, small toasts, busy spinner (`wakeBusy` fixed in R43), top bar. | Add "copy details" everywhere. |
+| 5b Polite requests | 1084–1133 | Don't hammer sites (they ban you). | Queue with spacing/limits. | Per-host adaptive delay. |
+| 6 History lists (Page 1) | 1134–1296 | Recent pages, Continue reading, Bookmarks on the start page. | Arrays in localStorage; `listOf()` guards bad data; capped sizes. | Move to IndexedDB for big lists. |
+| 7 Mini browser (Page 2) | 1297–1636 | Use MangaFlow as a browser. | `renderFrame()` sanitizes HTML and sets `frame.srcdoc`; `hookDoc(d)` attaches click/submit/error handlers **and (R44) the scroll-hide listener**; address bar, Back/Forward, `navSeq` guard against late answers. | Show a real progress % ; support POST forms. |
+| 7b Making outside sites look complete | 1637–2239 | Proxied pages lose styles/images/lazy-load. | Rewrites URLs, loads lazy images, removes scripts, retries images through the proxy. | Per-site rule table in a JSON file. |
+| 8 Chapter + image detection | 2240–2865 | Decide whether a page is a chapter and find its images. | Many heuristics (selectors, lazy attributes, JSON blobs, filename patterns); rejects "locked/removed" pages. | Score candidates instead of first match. |
+| 8b Full chapter list | 2866–3755 | Chapter dropdown with ALL chapters. | Finds list on the page or the manga page; numeric parsing; fixes glued site-ids. | Cache lists per manga. |
+| 9 Reading mode (Page 3) | 3756–4171 | Endless chapters. | `#stream` gets one block per chapter; IntersectionObserver loads next; `_fillTok` token stops stale fills (R43). | Virtualize far-away images. |
+| 9b The keeper | 4172–4237 | Keep next chapters ready, heal failed images. | Periodic checks, re-fetch failed ones. | Back-off per host. |
+| 10 Chapter navigation | 4238–4320 | Prev/next, home/end, dropdown. | `stepChapter(±1)`, menu open/close. | Remember last chapter per manga. |
+| 9b' Reading upwards | 4321–4430 | Load earlier chapters on scroll up. | Prepend blocks while keeping scroll position. | — |
+| 10b Free memory | 4431–4527 | Phones run out of RAM. | Clear chapter cache button, unload far images. | Auto-clear by memory pressure. |
+| 11 Scroll tracking + auto-hide UI | 4528–4748 | Hide UI on scroll-down in reading mode. | Accumulators (14 px dead zone) → `body.scrolling`; `showUi/hideUi`. | Make dead zone a setting. |
+| 12 PDF download | 4749–5133 | Save chapters as PDF. | Fetch images → `MangaPDFLib` → one file; translated text optional. | Web Worker for encoding. |
+| 12b Range dialog | 5134–5385 | Choose which chapters to download. | `<dialog id="rangeDlg">`, size estimate. | Remember last range. |
+| 12c Download manager + dock | 5386–5823 | Show progress, pause/cancel. | Floating dock list. | Resume after reload. |
+| 13 Small-screen search bar | 5824–5839 | Space-saving search on phones. | Floating bar toggled by pill. | — |
+| 14 Event wiring | 5840–6099 | Connect buttons/keys to functions. | `keydown` handler (Esc, N, P, T, C, Home, End, arrows, F11), Page 1 header-hide (`navHideInit`). | Replace if-chain by key→function map. |
+| 15 Settings dialog + proxies | 6100–6351 | All options in one place. | Tabs, switches, proxy list editor. | Search box inside settings. |
+| 16 Start-up + safety nets | 6352–6407 | Never leave a blank screen. | Boot order, reload-loop guard (`MF_RELOAD`), `mf_alive` session marker. | — |
+| 17 Reports, watchers, troubleshooter | 6408–6718 | Help find problems fast. | Collects errors/diary; builds copyable report. | Anonymous opt-in telemetry. |
+| 18 Google search, full screen, Top/End, remember page | 6719–7340 | Extras around navigation. | `#p=`/`#q=` hash, CSE loader, F11, edge slider hooks. | — |
+
+**Page 2 scroll-hide (new, Round 44)** lives right after `hookDoc()` in §7: `p2ScrollHook(d)`, `p2Set()`, `p2Reset()`. WHY: the outside page is a same-origin `srcdoc` iframe (sandbox has `allow-same-origin`), so OUR script can listen to ITS `scroll` even though the page's own scripts are blocked. HOW: passive listener, 14 px dead zone, adds `.navbar.mf-hide` + `body.p2-hide`; a 450 ms lock after each change prevents a flicker loop (hiding the header makes the iframe taller; at the very bottom the browser clamps the scroll and fakes an "up" move). `updateNav()` removes both classes on every navigation. IMPROVE: make the dead zone a setting; handle pages with their own inner scroll container.
+
+### 3.2 `profiles.js`
+| Part | WHY | HOW | IMPROVE |
+|------|-----|-----|---------|
+| Storage + session (`LS`, `mf_session`, `tok()`) | Local mode works without a server; cloud mode adds a token. | `session = {user, role, cloud, token}`. | Encrypt local codes with WebCrypto. |
+| Lists (`readLists`, `writeLists`, `mergeLists`, `CAP`) | Keep reads/books/recent merged between devices without duplicates. | Merge by id/url, cap sizes (recent 500, reads 500, books 2000). | Timestamps per item for true conflict resolution. |
+| Cloud (`post`, `pullState`, `pushState`, `flush`, `syncAll`) | Sync with Cloudflare D1. | `post()` sends the token; `flush()` batches activity; `fetchFailed` stops stale cache use. | Retry queue with back-off. |
+| CSS block | Look of the floating window. | `#mfProf …` rules; **R44:** `.mfp-kinds` (3 equal columns), `.mfp-chips`, dark date inputs. | Move to style.css. |
+| `histBody()` / `applyHist()` / `listHtml()` | History list with search, All/Read/Download filter, From/To dates. | **R44:** the list lives in `#mfpHistList`; typing or changing a date redraws ONLY the list. Inputs are never recreated. | Pagination, undo on delete. |
+| `onDate()` | One handler for `input` + `change` on date boxes. | Accepts only full `YYYY-MM-DD` (year ≥ 1990); empty = no limit; stamps `dateTouched`. | Debounce for huge lists. |
+| `marksHtml()` | Bookmarks and Continue reading with × and bulk remove. | Checkbox set `view.bmSel`. | Push state right after delete (open item). |
+| `render()` / `safeRender()` | One function builds the whole window; the lock stops two renders racing. | Async + `renderPending`. | Virtual DOM-like diff. |
+| Click handler (`data-act`) | One place for all buttons: tab, kind, **dpreset (Today/7/30)**, dateall, open, delact, export, clear, sync, admin. | `switch`-like chain. | Map of handlers. |
+| Click-outside close | Tap on the dark backdrop closes it. | pointerdown+click pair; **R44:** ignored for 800 ms after a date change and while a date box is focused (a tap that dismisses a phone's date picker is not a backdrop tap). | — |
+
+### 3.3 `translate.js`
+Sections (≈ line numbers): language tables and settings (58–200); Tesseract loader and worker (200–420, uses `ocr/`); text-box finding / merging (420–660); translation services — Chrome on-device, Google, MyMemory (660–840); overlay drawing + `MangaFlowTranslate.getPageData` for PDF (840–882).
+WHY: read raw-language manga. HOW: OCR each reader image → group lines into bubbles → translate → draw a box over the bubble. R43 fixes: `hasOwnProperty` language check, MyMemory error handling, real-404-only caching of language files. IMPROVE: run OCR in a pool of workers; cache results per image hash; better bubble clean-up (inpainting).
+
+### 3.4 `style.css`
+Sections: 1 theme variables · 2 base reset · 3 buttons/inputs · 4 browser view (`.navbar`, `#viewport`, `#frame`, `#fabRead`, `#btnOrigSite`) · 4b search pill · 5 reader bar · 6 auto-hide (`.ui-hide`, `body.scrolling`) · 7 chapter column · 8 floating reader keys · 9 chapter dropdown · 10 toast/busy/settings · 10b PDF panel · 10c settings fits one screen · 11 big error · 12 failed page notices · 13+ later rounds (each marked ROUND n). **R44 (end of file):** `body.p2-hide` fades `#fabRead`, `#btnOrigSite`, `#mfSlider`, `#mfWheel`, `#mfEdge`.
+WHY: one stylesheet = one cache entry. IMPROVE: split per feature; replace repeated media queries with container queries.
+
+### 3.5 `index.html`
+Head: CSP, `boot.js`, `style.css?v=44`. Body: `#browser` (navbar, start page, `#frame`), `#reader`, dialogs (`#settings`, `#rangeDlg`, error), floating buttons, script tags with `?v=44`. WHY the `?v=NN`: GitHub Pages caches files, so a changed `app.js` was invisible on phones until the number changed (found in R42). **Always bump the number when any file changes.** IMPROVE: generate the number from a build step or file hash.
+
+### 3.6 Small files
+- `boot.js` — runs in `<head>` before paint: theme colours, "Reopening where you were…" cover, reload-loop guard. IMPROVE: none needed.
+- `pdfmaker.js` — copies original JPEG/PNG bytes into a PDF (no re-compression = fast, lossless). IMPROVE: more PNG modes, streaming output for huge PDFs.
+- `chapter-slider.js` — drag a knob down = next chapter, up = previous. Optional: delete the `<script>` line and nothing breaks.
+- `reload-wheel.js` — half turn right = reload this chapter; left = reload all open chapters.
+- `edge-slider.js` — drag up/release = Top, down/release = End; works on Page 2 and Page 3.
+- `troubleshoot-data.js` — symptoms/answers/prompts as plain data; add new entries without touching `app.js`.
+- `worker.js` — CORS proxy. **`ALLOWED` is empty = anyone can use it. Fill it (or add a `TOKEN`) after testing.** IMPROVE: rate limit per IP.
+- `accounts-worker.js` — sign-in, activity log, delete/clear endpoints (all need the token), bug reports, admin. IMPROVE: password hashing with a per-user salt and rate limiting on sign-in.
+
+---
+
+## 4. Round 44 — Full Change Log (2026-11-08)
+
+1. **Page 2 scroll-hide (app.js §7, style.css).** Scrolling down inside an outside site hides the header and the floating buttons; scrolling up shows them, like reading mode. Reset on every navigation. Earlier comments (rounds 41/42) saying this was "technically impossible" were wrong and are corrected.
+2. **My history filter buttons (profiles.js).** Read / Download / All were squeezed by two competing flex rules; the word "Download" overflowed. Now a 3-equal-column grid (`.mfp-kinds`), `nowrap`, centred, `line-height:1`.
+3. **From/To date filter on phones (profiles.js).** Three real causes found: (a) the date text was drawn light-on-white on phones, so a picked date was invisible — dark styling + `color-scheme` + 16 px font (stops iOS zoom); (b) every change rebuilt the whole window, destroying the input while the native picker was open — now only the list redraws; (c) a tap that dismissed the picker could land on the dark backdrop and close the whole window — guarded. Added quick chips **Today / 7 days / 30 days / All dates**; boxes are empty when there is no limit; a half-typed year is ignored.
+4. Search box in My history no longer loses the keyboard (list-only redraw).
+5. Full sweep: every Settings tab, reading-mode keys (T, C, Esc, N, P, Home, End, arrows, PageDown, Space) and header buttons, add-on globals and the profile actions were re-tested in phone emulation — no errors.
+6. Cache-busting number 43 → 44; this document rewritten.
+
+Tests used: Playwright with mocked proxies (Pixel 7 and iPhone 13 emulation, Asia/Kolkata time zone).
+
+## 4b. Round 45 — Chapter errors from the 2026-11-09 reports (app.js, index.html `?v=45`)
+
+1. **roliascan.com "LOCKED or REMOVED" (Fist Demon of Mount Hua, ch 57).** The "lock" words were only the site's hidden placeholder ("Loading chapter… not available anymore") and its log-in pop-up. The real chapter is open: the pictures are filled in by the site's own script, but its preview picture is `…/0002.webp`. `probeNumbered()` always started at 0001 and stopped at the first missing number, so it found nothing. NOW it asks for 0, 1 and the sample together and starts at the lowest that exists. `noImagesError()` also stops saying LOCKED when the page has real previous/next links and no log-in/coins/premium words.
+2. **arenascan.com "no images found" (Chapter 42).** The site answered the chapter address with ANOTHER series' page (the report shows a different title and 8 chapters), then MangaFlow read that wrong page. NOW `sentOtherPage()` compares the page's canonical address with the one asked for; on a mismatch the chapter is requested once more with a harmless `?mf=<time>` cache-buster, and if it is still wrong the message says plainly "the site answered with a DIFFERENT page", with both addresses in the details.
+3. Not verified on the live sites (my workspace cannot open them); verified with mock copies of both pages. If a chapter still fails, send the new report — the details now include the asked and received addresses.
+
+## 4c. Round 46 — Refresh/Home address bug + roliascan picture API (app.js, index.html `?v=46`)
+
+1. **Refresh on the home page jumped back into reading mode; the address after Home was not clean.** ROOT CAUSE: a link such as `/Mangat0/?url=https://site/chapter` is meant to open once, but `rememberView()`, `rememberChapter()` and the failure clean-up all copied `location.search`, so `?url=` stayed in the address for ever. At the next start-up `?url=` was read first, opened as a user action (= reading mode) and even blocked the `#r=`/`#p=` memory. FIX: `cleanSearch()` (section 18a) removes `url` and `q` from every address write; start-up lets a saved `#r=/#p=/#q=` win over `?url=/?q=` and strips `?url=/?q=` at once with `replaceState`; `rememberChapter()` writes only while reading mode is on screen. RESULT (tested): reading → refresh = reading; Home → address is just `/Mangat0/`; refresh = Page 1; Page 2 refresh = Page 2.
+2. **roliascan.com: pictures never found (3rd report).** The page is script-built ("Loading chapter…"). Round 45 fixed the numbered-picture start; this round adds `apiPictures()`: it reads the site's own chapter script through the proxy, looks for `/api/…`, `/ajax/…`, `fetch("…")` addresses, adds the ids found in the chapter address (361460) and preview-picture folder (361395), tries them plus common shapes, and takes the first JSON answer holding 2+ picture addresses. Every step is written to `picTrace` and printed in the error report under "Steps tried to find the pictures". HONEST LIMIT: I cannot open roliascan from my workspace, so this was proven with a mock site, not the real one. If it still fails, the new report lists what each address answered, which decides the next fix.
+
+### Regression guard — fixed problems that must never come back
+| Problem | Rule that prevents it |
+|---|---|
+| Home / refresh reopens reading mode | Never copy `?url=`/`?q=` into later addresses (`cleanSearch()`); hash memory beats `?url=`; write `#r=` only while `reader` is visible; `leaveReader()` clears the save timer. |
+| Header/buttons cover Page 2 | `p2ScrollHook()` + `body.p2-hide`; keep the 450 ms lock. |
+| Date filter dead on phones | Date inputs need explicit colours; update only `#mfpHistList`; ignore backdrop taps within 800 ms of a date change. |
+| Phone shows old code | Bump every `?v=NN` in `index.html` on EVERY change (now 46). |
+| False "LOCKED" | Lock words are only trusted when there are no real prev/next links or the text has log-in/coins/premium wording. |
+| Numbered pictures start at 0002 | Probe 0, 1 and the sample; start at the lowest that exists. |
+| Wrong series page from site | Compare canonical address; one cache-busted retry; honest message. |
+
+## 4d. Round 47 — Sign-in problems (profiles.js, app.js, index.html `?v=47`)
+
+Report: "page loaded 5 times in 27 s" + admin sign-in "does not submit". Findings: (1) the sign-in code itself works — tested in a phone-size browser with a mock accounts server (sign-in, reload, session saved, no errors), and with the server answering 500 / 403 / offline (each shows a message). A successful sign-in reloads the page ONCE by design, and the reload guard counted the person's own refreshes/retries as a "loop" (report said "none written" = nothing automatic). (2) So the likely cause is on the Cloudflare side (Worker down, variables, D1 binding, origin list, or the name locked for 15 minutes after 5 wrong codes). Changes: errors now say the usual cause in plain words (`hintFor`); a **Check server** button on the sign-in screen says only "Server connected successfully" (round 48: it no longer shows the address, version or delay, for security); the Sign-in button shows "Signing in…" and ignores a second tap; the loop report explains that own refreshes count.
+Cloudflare checklist: Worker deployed; D1 binding named exactly `DB`; variables `ADMIN_USER` (text) and `ADMIN_CODE` (secret, 6 digits); optional `ALLOWED_ORIGINS` = `https://dharmadr.github.io`; open `<worker address>/ping` in a browser tab — it must show version 4; wait 15 minutes if the name was locked.
+
+## 4e. Round 49 — Owner's server address hidden (profiles.js, `?v=49`)
+The Server tab used to show the built-in accounts server address to anybody (a browser that once held the admin was remembered by `mf_admin_dev`). NOW the tab is visible to everyone (people may use their own server), but the real address is drawn ONLY while the signed-in person is the admin (`session.role === 'admin'`); others see an empty box and "built-in server in use". Leaving it empty keeps the built-in server working; anyone may save their own address (only in their own browser). HONEST LIMIT: the address still exists in `profiles.js` in the public repo; hiding it stops casual viewing only. Regression rule: never print `cloudUrl()` for a non-admin. Tested: guest with stale admin flag sees no address; signed-in admin does.
+
+## 4f. Round 50 — Chapter pages on Page 2 (the site view) show all pictures (app.js, `?v=50`)
+Report (comizy.io chapter): reading mode (Page 3) found the chapter, but the same page opened as a site (Page 2) had blank pictures. CAUSE: Page 2's `fixLazy()` only knew 5 lazy attribute names while reading mode's `imgAddressInfo()` knows many more and also scans every other attribute; and pictures whose address is only built by the site's script (pages 4+ had no address in the HTML) got nothing because Page 2 removes scripts. FIX: (1) `fixLazy()` now asks `imgAddressInfo()` whenever src is empty / a `data:` drawing / a loading placeholder; (2) before showing a page with 2+ empty picture slots, the caller reads the page's scripts as TEXT with `fromScripts()` (or the full `chapterPictures()` finder, max 6 s) and `renderFrame(doc, base, extraPics)` hands those addresses, in order, to the empty slots only. Never runs the site's code. Tested with a mock page: 3 attribute styles + 3 script-only pictures all load. Not tested on the real comizy.io (my workspace cannot open it). Regression rule: Page 2 and Page 3 must use the SAME address finder (`imgAddressInfo`). If a site's pictures still stay blank on Page 2, the picture host probably refuses outside referrers; the page's image-retry-through-proxy step (section 7b) is the next place to look.
+
+## 4g. Round 51 — Site-view pictures blocked by "hotlink" protection (app.js, `?v=51`)
+Round 50 did not cure comizy.io. Likely cause found by reading the code: Page 2's picture-retry (a) ran only for errors AFTER its listener existed, but a hotlink-refused picture fails in milliseconds, before the listener is attached, so the retry never happened; (b) used the FIRST proxy of the list with no Referer, while hosts like cmzcdn.org answer only when the request says it comes from the chapter page (reading mode uses YOUR OWN proxy + `&ref=<page address>`). FIX: `retryFrameImg()` (own proxy + `&ref=`), `sweepFrameImgs()` retries pictures that already failed (when the frame is hooked, when it finishes loading, and after 3 s). The diagnostic report has a new line "Site view pictures (round 51): N pictures, X loaded, Y without address, Z retried through the proxy, first failing host: …" — if chapters are still blank, copy the report WHILE the chapter is open on Page 2 and send it: that line says which of the causes remains. Tested with a mock whose picture host refuses everything except the proxy: before the fix all six blank, after all six load. Not verified on the real comizy.io.
+
+## 4h. Round 52 — Chapter boxes that stay empty/stuck + the debug kit (app.js, `?v=52`)
+Report: while reading, the first chapters showed but the 4th and 5th were missing until the site was reopened. Differential test (Round 43 files vs now, mock sites with plain / script-list / lazy pictures, 21-chapter list): identical results, so rounds 44-51 did NOT change normal chapter loading; the gap is a box that was never retried. CAUSE: the keeper (section 9b) healed only boxes flagged `data-failed`. A box that became EMPTY (fill replaced and never restarted) or stuck on its spinner had no flag, so nobody retried it. FIX: the keeper now flags a box seen empty for 20 s, or loading longer than 100 s (`_fillStart`), and step B refills it. Tested: two wiped boxes (4th, 5th) refilled by themselves within 40 s. NEW REPORT LINE: "Chapter boxes (round 52): list N chapters, boxes M | Chapter 4: 8 pictures | Chapter 5: EMPTY …" — if it happens again, copy the report while it is visible and send it.
+**Debug kit** (outside the site, in `mangaflow-debug-kit.zip`): Playwright scripts with mock sites — `t10` Page 2 scroll-hide, `t11` profile history/date filter/Download buttons, `t14` refresh/Home/address, `t15-17` sign-in + server tab, `t18/t19` Page 2 pictures + hotlink retry, `t20` old-vs-new differential on chapter loading, `t21` self-heal. Run `node tNN.js <port>` with `python3 -m http.server <port>` in the project folder. Rule: before every release run them all.
+
+## 4i. Round 53 — Whole-site audit: every button, shortcut, setting, profile and server option (app.js, `?v=53`)
+The owner asked for a full debugger + troubleshooter run with a written report. Method and results are in `TEST_REPORT_ROUND53.md` (also sent as a file). 176 table-driven checks (phone Pixel 7 + desktop 1280x800) plus the older regression scripts ran. Three REAL bugs were found and fixed:
+1. **Forward button never worked after Back** (Page 2). WHY: since round 39 history is native (`pushState`), but `updateNav()` still disabled Forward from the old page list (`hi >= hist.length-1`), which is always true after Back. HOW fixed: every pushState stores `{mfi: n}` (`navMax` = newest step); `updateNav()` enables Forward while `history.state.mfi < navMax`; a `popstate` listener refreshes the buttons. IMPROVE: drop the old `hist/hi` list completely.
+2. **Esc while in browser full screen also closed reading mode** and left `body.fs` stuck (header hidden). HOW fixed: in the key handler, Esc with `document.fullscreenElement` only calls `leaveFs()` then `syncFs()`; Esc outside full screen still leaves reading.
+3. **Header stayed hidden at the very top for up to 2.5 s after a key jump** (n / p / arrows). WHY: `showUi()` sat inside the `Date.now() > holdUi` gate. HOW fixed: `if (y < 40) showUi()` now runs before the gate.
+Test-script lessons (not site bugs): settings controls live in tabs (click the tab first); with Slider/Edge ON the Top/End/Prev/Next keys are hidden by design; Esc with nothing open leaves reading mode by design; Page 2 toolbar slides away after scrolling down.
+
+## 4j. Round 54 — nyxscans.com: one-picture chapter + false "font" warning (app.js, `?v=54`)
+Report: `nyxscans.com/series/.../chapter-0` gave "No chapters or chapter images found"; Page 2 said "An icon / text font could not be loaded". Page data: only ONE real chapter picture (a long stitched .webp), a Next link, a React reader (`reader-shell`).
+1. **Short chapters**: `looksLikeChapter()` needed 3+ pictures. HOW fixed: also a chapter when the address has a chapter number, the page has at least 1 real picture AND a Previous/Next chapter link. Verified with a mock (`work/audit/nyx.js`): old build = error, new build = reader opens with chapters 0 and 1.
+2. **Font warning**: `fontBad` fired when ANY font failed. HOW fixed: warn only when an icon-style font failed or more than half of the fonts failed; the report now lists the failed font names ("fonts that failed (n of m): ...").
+Not verifiable here (sandbox cannot reach nyxscans.com): whether the real chapter pictures load; check after hard refresh. If the chapter still fails, copy the report: look at the line "pictures with an address".
+
+## 4k. Round 55 — Chapter audit: no more silent jumps from chapter 1 to 22 (app.js, `?v=55`)
+Report (nyxscans, Roxana): boxes were Chapter 0, 1, 22..40; chapters 2–21 were missing and no error showed. Cause: the site's own list skipped them and the reader trusted the list.
+**New algorithm** (all in app.js before `startReading`): `fillChapterGaps()` reads the number from each chapter address, finds every missing whole number between the first (or 0/1 if the first is small) and the last, and adds a guessed chapter (same address pattern). `verifyChapterList()` then fetches each guessed address in the background (3 at a time): pages with pictures stay, 404 / no pictures are removed from list and menu. `auditReport()` shows ONE pop-up "Chapter check" listing: chapters in the site's list, expected, gaps added, found, NOT on the original site, could not be checked, and (30 s later) chapters in the list but not shown in reading mode. The same text is in both diagnostic reports as "Chapter audit (round 55)".
+Mock test `work/audit/gap.js`: list 0,1,22..30 + chapters 2–5 and 10–21 exist, 6–9 give 404 -> menu 0..5,10..30 and pop-up "missing on the site: 6, 7, 8, 9".
+Limits: only sites whose chapter addresses contain "chapter/ch/episode + number"; sites with ID-only addresses are skipped (the report says "skipped"). Chapters NEWER than the newest listed are not searched yet. When reading starts from a chapter page whose series page cannot be found, the list is only the prev/next chain, so no gaps can be seen.
+
+## 4l. Round 56 — Icon-only Reading button + BUTTON BRIDGE for script-driven chapter bars (app.js, index.html, style.css, `?v=56`)
+1. **Reading mode button** (`#fabRead`) is now ONE small round book icon (44 px, no words; `aria-label`/`title` keep the name). WHY: the wide pill covered the original site.
+2. **Button bridge** (app.js, block "ROUND 56 - BUTTON BRIDGE" just above `onFrameClick`). PROBLEM: nyxscans.com (React/Next.js) draws its Next / Previous / Chapters bar with script-driven `<button>`s that have no address; MangaFlow never runs a site's scripts, so they did nothing on Page 2. SOLUTION in 3 parts: (a) `classifyControl()` reads the meaning of the clicked control (aria-label, title, alt, small text, svg title, symbols > <, id/class names; words in English, Spanish, French, Portuguese, Indonesian, Turkish, German, Italian, Arabic, Chinese, Japanese, Korean) -> NEXT / PREVIOUS / LIST; (b) `navTargets()` finds the real addresses (the page's own links via `findNavLinks`, else the detected chapter list, else the same address with the number +1 / -1) and `openNavTarget()` opens them in Page 2; LIST opens our own `<dialog id="mfChapPick">` picker (`openChapterPicker`, loads the series page with `loadSeriesList` when needed, has a find box); controls carrying `data-href/data-url/data-link` are simply opened; (c) `markNavControls()` un-hides recognised controls the site keeps transparent until its script runs, and when a chapter page has NO recognisable buttons, `#p2NavBar` (3 tiny round buttons: previous, list, next) is shown by `updateP2Bar()`. Only active on chapter pages (`onChapterPage()`), never on search lists or ordinary pages, and real `<a>` links are untouched.
+3. Test `work/audit/bridge.js` (mock Next-style page): Previous -> chapter 4, Next -> 5 -> 6, data-href button -> 11, list button opens picker with 12 items and picking chapter 2 opens chapter 2; page without any bar -> tiny bar Next/Previous/List all work. Full regression (176 checks + older scripts) still passes.
+4. New file `MANGAFLOW_FULL_SITE.md`: the whole site (every source file, full CSS) plus guide, history and rebuild steps.
+
+## 4m. Round 57 — arenascan: "Page 2 keeps loading", "reading shows chapter 1 then 20" (app.js, `?v=57`)
+Report: arenascan.com `the-real-tycoon-all-by-myself-chapter-19`: Page 2 showed no chapters and "kept loading"; reading mode showed chapter 1 and then jumped to 20. The report itself had no error. NOT reproduced with a mock (a flat-address site with list "1, 20..30" opened chapters 1..30 correctly, with or without script-written pictures), so these are DEFENSIVE fixes plus better diagnostics:
+1. `tryAutoRead` waited for the background chapter-list reader with no limit; the banner "Looking for chapters…" could stay for minutes on long split lists. Now it waits at most 20 s (race) and `setBusy` hides any banner after 120 s.
+2. Chapter-audit verification (round 55) removed a guessed chapter when its page answered but showed no pictures in the HTML. Now only a real "not found" removes a chapter: HTTP 404/410, or a page titled 404/not found that does not mention the chapter number. A page that answers is kept and tried when reached.
+3. Diagnostic reports now have "Site view chapter list (round 57)": chapters known, number range, whether the background reader has finished, and the banner text.
+NEXT STEP if it happens again: send the report copied (a) from the error pop-up "Chapter check" if shown, and (b) while reading, so the lines "Chapter audit (round 55)" and "Site view chapter list (round 57)" show the real numbers.
+
+## 4n. Round 58 — arenascan "dead" Prev/Next links (`#/prev/`, `#/next/`) (app.js, `?v=58`)
+Facts read from the real site (WebFetch): chapter pages hold their pictures in plain `<img>` tags (chapter 19: 20 `.webp` on cdn.arenascan.com; chapter 2: 16 numbered `.jpg`), but **Prev / Next are `<a href="#/prev/">` / `<a href="#/next/">`** (wired by the site's script) and the series page `/manga/<slug>/` has a static list 1..32 with a dead "First Chapter" link `#/`.
+Reproduced with a faithful mock (`work/audit/arena2.js`): clicking the site's own Next on Page 2 showed an error pop-up and the frame went cross-origin (the `#/…` address resolved against the real site). FIX: `isDeadAnchor()` (href empty, `#...`, `javascript:`) - such links are handled by the button bridge: words from the href text ("#/next/" -> "next"), the label and class names decide next / previous / list, then `openNavTarget()` opens the real chapter. `markNavControls()` also scans these anchors, so the tiny fallback bar is not shown when the site has its own. After the fix: site Next on chapter 19 opens chapter 20; reading mode lists 32 chapters.
+NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock opens 1..32 fine). If it returns, send the report copied while reading (lines "Chapter boxes", "Chapter audit", "Site view chapter list", "Picture routes").
+
+### Open items (not changed)
+- Bookmark deleted in profile can reappear from the cloud until the next state push (push right after delete).
+- `worker.js` `ALLOWED` is empty (open proxy) — fill it.
+- Revoke the old Google API key that starts `AIzaSyC-cqQ0…` (it is public in the repo).
+- A real phone's native date picker cannot be driven by Playwright; the fix was verified by logic and emulation. If it still misbehaves on one specific phone, tell Claude the model + browser.
+
+---
+
+
+## 4o. Round 59 — Page 2 spinner pictures + the Site-View Doctor in Troubleshoot (app.js, troubleshoot-data.js, index.html, `?v=59`)
+
+**Report (arenascan, 2026-11-10/11):** Page 2 (site view) of a chapter "keeps loading" and shows no chapters, while reading mode (Page 3) works perfectly. The report said "9 pictures, 9 loaded, 0 retried" — i.e. the pictures "loaded" but were not the chapter.
+
+**Root cause (found, reproduced with a mock, fixed):** the site (MangaStream/"mangareader" theme) puts a spinner drawing `readerarea.svg` in every picture slot and lets its own script (`ts_reader.run({... images:[...]})`) swap in the real pages. MangaFlow never runs a site's scripts. The "empty slot" rule only looked for slots with NO address, and a slot with `readerarea.svg` HAS an address, so nothing was filled and the spinner stayed for ever. Old code on the mock: 3 spinner pictures. New code: all 20 pages.
+
+**Fixes**
+1. `PLACEHOLDER_SRC` (new) recognises placeholder names (readerarea, blank, spacer, transparent, lazy, placeholder, loader, loading, spinner, 1x1...). They now count as EMPTY in `navigate()` (empty-slot rule), `fixLazy()` and the new `placePictures()`.
+2. `placePictures(d, base, pics)` (new, taken out of `renderFrame`): fills empty/placeholder slots in page order, then ADDS the pictures the reader finder knows but the page has no slot for (after the last real picture, same box). Also runs when the page shows 3 or more FEWER pictures than its own scripts list.
+3. **Site-View Doctor** (new, before `selfCheck`): `siteViewScan()` counts picture kinds (ok / placeholder / noaddr / failed / pending), asks the reader finder (`fromScripts`, `scanPictures`, `chapterPictures`) what the page SHOULD show and lists named problems: `P2-PLACEHOLDER`, `P2-MISSING`, `P2-FAILED`, `P2-STUCK-LOADING`, `P2-NOLIST`, `P2-NODOC`. `siteViewRepair()` repairs them (fill/add pictures, retry failed through proxies, switch off a never-ending loading bar/banner, load the chapter list from the series page). `siteViewFull()` builds the long detail report.
+4. **Settings > Troubleshoot:** "Run checks" now shows those problems; "Fix automatically" runs the doctor; if something cannot be repaired it builds the COMPLETE report (diagnostic + site-view detail: every picture with state/attribute/address/size, class names, script counts, CSP blocks, hash, screen), shows it in a new box (`#fixReport`) and copies it. "Copy full report" and "Send report to server" include the site-view detail. New repair button "Repair this site page" and a new symptom in the guide. Report headers now say "build round 59".
+
+**Tests (mock arenascan, Playwright):** old code = 3 spinners (reproduced); new = 20 pictures; healthy page shows "Site view looks right", no false alarm; broken page (spinners, 3 slots, loading bar stuck) is repaired by Fix automatically; page with spinners and no data anywhere produces the complete report.
+
+**IMPROVE:** add more placeholder names when a new site reports a spinner; add a screenshot hint to the report.
 
 ## How to Deploy / Set Up
 
 ### 1. GitHub Pages
-- Fork or push to `DHARMAdr/Mangat1`
+- Fork or push to `DHARMAdr/Mangat0`
 - Enable GitHub Pages from `main` branch root
-- Site is live at `https://dharmadr.github.io/Mangat1/`
+- Site is live at `https://dharmadr.github.io/Mangat0/`
 
 ### 2. Cloudflare Proxy Worker (`worker.js`)
 - Cloudflare Dashboard → Workers → Create → paste `worker.js` → Deploy
@@ -75,7 +258,12 @@ The **accounts Worker** (`accounts-worker.js`) is also deployed separately — i
 
 ---
 
-## Round-by-Round Change History (key rounds)
+---
+
+## 5. Round-by-Round Change History (key rounds)
+| 44 | Page 2 scroll-hide; profile filter buttons; mobile date filter (invisible text, rebuild, backdrop close); chips; new doc | profiles.js, app.js, style.css, MANGAFLOW.md |
+(Rounds before 44 follow.)
+
 
 | Round | What changed |
 |-------|-------------|
@@ -98,7 +286,57 @@ The **accounts Worker** (`accounts-worker.js`) is also deployed separately — i
 | 39 | My History alignment/date filter, outside-click-close, refresh bug, real back/forward, "Open on site" button, site-compat fixes |
 | 40 | Export/download button fix, mobile date-filter CSS, "Open on site" button redesign |
 | 41 | Bookmark removal, wake-lock/header fixes, date-filter 2nd pass, roliascan.com check |
-| **42** | **See full details below** |
+| 42 | Cache-busting `?v=` on every script/style tag; header hides on the start page |
+| **43** | **Full audit + bug-fix round — see "Round 43" below** |
+
+---
+
+## Round 43 — Full Audit & Bug-Fix Log
+
+Method: syntax + lint pass, ID cross-check (HTML ↔ JS ↔ CSS), real-browser run (phone + desktop size, mocked manga site through a mocked proxy), then a line-by-line review of all of `app.js`. Every item below was confirmed by reading the code before it was changed. Cache-bust number is now `?v=43` in `index.html`.
+
+### Fixed (app.js)
+1. **Chapter detection crashed on a stray `%`** (`/promo/100%`, `/sale-50%-off`): `decodeURIComponent` threw and aborted the whole scan. New `safeDecode()` helper used in `detectChapters` and the "current page missing from list" path.
+2. **Locked-chapter message never shown**: `mainText()` tested `n.isConnected` on a detached clone (always false), so every wrapper was removed and the 60 % protection never worked. Removed that test.
+3. **Loading bar stuck on** after a Google-URL / invalid-address early return in `navigate()`; now `setLoading(false)`.
+4. **Home during a slow load**: the old page appeared over the start screen later. `goHome()` now cancels the in-flight navigation (`navSeq++`).
+5. **Chapter pictures doubled**: reload pressed while a chapter was still loading (or keeper + reload) made two fills add every page twice. `fillChapter` now has a per-box token; only the newest call may touch the box.
+6. **Proxy deleted by mistake**: `isExample` was case-insensitive and unanchored, so a real worker named like `username.workers.dev` / `mangaflow-name.workers.dev` was removed at every load. Now only the literal `//NAME.workers` placeholder matches.
+7. **Pasted proxy with a query string** (`…/proxy?key=abc`) was turned into `…?key=abc/?url={url}`. Now `&url={url}` is appended.
+8. **Keep-screen-awake race**: switch + click + timer requested several locks, the first was lost, so switching OFF left the screen on. Requests are now serialised (`wakeBusy`) and re-checked after the await.
+9. **Back/Forward dead after `?url=` / `?q=` links** (share links, search-result tabs): `resumeFromHash()` was blocked by start-up-only variables. `popstate` now passes `fromPop`.
+10. **"Erase when I close the tab" wiped bookmarks on every reload** (Fix automatically, Reset, Sync, F5). It now erases once per NEW tab session (sessionStorage marker `mf_alive`) and never on reload. Trade-off: the erase happens at the next open, not at the moment of closing.
+11. **Old baked-in Google API key** was cleared in storage but stayed in memory and was written back by the next `applySettings()`. Now also cleared in memory; the storage read is inside the `try` (blocked storage no longer aborts start-up).
+12. **Clipboard list remembered secrets**: copy/paste listeners saved anything pasted in the Google key box, proxy box, password boxes or dialogs. Those are now skipped.
+13. **Damaged saved lists** (`recent`/`books`/`reads` = `{}` or containing `null`) crashed the start page. They are now validated to arrays of objects.
+14. IntersectionObserver now looks at all entries (`some`), not only the first; PDF diary printed `Chapter ?` (used `it.num`, items carry `label`/`no`).
+
+### Fixed (profiles.js) — found in the second half of round 43, once the full file set was audited
+15. **History date filter moved the date back one day** (the "still broken on my phone" report of rounds 39-42): the boxes were read as LOCAL midnight but written back with `toISOString()` (UTC). In India (UTC+5:30) picking 1 Nov showed 31 Oct after the redraw, and "today" could not be picked after midnight. Now both directions use local time. Verified in a headless browser set to Asia/Kolkata: the old file gave 2026-10-31, the new one 2026-11-01.
+16. **Deleting history never reached the cloud**: `/activity/delete` (and `/activity/clear`) were sent WITHOUT the sign-in token, so the Worker answered 401 and the empty `catch` hid it. Deleted rows came back after every reload. The token is now sent and a real failure is shown. The extra `/activity/clear` call was dropped (`Cloud.clear()` already calls `/clear-me`).
+17. **"Clear history" and "Sync now" left the old list on screen** (the cache was reused). Both now reset `view.cache`.
+18. A failed history fetch was cached as an empty history (Export then wrote `[]`). Not cached any more.
+19. "Select all" bookmarks selected rows that are not shown (only 100 are listed). Now only the visible ones. Bookmark merge cap raised (it silently cut at 300).
+
+### Fixed (translate.js)
+20. A saved `trFrom` of `constructor`/`toString` passed validation and broke every page (now `hasOwnProperty`). MyMemory error texts and non-200 answers were shown as translations (now rejected). A single offline moment marked an OCR language file as missing for the whole session (now only a real 404 is remembered).
+
+### Fixed (style.css)
+- Start page on phones: orphan "3" card now spans the full row; long placeholder no longer cut (smaller placeholder font only, typed text stays 16 px).
+
+### Known / not changed (open items)
+- **profiles.js**: removed bookmarks / "Continue reading" rows can come back after a sync (the merge is a union with no deletion marker; needs a `deleted` list in the synced JSON). Guest history read before signing in is not adopted in LOCAL mode, and a failed cloud flush at sign-in loses it. Bookmark/state changes in the last 3 s before closing the tab are not pushed (no `keepalive`). An expired token (30 days) is never handled: sign out and in again. The admin filter calls `render()` without the `safeRender` lock.
+- **translate.js**: a page that times out keeps running in the background and can clash with Retry (needs a per-run token); changing the language mid-run can give mixed-language results; one failed page stops the whole queue; the vertical-to-horizontal box swap mixes the two axes; the OCR worker and bitmaps are never released; with auto-detect the first page is stamped with the wrong key and is redone when you scroll back. These need the `ocr/` folder to test, so they were documented, not changed.
+- **worker.js**: `ALLOWED` is empty, so ANYONE can use your proxy (the Worker prints a warning header). Setting it blocks picture loads that send no Origin, so test before you fill it, or use Cloudflare rate-limit rules. `isPrivateHost` does not catch decimal/hex IP forms or redirects to private hosts.
+- **accounts-worker.js**: a lock-out per username lets a stranger lock the admin out for 15 minutes by typing wrong codes (a design trade-off).
+- troubleshoot-data.js prompts mention `test/mock-sites.js`, which is not in the project any more.
+- **Google API key literal** `AIzaSyC-cqQ0…` is still in `app.js` (needed for the migration check) and in the public GitHub repo. **Revoke it in Google Cloud Console** and then delete the literal.
+- `weloma`/lazy `width="100%"` images are ignored by `generalPictures`/`isHolder` (`parseInt('100%')` = 100 < 150 px). Medium confidence, not changed.
+- `challenge-platform` marker can show a false "verify you are human" box on Cloudflare pages with no `<img>` tag (medium confidence).
+- PDF download: translated-page path ignores `maxW`/2000 px slicing and white background; dead (non-existent) guessed chapters are not skipped in the range; canvases are not shrunk after use (iOS memory); a failed later part aborts the job after earlier parts saved; `Retry-After` is not capped.
+- Blob URLs of pictures are not revoked when the stream is wiped (`startReading`/`jumpTo`/`removeSection`).
+- Typing `Dr.Stone` is treated as a host name; `runCse` concurrent calls; `goHist` sets the index before the load succeeds.
+- Files NOT in the round-42 zip and therefore not audited: `boot.js`, `pdfmaker.js`, `translate.js`, `profiles.js`, `accounts-worker.js`, `worker.js`, `chapter-slider.js`, `reload-wheel.js`, `edge-slider.js`, `troubleshoot-data.js`, `_headers`.
 
 ---
 
@@ -348,7 +586,7 @@ Re-checked both pieces of code line by line again: the Export button's `line-hei
 
 ## Continuing Development with Claude
 
-Paste this file at the start of a new session to give Claude full context. Then describe what you want to fix or add. Claude will read this history and continue from Round 38.
+Paste this file at the start of a new session to give Claude full context. Then describe what you want to fix or add. Claude will read this history and continue from Round 43.
 
 **Files to always include in context when asking Claude:**
 - `app.js` — main logic
@@ -358,4 +596,4 @@ Paste this file at the start of a new session to give Claude full context. Then 
 - This `MANGAFLOW.md`
 
 **Useful starting prompt:**
-> "Here is MANGAFLOW.md (Round 38). I want to [describe your request]. The files are attached."
+> "Here is MANGAFLOW.md (Round 43). I want to [describe your request]. The files are attached."

@@ -116,7 +116,7 @@
     // WHY: a pasted proxy address may already end in ?url= . HOW: then only {url} is added; otherwise '/?url={url}' is
     // appended. IMPROVE: also accept ?u= styles.
     if (/[?&]url=$/i.test(p)) return p + '{url}';
-    return p.replace(/\/+$/, '') + '/?url={url}';
+    return p.includes('?') ? p + '&url={url}' : p.replace(/\/+$/, '') + '/?url={url}';   // round 43: a pasted address that already has ?key=... is no longer mangled
   }
   // Short readable name of a proxy, e.g. "api.allorigins.win/raw". Used in lists and error messages.
   // WHY: a short readable proxy name for lists and error messages. HOW: swaps {url} for a dummy 'x' so new URL() works,
@@ -129,7 +129,7 @@
   // WHY: the guide contains example addresses like 'your-worker'. If someone pastes one by mistake it can never work. HOW:
   // a regular expression tests for those example words, ignoring capital letters. IMPROVE: show a message when one is
   // refused.
-  const isExample = p => /your-worker|YOURNAME|NAME\.workers/i.test(p || '');
+  const isExample = p => /your-worker|YOURNAME|\/\/NAME\.workers/.test(p || '')   // round 43: was case-insensitive + unanchored, so a real worker called username/mangaflow-name.workers.dev was silently deleted;
 
   /* ---------------------------------------------------------------
      2. SETTINGS + THEME
@@ -237,12 +237,19 @@
   // ROUND 14: keep the screen awake while reading (optional). WHY: phones dim and lock during long reading. HOW: the Screen Wake Lock API
   // gives a "lock" object; we ask for it when the switch is on and the page is visible, and let go when either changes. A browser
   // without the API simply does nothing. IMPROVE: only hold the lock while reading mode is open.
-  let wakeLock = null;
+  let wakeLock = null, wakeBusy = false;
   async function syncWake() {
     try {
       // WHY: ask the browser to keep the screen on. HOW: wakeLock.request('screen') returns a lock object we remember; no
       // support means nothing happens.
-      if (settings.keepAwake && !document.hidden && 'wakeLock' in navigator) { if (!wakeLock) { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } }
+      if (settings.keepAwake && !document.hidden && 'wakeLock' in navigator) {
+        // ROUND 43: syncWake runs from many events at once (switch + click + timer). Without this guard two locks were requested and the first was lost, so switching OFF left the screen on.
+        if (!wakeLock && !wakeBusy) {
+          wakeBusy = true;
+          try { const l = await navigator.wakeLock.request('screen'); if (settings.keepAwake && !document.hidden) { wakeLock = l; l.addEventListener('release', () => { if (wakeLock === l) wakeLock = null; }); } else { await l.release(); } }
+          finally { wakeBusy = false; }
+        }
+      }
       else if (wakeLock) { await wakeLock.release(); wakeLock = null; }
     } catch { wakeLock = null; /* refused (battery saver, not allowed): ignore */ }
   }
@@ -880,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 31)',
+      'MangaFlow error report (build round 59)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -936,6 +943,7 @@
     if (!msg) { b.hidden = true; return; }
     // WHY: a small banner for the person. HOW: unhide it and set its text.
     b.hidden = false; b.textContent = msg;
+    clearTimeout(setBusy.t); setBusy.t = setTimeout(() => { b.hidden = true; }, 120000);   // ROUND 57: a working note never stays longer than 2 minutes
   }
   // WHY: the thin loading bar at the top of the page. HOW: classList.toggle adds the 'on' class when on is true, removes
   // it when false. IMPROVE: show real progress.
@@ -1137,12 +1145,16 @@
               position inside the chapter too. */
   // WHY: the list of recently opened pages. HOW: loaded from storage, or an empty list. 'let' because it is replaced
   // later. IMPROVE: sync to the cloud.
-  let recent = store.get('recent', []);
+  // ROUND 43: wipeOnClose, done safely (see the pagehide note in the Security section): erase once per new tab session, never on reload.
+  try { if (settings.wipeOnClose && !sessionStorage.getItem('mf_alive')) { store.set('recent', []); store.set('books', []); store.set('reads', []); store.set('progress', {}); store.set('clips', []); } sessionStorage.setItem('mf_alive', '1'); } catch { /* storage blocked */ }
+  // ROUND 43: stored lists must be arrays of objects; a damaged value ({} or null entries) used to crash the start page.
+  const listOf = k => { const v = store.get(k, []); return Array.isArray(v) ? v.filter(x => x && typeof x === 'object') : []; };
+  let recent = listOf('recent');
   // WHY: the list of bookmarks. HOW: loaded from storage, or empty. IMPROVE: allow folders.
-  let books = store.get('books', []);
+  let books = listOf('books');
   // WHY: the list of manga being read, with the exact chapter. HOW: loaded from storage, or empty. IMPROVE: store the
   // scroll position too.
-  let reads = store.get('reads', []);
+  let reads = listOf('reads');
 
   // WHY: show friendly times like '3 h ago'. HOW: take the difference to now in seconds and pick minutes, hours or days.
   // No time gives empty text. IMPROVE: use weeks and months for old items.
@@ -1296,6 +1308,8 @@
   let cur = null;                  // { url, base, doc, chapters, listHtml, token } - the page currently shown
   // WHY: our own back and forward list. HOW: hist is the list of pages and hi is the position in it; -1 means empty.
   // IMPROVE: limit its length.
+  // ROUND 53: navMax = newest browser-history step we created. WHY: after Back, the Forward button stayed greyed out (it only looked at our old page list), so Forward could never be tapped. HOW: each pushState stores its step number (mfi); popstate reads it back so updateNav knows if a newer step exists.
+  let navMax = 0;
   let hist = [], hi = -1;          // our own back/forward stack
   // WHY: a counter that gives each render a unique number so we can recognise the right document. HOW: goes up by one on
   // every render. IMPROVE: none needed.
@@ -1314,6 +1328,14 @@
       // WHY: put the real address into src. HOW: tries each attribute name; the first non-empty one is copied to src and the
       // loop stops (break). IMPROVE: none needed.
       for (const a of attrs) { const v = img.getAttribute(a); if (v) { img.setAttribute('src', v); break; } }
+      // ROUND 50 (comizy.io chapters looked empty on Page 2): the five names above are only a few of the ways sites hide a picture address (data-page-src, data-original-src,
+      //   a site-made name like data-cmz, a loading.gif or tiny data: drawing left in src, a srcset only...). Reading mode (Page 3) already knows them all through
+      //   imgAddressInfo(), which is why reading mode found the chapter while Page 2 showed blanks. HOW: when src is still missing or only a placeholder, ask the SAME
+      //   function and copy what it finds into src. IMPROVE: keep one shared list so the two pages can never disagree again.
+      try {
+        const cs = (img.getAttribute('src') || '').trim();
+        if (!cs || cs.startsWith('data:') || BAD_IMG.test(cs) || PLACEHOLDER_SRC.test(cs)) { const info = imgAddressInfo(img, location.href); if (info.raw && info.attr !== 'src') img.setAttribute('src', info.raw); }
+      } catch { /* leave this picture as it is */ }
       // WHY: some sites give several sizes in data-srcset. HOW: copies it to srcset when present. IMPROVE: none needed.
       const ss = img.getAttribute('data-srcset'); if (ss) img.setAttribute('srcset', ss);
       // WHY: some sites refuse pictures when they see our address as the referrer. HOW: no-referrer tells the browser not to
@@ -1541,7 +1563,30 @@
     // where the icon DOES render (the outline is subtle and sits behind/around a real glyph without covering it).
     // IMPROVE: detect common icon-font unicode ranges and draw a plain geometric fallback shape instead of a box.
     '.fa:empty,.fas:empty,.far:empty,.fab:empty,.icon:empty,[class*="icon-"]:empty,.material-icons:empty{min-width:1.1em;min-height:1.1em;display:inline-block;outline:1px dashed currentColor;outline-offset:1px;opacity:.55;border-radius:3px}';
-  function renderFrame(doc, base) {
+  // ROUND 59: gives the chapter's real pictures to a page that shows spinners / empty slots / too few pictures. Used when the page is first shown AND by the troubleshooter
+  //   (repair on the page that is already on screen). Returns how many slots were filled and how many pictures were added. IMPROVE: keep the slot's original size.
+  function placePictures(d, base, extraPics) {
+    let filled = 0, added = 0;
+    if (!extraPics || !extraPics.length) return { filled, added };
+    try {
+      const imgs = Array.from(d.querySelectorAll('img')), have = new Set(imgs.map(i => absUrl((i.getAttribute('src') || '').trim(), base)).filter(Boolean));
+      const free = extraPics.filter(u => !have.has(u));
+      imgs.filter(i => { const cs = (i.getAttribute('src') || '').trim(); return (!cs || cs.startsWith('data:') || BAD_IMG.test(cs) || PLACEHOLDER_SRC.test(cs)) && (isHolder(i) || PLACEHOLDER_SRC.test(cs)); }).forEach((i, k) => { if (free[k]) { filled++; i.setAttribute('src', free[k]); i.removeAttribute('srcset'); i.setAttribute('referrerpolicy', 'no-referrer'); } });
+      // ROUND 59: pictures the scripts list but the page has no slot for are ADDED after the last real picture (same box), so the whole chapter shows on Page 2
+      if (extraPics.length >= 3) {
+        const used = new Set(Array.from(d.querySelectorAll('img')).map(i => absUrl((i.getAttribute('src') || '').trim(), base)).filter(Boolean));
+        const left = extraPics.filter(u => !used.has(u));
+        const real = Array.from(d.querySelectorAll('img')).filter(i => { const u = absUrl((i.getAttribute('src') || '').trim(), base); return u && !PLACEHOLDER_SRC.test(u) && isHolderOrPage(i); });
+        const anchor = real[real.length - 1];
+        if (left.length && anchor && anchor.parentNode) {
+          let ref = anchor;
+          left.forEach(u => { const n = d.createElement('img'); n.setAttribute('src', u); n.setAttribute('referrerpolicy', 'no-referrer'); n.setAttribute('data-mf-added', '1'); added++; n.style.cssText = 'display:block;max-width:100%;margin:0 auto'; ref.parentNode.insertBefore(n, ref.nextSibling); ref = n; });
+        }
+      }
+      return { filled: filled, added: added };
+    } catch { return { filled, added }; }
+  }
+  function renderFrame(doc, base, extraPics) {
     // WHY: never change the original saved page. HOW: cloneNode(true) makes a deep copy that we can edit freely.
     const d = doc.cloneNode(true);
     // ROUND 15 (pages that looked "not loaded"): fix three common tricks BEFORE the cleaning below deletes their clues.
@@ -1574,6 +1619,10 @@
     // WHY: lazy-loaded pictures would stay empty without help. HOW: fixLazy copies real picture addresses into src. IMPROVE:
     // none.
     fixLazy(d);
+    // ROUND 50: pictures that have NO address anywhere in the page (their address is built by the site's script, like comizy.io pages 4 and up) get the addresses that reading mode's
+    //   detector found in the page's scripts (extraPics, computed by the caller before scripts were removed). They are given out in page order to the empty slots only.
+    //   IMPROVE: also keep the slot's original size so the page does not jump when the picture arrives.
+    if (extraPics && extraPics.length) placePictures(d, base, extraPics);
     // WHY: if the chapter list is already known (for example after a reload), add it right now. HOW: only runs when cur has
     // a non-empty chapters list.
     if (cur && cur.chapters && cur.chapters.length) { injectChapters(d, cur); fixShortcuts(d, cur.chapters); }   // known already (e.g. page reload)
@@ -1734,7 +1783,14 @@
       // returns null if they left.
       await wait(1800); fd = liveDoc(token); if (!fd) return;
     }
-    stat.fontsBad = fontBad(fd);
+    // ROUND 54: only warn about fonts when it matters. WHY: nyxscans lists many text fonts (Arabic and others) and one of them failing made the notice say "icons may look like empty boxes" even though the page looked fine.
+    // HOW: name the failed fonts in the report; warn only if an ICON-style font failed (name has icon / awesome / symbol / glyph / material / fa) or more than half of all fonts failed.
+    // IMPROVE: also check that an icon glyph really drew.
+    try {
+      const all = Array.from(fd.fonts), bad = all.filter(f => f.status === 'error');
+      if (bad.length) stat.notes.push('fonts that failed (' + bad.length + ' of ' + all.length + '): ' + bad.map(f => String(f.family).replace(/["']/g, '')).slice(0, 12).join(', '));
+      stat.fontsBad = bad.some(f => /icon|awesome|symbol|glyph|material|(^|[^a-z])fa([^a-z]|$)/i.test(f.family)) || (all.length > 0 && bad.length * 2 > all.length);
+    } catch { stat.fontsBad = false; }
     pageHealth(fd, stat, base);
   }
   // WHY: judge the finished page honestly and, if something is wrong, show a slim notice with a Report button (a copyable bug report).
@@ -1791,28 +1847,78 @@
     d.addEventListener('auxclick', e => { if (e.target.closest && e.target.closest('a')) e.preventDefault(); }, true);   // middle click
     // ROUND 25: image loading - images that fail to load are retried through the proxy
     // WHY: some sites block cross-origin image requests. HOW: when an image fails, try loading it through the proxy.
-    d.addEventListener('error', e => {
-      if (e.target.tagName === 'IMG' && e.target.src && !/^(data:|blob:)/.test(e.target.src) && !e.target.dataset.mfRetried) {
-        const proxyUrl = (settings.proxies && settings.proxies[0] || '').replace('{url}', encodeURIComponent(e.target.src));
-        if (proxyUrl && proxyUrl !== e.target.src) { e.target.src = proxyUrl; e.target.dataset.mfRetried = '1'; }
-      }
-    }, true);
+    d.addEventListener('error', e => { if (e.target.tagName === 'IMG') retryFrameImg(e.target); }, true);
+    // ROUND 51: pictures that ALREADY failed before this listener existed (a hotlink-blocked picture fails within milliseconds, the listener is attached later) were never retried,
+    //   which left whole chapters blank. HOW: sweep the document now, again when the frame finishes loading, and once more after 3 seconds.
+    sweepFrameImgs(d); setTimeout(() => sweepFrameImgs(d), 3000);
     // WHY: catch form submits such as search boxes. HOW: capture mode again.
     d.addEventListener('submit', onFrameSubmit, true);
     // WHY: tell the person when the page tried to run a blocked script. HOW: the browser sends a securitypolicyviolation
     // event. IMPROVE: show it less often.
     d.addEventListener('securitypolicyviolation', onSecurityViolation);   // round 8: a script of the page was stopped -> tell the person
+    // ROUND 44 (Page 2 scroll-hide): watch this page's scrolling so the header and floating buttons hide when the
+    // person scrolls down and come back when they scroll up — the same feel as reading mode (Page 3).
+    p2ScrollHook(d);
     // WHY: add chapter list and shortcuts if data is already known. HOW: applyLive is below.
     applyLive(d);
   }
+  // ROUND 51 — retry ONE broken picture of the site view through the proxy, with the page address as Referer (see the long note where the 'error' listener is attached).
+  function retryFrameImg(img) {
+    if (!img || !img.src || /^(data:|blob:)/.test(img.src) || img.dataset.mfRetried) return;
+    // ROUND 51 (comizy.io chapters stayed blank on Page 2): the old retry used the FIRST proxy in the list (often a public one that cannot send a Referer) and no Referer at all,
+    //   but picture hosts like cmzcdn.org only answer when the request says it comes from the chapter page. Reading mode (Page 3) uses YOUR OWN proxy plus &ref=<page address>;
+    //   Page 2 now does the same. HOW: own = first proxy that is not a built-in default (falls back to the first one); ref = the page's address. IMPROVE: also try the other proxies one by one.
+    const orig = img.src, own = (proxyList(false).find(p => !DEFAULT_PROXIES.includes(p))) || (settings.proxies && settings.proxies[0]) || '';
+    const proxyUrl = own.replace('{url}', encodeURIComponent(orig)) + (cur && cur.url && own.includes('workers.dev') ? '&ref=' + encodeURIComponent(cur.url) : '');
+    if (own && proxyUrl !== orig) { img.dataset.mfOrig = orig; img.src = proxyUrl; img.dataset.mfRetried = '1'; }
+  }
+  // WHY: find pictures that failed earlier. HOW: complete + naturalWidth 0 means "tried and failed". IMPROVE: stagger the retries on huge pages.
+  function sweepFrameImgs(d) { try { Array.from(d.images || []).forEach(i => { if (i.complete && !i.naturalWidth && i.getAttribute('src')) retryFrameImg(i); }); } catch { /* ignore */ } }
+  // ROUND 44 — PAGE 2 SCROLL-HIDE (header + floating buttons).
+  // WHY: on Page 2 (an outside site shown in MangaFlow's mini-browser) the header and the round buttons always covered
+  //   the page. Earlier rounds (41/42) wrongly wrote that this is impossible; it is not: the page lives in a same-origin
+  //   srcdoc <iframe> (sandbox has allow-same-origin), so OUR script can listen to ITS window's 'scroll' event even
+  //   though the page's own scripts are blocked.
+  // HOW: a passive scroll listener on the frame's window. It adds up small movements (14px dead zone, so a tiny finger
+  //   wobble does nothing). Down far enough -> add class "mf-hide" on the header and "p2-hide" on <body> (CSS fades the
+  //   floating buttons); up far enough or near the top (<40px) -> remove both. After every change we ignore scroll events
+  //   for 450ms: hiding the header makes the frame taller, which at the very bottom of a page can clamp the scroll
+  //   position and fake an "up" scroll, which would show the header again and loop forever (flicker).
+  // IMPROVE: make the 14px dead zone a setting; also react to the wheel/touch events if a page has its own inner scroller.
+  const p2 = { lastY: 0, up: 0, down: 0, lockUntil: 0 };
+  function p2Set(hide) {
+    const nav = document.querySelector('.navbar');
+    if (nav) nav.classList.toggle('mf-hide', hide);
+    document.body.classList.toggle('p2-hide', hide);
+    p2.up = p2.down = 0; p2.lockUntil = performance.now() + 450;
+  }
+  function p2Reset() { p2.lastY = 0; p2.up = p2.down = 0; p2.lockUntil = 0; document.body.classList.remove('p2-hide'); }
+  function p2ScrollHook(d) {
+    const w = d && d.defaultView; if (!w) return;
+    p2Reset();
+    const getY = () => w.pageYOffset || (d.scrollingElement ? d.scrollingElement.scrollTop : 0) || 0;
+    w.addEventListener('scroll', () => {
+      if (frame.hidden || !reader.hidden) return;                    // only while Page 2 is the thing on screen
+      const y = getY();
+      if (performance.now() < p2.lockUntil) { p2.lastY = y; return; }
+      const dy = y - p2.lastY; p2.lastY = y;
+      const hidden = document.body.classList.contains('p2-hide');
+      if (y < 40) { if (hidden) p2Set(false); p2.up = p2.down = 0; return; }
+      if (dy < 0) { p2.up -= dy; p2.down = 0; if (hidden && p2.up > 14) p2Set(false); }
+      else if (dy > 0) { p2.down += dy; p2.up = 0; if (!hidden && p2.down > 14) p2Set(true); }
+    }, { passive: true });
+  }
   // WHY: backup in case the timer missed. HOW: the iframe load event calls hookDoc, which ignores repeats.
-  frame.addEventListener('load', () => hookDoc(frame.contentDocument));  // backup
+  frame.addEventListener('load', () => { hookDoc(frame.contentDocument); try { sweepFrameImgs(frame.contentDocument); } catch { /* ignore */ } });  // backup (+ round 51: retry pictures that failed before we were listening)
 
   // Put the chapter list / shortcuts into the document that is on screen right now.
   // WHY: add chapters, shortcuts and link changes to the page that is on screen now. HOW: stop if no chapters are known
   // yet. IMPROVE: none.
   function applyLive(d) {
-    if (!cur || !cur.chapters || !cur.chapters.length) return;
+    if (!cur) return;
+    // ROUND 56: the button bridge needs no chapter list, so it runs first (only when the frame shows the page we think it shows).
+    { const m0 = d.querySelector('meta[name="mf-token"]'); if (m0 && m0.content === cur.token) { markNavControls(d); updateP2Bar(); } }
+    if (!cur.chapters || !cur.chapters.length) return;
     // WHY: be sure the frame shows the page we think it shows. HOW: read its token meta tag and compare with cur.token; if
     // different, do nothing.
     const mark = d.querySelector('meta[name="mf-token"]');
@@ -1822,9 +1928,180 @@
     injectChapters(d, cur); fixShortcuts(d, cur.chapters); neutralizeLinks(d, cur.base);
   }
 
+
+  /* ===========================================================================================================
+     ROUND 56 - BUTTON BRIDGE  (the site's own "Next / Previous / Chapters" buttons work on Page 2 again)
+     WHY: nyxscans.com (and many modern sites built with React / Next.js) draw their chapter bar with SCRIPT-driven buttons: <button> tags with no address inside them. MangaFlow never runs a site's scripts
+          (the CSP and the sandbox block them - that is what keeps you safe), so those buttons did nothing on Page 2.
+     HOW (3 parts):
+       1. READ THE MEANING: classifyControl() looks at the clicked thing and its parents (label, title, picture alt, small words, id/class names, symbols such as > and <) and decides: NEXT, PREVIOUS or CHAPTER LIST.
+          It works in many languages (English, Spanish, French, Portuguese, Indonesian, Turkish, German, Italian, Arabic, Chinese, Japanese, Korean).
+       2. DO THE JOB OURSELVES: navTargets() finds the real addresses from the page's own links, the chapter list we already detected, or - as the last guess - the same address with the chapter number +1 / -1.
+          Next / Previous then open that address in Page 2; Chapter list opens our own small chapter picker (a plain <dialog>, so it needs no script from the site).
+          A control that carries an address in a data attribute (data-href, data-url, ...) is simply opened.
+       3. MAKE THEM REACHABLE: markNavControls() un-hides recognised buttons that the site keeps transparent until its script runs, and if the page has NO recognisable chapter buttons at all, a tiny icon bar
+          (previous / list / next) is shown instead (updateP2Bar), so changing chapters always works.
+     IMPROVE: learn new words from the person (a "teach this button" mode); remember which button words worked on which site. */
+  const NAV_STRONG = {
+    next: /(^|[^a-z])(next|forward|siguiente|suivant|pr[oó]ximo|proximo|selanjutnya|berikutnya|sonraki|weiter|avanti|nächste)([^a-z]|$)|التالي|下一|次の|次へ|다음/i,
+    prev: /(^|[^a-z])(prev|previous|anterior|pr[eé]c[eé]dent|sebelumnya|[oö]nceki|zur[uü]ck|precedente|vorherige)([^a-z]|$)|السابق|上一|前の|前へ|이전/i,
+    list: /(chapter\s*list|chapters?|episodes?|all\s*chapters|table of contents|cap[ií]tulos|chapitres|daftar\s*chapter|b[oö]l[uü]mler|kapitel|capitoli)|الفصول|章节|章節|目录|目次|챕터|목록|화\s*목록/i
+  };
+  const NAV_SYMBOL = { next: /^[\s]*[›»▶►➡→>⏩⟩❯]+[\s]*$/, prev: /^[\s]*[‹«◀◄⬅←<⏪⟨❮]+[\s]*$/ };
+  const NAV_WEAK = {
+    next: /(^|[^a-z])(next|nxt|forward)([^a-z]|$)/i,
+    prev: /(^|[^a-z])(prev|previous|prv|back-chapter)([^a-z]|$)/i,
+    list: /(chapter[-_ ]?(list|select|menu|dropdown|picker)|chapters?[-_ ]?(btn|button|toggle|drawer)|episode[-_ ]?list|toc)/i
+  };
+  // ROUND 58: a "dead" link = an <a> whose address does nothing without the site's script ("#", "#/", "#/next/", "javascript:void(0)"). arenascan's Prev / Next are exactly these ("#/prev/", "#/next/"),
+  // so the normal link code could not open anything and the frame even tried to leave the page. They are treated like script buttons: their WORDS (and the address text) say next / previous.
+  function isDeadAnchor(el) {
+    if (!el || el.tagName !== 'A') return false;
+    const h = (el.getAttribute('data-mf-href') || el.getAttribute('href') || '').trim();
+    return h === '' || /^#/.test(h) || /^javascript:/i.test(h);
+  }
+  function isButtonLike(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (isDeadAnchor(el)) return true;
+    const t = el.tagName;
+    if (/^(BUTTON|SUMMARY)$/.test(t) || el.hasAttribute('onclick') || el.hasAttribute('tabindex')) return true;
+    const role = (el.getAttribute('role') || '').toLowerCase(); if (role === 'button' || role === 'link' || role === 'menuitem' || role === 'tab') return true;
+    try { return el.ownerDocument.defaultView.getComputedStyle(el).cursor === 'pointer'; } catch { return false; }
+  }
+  // WHY: collect the "words" of one control. HOW: label-type attributes first (strong), id/class names second (weak).
+  function controlClues(el) {
+    const g = n => el.getAttribute(n) || '';
+    let svgTitle = ''; try { const t = el.querySelector('svg title'); svgTitle = t ? t.textContent : ''; } catch { /* ignore */ }
+    let alt = ''; try { const i = el.querySelector('img[alt]'); alt = i ? i.getAttribute('alt') : ''; } catch { /* ignore */ }
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    const hrefWords = isDeadAnchor(el) ? (el.getAttribute('data-mf-href') || el.getAttribute('href') || '').replace(/[#/_-]+/g, ' ') : '';   // ROUND 58: "#/next/" -> "next"
+    const strong = [hrefWords, g('aria-label'), g('title'), g('alt'), g('data-title'), g('data-tooltip'), g('name'), g('value'), alt, svgTitle, text].join(' | ');
+    const weak = [el.id, typeof el.className === 'string' ? el.className : g('class'), g('data-testid'), g('data-action'), g('aria-controls')].join(' ');
+    return { strong, weak, text };
+  }
+  // WHY: decide what a control means. HOW: symbols alone (> or <) -> next / prev; strong words next; weak names only for button-like things.
+  function classifyControl(el) {
+    const c = controlClues(el);
+    if (NAV_SYMBOL.next.test(c.text)) return 'next';
+    if (NAV_SYMBOL.prev.test(c.text)) return 'prev';
+    const n = NAV_STRONG.next.test(c.strong), p = NAV_STRONG.prev.test(c.strong), l = NAV_STRONG.list.test(c.strong);
+    if (n && !p) return 'next'; if (p && !n) return 'prev';
+    if (!n && !p && l && c.text.length <= 40) return 'list';
+    if (isButtonLike(el)) {
+      const wn = NAV_WEAK.next.test(c.weak), wp = NAV_WEAK.prev.test(c.weak), wl = NAV_WEAK.list.test(c.weak);
+      if (wn && !wp) return 'next'; if (wp && !wn) return 'prev'; if (wl && !wn && !wp) return 'list';
+    }
+    return null;
+  }
+  // WHY: is the page on screen a chapter page? HOW: a chapter number in the address, or the 3-picture rule.
+  function onChapterPage() {
+    try { return !!cur && !cur.isSearch && (chapterNumInUrl(cur.url) != null || looksLikeChapter(cur.doc, cur.base, cur.url)); } catch { return false; }
+  }
+  // WHY: the real places "next", "previous" and "list" lead to. HOW: the page's own links -> the detected list -> same address with the number +1 / -1 (last guess).
+  function navTargets() {
+    const out = { prev: null, next: null, idx: -1, guessed: false };
+    if (!cur) return out;
+    let nl = {}; try { nl = findNavLinks(cur.doc, cur.base, cur.url) || {}; } catch { /* ignore */ }
+    out.prev = nl.prev || null; out.next = nl.next || null;
+    const L = cur.chapters || [], i = L.findIndex(c => sameUrl(c.url, cur.url));
+    if (i >= 0) { out.idx = i; if (!out.prev && L[i - 1]) out.prev = L[i - 1].url; if (!out.next && L[i + 1]) out.next = L[i + 1].url; }
+    if (!out.prev || !out.next) {
+      const n = chapterNumInUrl(cur.url), mk = chapterUrlMaker(cur.url);
+      if (n != null && Number.isInteger(n) && mk) {
+        if (!out.next) { out.next = mk(n + 1); out.guessed = true; }
+        if (!out.prev && n > 0) { out.prev = mk(n - 1); out.guessed = true; }
+      }
+    }
+    return out;
+  }
+  function openNavTarget(kind) {
+    const t = navTargets();
+    if (kind === 'list') return openChapterPicker();
+    const u = t[kind];
+    if (!u) { toast('There is no ' + (kind === 'next' ? 'next' : 'previous') + ' chapter on this site.'); return; }
+    navigate(u, true, { chapterStep: true });
+  }
+  // WHY: our own chapter picker (the site's list button cannot run its script). HOW: a <dialog> in MangaFlow itself; the list comes from cur.chapters, or is loaded from the series page first.
+  async function openChapterPicker() {
+    let dlg = document.getElementById('mfChapPick');
+    if (!dlg) {
+      dlg = document.createElement('dialog'); dlg.id = 'mfChapPick';
+      dlg.innerHTML = '<h3>Chapters</h3><input id="mfChapFind" type="search" placeholder="Find a chapter number…" aria-label="Find a chapter"><ul id="mfChapUl"></ul><div class="row"><button id="mfChapClose">Close</button></div>';
+      document.body.appendChild(dlg);
+      dlg.querySelector('#mfChapClose').onclick = () => dlg.close();
+      dlg.addEventListener('click', e => { if (e.target === dlg) dlg.close(); });
+    }
+    const ul = dlg.querySelector('#mfChapUl'), find = dlg.querySelector('#mfChapFind'); ul.innerHTML = '<li class="muted">Loading the chapter list…</li>'; find.value = '';
+    if (!dlg.open) dlg.showModal();
+    let L = cur && cur.chapters && cur.chapters.length ? cur.chapters : null;
+    if (!L && cur) { try { const r = await loadSeriesList(cur.doc, cur.base, cur.url); if (r && r.chapters && r.chapters.length) { L = r.chapters; cur.chapters = L; } } catch { /* shown below */ } }
+    if (!L) { ul.innerHTML = '<li class="muted">The chapter list could not be found on this site. Use Reading mode (the book button) instead.</li>'; return; }
+    const draw = q => {
+      ul.innerHTML = ''; const want = String(q || '').trim().toLowerCase();
+      L.forEach(c => {
+        const label = 'Chapter ' + fmtNum(c.num) + (c.title && !/^chapter\s*[\d.]+$/i.test(c.title) ? ' - ' + c.title : '');
+        if (want && !label.toLowerCase().includes(want)) return;
+        const li = document.createElement('li'), b = document.createElement('button');
+        b.textContent = label; if (sameUrl(c.url, cur.url)) { b.className = 'now'; b.setAttribute('aria-current', 'true'); }
+        b.onclick = () => { dlg.close(); navigate(c.url, true, { chapterStep: true }); };
+        li.appendChild(b); ul.appendChild(li);
+      });
+      if (!ul.children.length) ul.innerHTML = '<li class="muted">No chapter matches.</li>';
+      const now = ul.querySelector('.now'); if (now) now.scrollIntoView({ block: 'center' });
+    };
+    draw(''); find.oninput = () => draw(find.value);
+  }
+  // WHY: the click hook. HOW: called first from onFrameClick; true = handled (the site's own dead handler must not run).
+  function bridgeClick(e) {
+    if (!cur || cur.isSearch) return false;
+    let el = e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement);
+    for (let hop = 0; el && hop < 6 && el.tagName !== 'BODY' && el.tagName !== 'HTML'; hop++, el = el.parentElement) {
+      // a control that simply carries an address in a data attribute
+      const du = el.getAttribute && (el.getAttribute('data-href') || el.getAttribute('data-url') || el.getAttribute('data-link') || el.getAttribute('data-target-url'));
+      if (du && !el.closest('a[href]') && !/^(javascript|data|blob|mailto|tel):/i.test(du)) { const u = absUrl(du, cur.base); if (u) { e.preventDefault(); e.stopPropagation(); navigate(unwrap(u)); return true; } }
+      if (el.closest && el.closest('a[href]') && !isDeadAnchor(el.closest('a[href]'))) return false;   // a real link: the normal code handles it (ROUND 58: dead links are handled here)
+      if (!onChapterPage()) return false;
+      const kind = classifyControl(el);
+      if (kind) { e.preventDefault(); e.stopPropagation(); openNavTarget(kind); return true; }
+    }
+    return false;
+  }
+  // WHY: some sites keep the bar invisible (opacity 0 / hidden) until their script runs. HOW: for recognised controls, force them visible. Returns how many recognised controls the page has.
+  function markNavControls(d) {
+    let n = 0;
+    try {
+      const w = d.defaultView;
+      d.querySelectorAll('button,[role=button],[onclick],[tabindex],summary,div,span,a[href^="#"],a[href^="javascript:"]').forEach(el => {
+        if (el.dataset && el.dataset.mfNav) { n++; return; }
+        if (!isButtonLike(el)) return;
+        if (el.querySelector && el.querySelector('button,[role=button]')) return;     // only the innermost control
+        const kind = classifyControl(el); if (!kind) return;
+        el.dataset.mfNav = kind; n++;
+        for (let p = el, k = 0; p && k < 5 && p !== d.body; p = p.parentElement, k++) {
+          const cs = w.getComputedStyle(p);
+          if (cs.opacity === '0' || cs.visibility === 'hidden') { p.style.setProperty('opacity', '1', 'important'); p.style.setProperty('visibility', 'visible', 'important'); }
+          if (cs.pointerEvents === 'none') p.style.setProperty('pointer-events', 'auto', 'important');
+        }
+      });
+    } catch { /* never break the page */ }
+    return n;
+  }
+  // WHY: the tiny fallback bar. HOW: shown only on a chapter page that has no recognisable chapter buttons of its own.
+  function updateP2Bar() {
+    const bar = document.getElementById('p2NavBar'); if (!bar) return;
+    let show = false;
+    try {
+      if (cur && !cur.isSearch && !frame.hidden && reader.hidden && onChapterPage()) {
+        const found = (frame.contentDocument && frame.contentDocument.querySelectorAll('[data-mf-nav]').length) || 0;
+        show = found === 0;
+      }
+    } catch { show = false; }
+    bar.hidden = !show;
+  }
   // WHY: runs when the person clicks inside the frame. HOW: e is the click event; find the nearest link above the clicked
   // thing; stop if none. IMPROVE: none.
   function onFrameClick(e) {
+    if (bridgeClick(e)) return;               // ROUND 56: the site's own Next / Previous / Chapters buttons (see the button bridge above)
     // ROUND 25: Allow all site interactions (buttons, dropdowns, forms) to work. Only intercept link navigation.
     // WHY: preventing all clicks broke site features like filters, buttons, dropdowns. HOW: only preventDefault on actual link clicks.
     const a = e.target.closest && e.target.closest('a');
@@ -1937,7 +2214,7 @@
     // ROUND 17: Google cannot be read through a proxy (it blocks that), so a Google address opens in a NEW TAB where it works normally.
     // ROUND 28b: this now only meets Google addresses that are NOT a search with words (google.com itself, google.com/maps, ...): a google.com/search?q=words address was already
     //   turned into the in-app Google search at the top of this function. IMPROVE: none needed.
-    if (url) { try { if (/^(www\.)?google\.[a-z.]+$/.test(new URL(url).hostname)) { window.open(url, '_blank', 'noopener'); toast('Google opens in a new tab'); return false; } } catch { /* not an address */ } }
+    if (url) { try { if (/^(www\.)?google\.[a-z.]+$/.test(new URL(url).hostname)) { window.open(url, '_blank', 'noopener'); toast('Google opens in a new tab'); setLoading(false); return false; } } catch { /* not an address */ } }
     // ROUND 16: when words were typed (not an address) keep the full engine list so a CAPTCHA page can fall back to the next one.
     const engines = searchQuery(input) ? searchCandidates(input).info : null;
     // ROUND 18: with "Google" chosen, typed words are searched by YOUR Google Programmable Search inside MangaFlow (no proxy needed).
@@ -1945,7 +2222,7 @@
     if (engines && eng0 === 'google' && !gKeyOn()) { const g = await googleSearch(input, push, mySeq); if (g || stale()) return g; }
     // WHY: refuse bad addresses politely. HOW: if empty after checks, show a message when the person typed something, and
     // return false.
-    if (!url) { if ((input || '').trim()) toast('Only http:// and https:// addresses can be opened'); return false; }
+    if (!url) { if ((input || '').trim()) toast('Only http:// and https:// addresses can be opened'); setLoading(false); return false; }
     // WHY: show the address and a loading state. HOW: setAddress fills the boxes, setLoading shows the spinner.
     setAddress(url); setLoading(true);
     // WHY: remember if loading worked. HOW: ok starts false and becomes true at the end.
@@ -2047,8 +2324,26 @@
       // and token.
       if (stale()) return false;                      // round 18: do not replace a newer page with this old answer
       cur = { url, base, doc, chapters: null, listHtml: '', token: '', isSearch };
+      // ROUND 50: a page with several empty picture slots (script-built chapter) borrows the reader's picture finder, but only for that case and never longer than 6 seconds.
+      let extra = null;
+      try {
+        const allImgs = Array.from(doc.querySelectorAll('img'));
+        const empties = allImgs.filter(i => (!imgAddress(i, base) || PLACEHOLDER_SRC.test(i.getAttribute('src') || '')) && (isHolder(i) || PLACEHOLDER_SRC.test(i.getAttribute('src') || ''))).length;
+        const realCount = allImgs.filter(i => { const u = imgAddress(i, base); return u && !PLACEHOLDER_SRC.test(u) && !BAD_IMG.test(u); }).length;
+        // ROUND 59: also when the page shows FEWER pictures than its own scripts list (a reader that only writes the first few into the page)
+        let scriptMore = false;
+        if (!isSearch && empties < 2) { const js0 = fromScripts(doc, base); scriptMore = js0.length >= 3 && js0.length >= realCount + 3; }
+        if ((empties >= 2 || scriptMore) && !isSearch) {
+          // 1) the quick way: a list of picture addresses written inside the page's own scripts (the page's scripts are only READ as text, never run)
+          const js = fromScripts(doc, base);
+          if (js.length >= 3) extra = js;
+          // 2) otherwise the full chapter finder (it can also use the page text and numbered neighbours), limited to 6 seconds
+          else { const f = await Promise.race([chapterPictures(doc, base, url), new Promise(r => setTimeout(() => r(null), 6000))]); if (f && f.list && f.list.length >= 3) extra = f.list; }
+        }
+      } catch { /* show the page without them */ }
+      if (stale()) return false;
       // WHY: show the page. HOW: renderFrame cleans it and puts it in the iframe.
-      renderFrame(doc, base);
+      renderFrame(doc, base, extra);
       // WHY: swap the start screen for the page. HOW: hide the start screen and show the frame.
       $('#start').hidden = true; frame.hidden = false;
       // ROUND 18: the Google panel is not needed any more, and the address bar remembers THIS page so a refresh returns here (not to the start page).
@@ -2066,7 +2361,7 @@
       const page = cur;
       // WHY: fetch hidden chapter lists without freezing the screen. HOW: store the running promise in page.enhancing so
       // others can wait for it.
-      page.enhancing = isSearch ? Promise.resolve() : enhanceSeriesPage(page);        // runs in the background, adds the chapter list when ready (round 17: not for our own results list)
+      page.enhancing = isSearch ? Promise.resolve() : enhanceSeriesPage(page).finally(() => { page.enhancingDone = true; });        // runs in the background, adds the chapter list when ready (round 17: not for our own results list)
       // WHY: mark success. HOW: ok = true.
       ok = true;
       // WHY: if the person typed this link, maybe jump into reading mode. HOW: tryAutoRead runs in the background (no await).
@@ -2104,7 +2399,9 @@
       // WHY: tell the person we are working. HOW: setBusy shows a message.
       setBusy('Looking for chapters…');
       // WHY: wait for the hidden chapter lists first. HOW: await the stored promise.
-      await page.enhancing;                                               // wait for hidden chapter lists
+      // ROUND 57: wait at most 20 seconds. WHY: on sites with a long split chapter list (arenascan) the banner "Looking for chapters…" stayed for minutes and looked like loading that never ends.
+      //   HOW: race the background reader against a 20 s timer; the reader itself keeps working and reading mode waits for it only when it needs the list. IMPROVE: show the page number it is on.
+      await Promise.race([page.enhancing, new Promise(r => setTimeout(r, 20000))]);
       // WHY: the person may have left. HOW: if cur is no longer this page, stop.
       if (cur !== page) return;                                           // the person went somewhere else
       // WHY: is this a chapter page? HOW: ok is true if 3 or more pictures are found, or the address has a chapter number and
@@ -2163,7 +2460,7 @@
   // refresh.
   // ROUND 39: push:true — pressing Home is a deliberate navigation step too, same as opening a page, so Back can
   // return to whatever chapter/page you were on before you pressed it.
-  function goHome() { frame.hidden = true; hideGview(); $('#start').hidden = false; cur = null; lastView = null; rememberView(null, null, true); setAddress(''); renderStart(); updateNav(); }   // round 18: also closes the Google panel and forgets the address-bar memory
+  function goHome() { navSeq++; setLoading(false); frame.hidden = true; hideGview(); $('#start').hidden = false; cur = null; lastView = null; rememberView(null, null, true); setAddress(''); renderStart(); updateNav(); }   // round 18: also closes the Google panel and forgets the address-bar memory
   // WHY: keep toolbar buttons correct. HOW: set each button state from history position and the current page.
   function updateNav() {
     // ROUND 41: whenever we navigate anywhere (open a site, go home, start reading...), make sure the header is
@@ -2172,15 +2469,16 @@
     // instead) — without this, if the header happened to be hidden right when you tapped a search result, it
     // could still look hidden on the page you land on, with no more scroll events left on #viewport to reveal
     // it again. updateNav() already runs after every navigation, so this is a cheap, reliable place for the reset.
-    const navEl = document.querySelector('.navbar'); if (navEl) navEl.classList.remove('mf-hide');
+    const navEl = document.querySelector('.navbar'); if (navEl) navEl.classList.remove('mf-hide'); document.body.classList.remove('p2-hide');   // ROUND 44: also un-hide Page 2's floating buttons
     // WHY: nothing to go back to at the first page. HOW: disabled is true when hi is 0 or less.
     $('#btnBack').disabled = hi <= 0;
     // WHY: nothing ahead at the last page. HOW: compare hi to the last index.
-    $('#btnFwd').disabled = hi >= hist.length - 1;
+    $('#btnFwd').disabled = ((history.state && history.state.mfi) || 0) >= navMax;   // ROUND 53: native-history aware
     // WHY: the floating read button only makes sense with an open page. HOW: hide it when cur is empty.
     $('#fabRead').hidden = !cur || !!cur.isSearch;   // round 17: a results list has nothing to read, so no Reading-mode button
     // WHY: show if this page is bookmarked. HOW: a filled star if any bookmark has the same url, else an empty star.
     $('#btnStar').textContent = cur && books.some(b => b.url === cur.url) ? '★' : '☆';
+    updateP2Bar();                                  // ROUND 56: the small chapter bar follows the page on screen
     // ROUND 39: the "Open on <site>" button (below the header) only makes sense while an actual external manga
     // site's page is on screen — not on the start page, and not on a search-results list (there is no single
     // "original page" for a list of results to open). HOW: same condition already used for #fabRead above, so the
@@ -2369,7 +2667,7 @@
       // WHY: clean the link text. HOW: collapse spaces and trim.
       text = (text || '').replace(/\s+/g, ' ').trim();
       // WHY: find the chapter number, first in the address, then in the text. HOW: numFrom returns null if none.
-      let num = numFrom(decodeURIComponent(p.pathname));
+      let num = numFrom(safeDecode(p.pathname));   // round 43: a stray % in a link no longer throws
       if (num == null) num = numFrom(text);
       // WHY: no number means not a chapter. HOW: skip.
       if (num == null) return;
@@ -2428,6 +2726,10 @@
   // WHY: skip pictures that are not manga pages (logos, ads, icons, small thumbs). HOW: a pattern on the address. IMPROVE:
   // add more words as you meet new sites.
   const BAD_IMG = /logo|banner|avatar|icon|sprite|\bads?[-_/.]|advert|loading|gravatar|emoji|placeholder|button|badge|thumb-?small|[-_]\d{2,3}x\d{2,3}\.(?:jpe?g|png|webp)/i;
+  // ROUND 59 (arenascan chapter pages showed only a spinning "loading" picture on Page 2, owner reports 2026-11-10/11): many reader themes put a placeholder drawing (readerarea.svg,
+  //   blank.gif, spinner, loader...) in every picture slot and let a script swap in the real page later. Our frame runs no scripts, so the spinner stayed for ever ("keeps loading")
+  //   and, because the slot HAD an address, the "empty slot" rule never fired. HOW: this test recognises such placeholder addresses so they count as EMPTY. IMPROVE: add more names.
+  const PLACEHOLDER_SRC = /readerarea|(?:^|[\/_.-])(?:blank|spacer|pixel|transparent|dummy|lazy(?:load)?|placeholder|loader|loading|spinner|preload)[\w.-]*\.(?:svg|gif|png|webp|jpe?g)(?:[?#]|$)|\b1x1\b/i;
   // WHY: tell if an address is a picture. HOW: pattern for common picture endings.
   const IMG_EXT = /\.(?:jpe?g|png|webp|avif|gif)(?:[?#]|$)/i;
   // WHY: srcset lists pictures by size. HOW: split by comma, take each address, return the last (biggest).
@@ -2581,12 +2883,13 @@
       raw = srcsetBest(img.getAttribute('data-srcset') || img.getAttribute('srcset') || (pic && (pic.getAttribute('srcset') || pic.getAttribute('data-srcset'))) || '');
       if (raw) attr = 'srcset';
     }
-    return { url: raw ? (absUrl(raw.trim(), base) || '') : '', attr };
+    return { url: raw ? (absUrl(raw.trim(), base) || '') : '', attr, raw: raw ? raw.trim() : '' };   // ROUND 50: raw = the address exactly as written (fixLazy needs it)
   }
   // WHY: the short form that most code needs. HOW: only the address.
   const imgAddress = (img, base) => imgAddressInfo(img, base).url;
   // WHY: an <img> without an address can still be the room of a page. HOW: three signs: (1) a big size written on the tag or INSIDE the empty drawing (the page is 800 wide and
   // thousands of pixels tall), (2) the alt text says "Image 3" / "Page 3", (3) loading=lazy and nothing in src. Tiny pictures (icons) never count. IMPROVE: add more signs.
+  const isHolderOrPage = i => { const w = parseInt(i.getAttribute('width') || '0', 10); return !(w && w < 150) && !BAD_IMG.test(i.getAttribute('src') || ''); };   // ROUND 59: a normal-sized picture
   function isHolder(img) {
     const w = parseInt(img.getAttribute('width') || '0', 10), h = parseInt(img.getAttribute('height') || '0', 10);
     if ((w && w < 150) || (h && h < 150)) return false;                    // tiny = an icon, not a page
@@ -2729,7 +3032,15 @@
     const sc = scanPictures(doc, base);
     if (sc.list.length >= 3) return true;
     if (sc.holders >= 2 && sc.list.length + sc.holders >= 3) return true;
-    return chapterNumOf(url) != null && metaImageSamples(doc, base).some(u => NUM_IMG.test(u));
+    if (chapterNumOf(url) != null && metaImageSamples(doc, base).some(u => NUM_IMG.test(u))) return true;
+    // ROUND 54: a SHORT chapter (1 or 2 pictures, for example one long stitched picture) is still a chapter. WHY: nyxscans chapter-0 had only ONE real picture, so the 3-picture rule said
+    // "not a chapter" and the reader showed "No chapters or chapter images found". HOW: the address has a chapter number, the page has at least 1 real picture, AND it has a Previous/Next chapter link.
+    // The Previous/Next link keeps ordinary pages that only show one photo from being treated as chapters. IMPROVE: also accept a page whose only big picture sits in a reader box.
+    if (chapterNumOf(url) != null && sc.list.length >= 1) {
+      const nav = findNavLinks(doc, base, url);
+      if (nav && (nav.prev || nav.next)) return true;
+    }
+    return false;
   }
 
   /* CHAPTER LIST WITHOUT NUMBERS IN THE LINKS (round 8)
@@ -2837,6 +3148,8 @@
   // fromScripts which has a copy of it.
   const unescapeJs = t => t.replace(/\\u002F/gi, '/').replace(/\\u0026/gi, '&').replace(/\\\//g, '/');   // JSON writes "/" as "\/"
   // WHY: get a chapter number from an address. HOW: decode the path and call numFrom; null on error.
+  // ROUND 43: decodeURIComponent throws URIError on a lone % (e.g. /sale-50%-off). This never throws: it returns the text unchanged instead.
+  const safeDecode = t => { try { return decodeURIComponent(t); } catch { return String(t); } };
   const chapterNumOf = u => { try { return numFrom(decodeURIComponent(new URL(u).pathname)); } catch { return null; } };
   // WHY: one string of class, id and rel for a link, to search by words. HOW: join them with spaces.
   const attrCls = a => (typeof a.className === 'string' ? a.className : '') + ' ' + (a.id || '') + ' ' + (a.getAttribute('rel') || '');
@@ -3191,6 +3504,7 @@
   }
   // WHY: Check if a picture address really gives a picture. HOW: first try an <img> tag, then your own proxy. IMPROVE: use
   // a HEAD request to save data.
+  const picTrace = [];                  // ROUND 46: a short diary of every step tried to find a chapter's pictures; printed in the error report
   function imgExists(src, ref) {                                       // does this picture address answer with a real picture?
     // WHY: Test by loading the picture like a browser would. HOW: wrap an Image load in a Promise (a value that arrives
     // later).
@@ -3215,10 +3529,10 @@
         // the chapter address.
         const r = await fetch(own.replace('{url}', encodeURIComponent(src)) + (ref ? '&ref=' + encodeURIComponent(ref) : ''), { referrerPolicy: 'no-referrer', credentials: 'omit' });
         // WHY: A bad status means no picture. HOW: return false.
-        if (!r.ok) return false;
+        if (!r.ok) { imgExists.why = 'HTTP ' + r.status; return false; }   // ROUND 46: remembered for the error report
         // WHY: Tiny answers are error pages. HOW: the picture counts only if the data is over 1500 bytes.
-        return (await r.blob()).size > 1500;
-      } catch { return false; }
+        const bl = await r.blob(); if (bl.size <= 1500) imgExists.why = 'tiny answer (' + bl.size + ' bytes, ' + (r.headers.get('content-type') || '?') + ')'; return bl.size > 1500;
+      } catch (e) { imgExists.why = 'failed: ' + (e && e.message); return false; }
     };
     // WHY: Run the two ways in order. HOW: use the tag test, and only if it failed try the proxy.
     return viaTag().then(ok => ok || viaProxy());
@@ -3237,11 +3551,20 @@
       const make = n => pre + String(n).padStart(width, '0') + ext + q;
       // WHY: Check the idea first. HOW: if neither page 1 nor the sample exists, the numbering does not hold; go to the next
       // sample.
-      if (!(await imgExists(make(1), ref)) && !(await imgExists(sample, ref))) continue;   // the pattern does not hold
+      // ROUND 45 FIX (roliascan.com, report 2026-11-09): the site's preview picture is page "0002", and page "0001" may not exist
+      //   (or may be refused). The old loop always began at 1 and stopped at the first missing number, so it found NOTHING and the
+      //   page was wrongly called LOCKED. HOW NOW: ask for the sample and for the numbers 0 and 1 together; the run starts at the
+      //   LOWEST number that answers (0, 1 or the sample's own number), so "0002, 0003, 0004 ..." works too. IMPROVE: remember
+      //   the start number per site.
+      const firstN = parseInt(digits, 10);
+      const [has0, has1, hasS] = await Promise.all([imgExists(make(0), ref), imgExists(make(1), ref), imgExists(sample, ref)]);
+      picTrace.push('numbered pictures: sample ' + sample + ' -> number 0: ' + has0 + ', number 1: ' + has1 + ', the sample itself: ' + hasS + (imgExists.why ? ' | last proxy answer: ' + imgExists.why : ''));
+      if (!has0 && !has1 && !hasS) continue;   // the pattern does not hold
+      const startN = has0 ? 0 : has1 ? 1 : firstN;
       // WHY: Result list of found pages. HOW: starts empty.
       const list = [];
       // WHY: Test pages in groups of 6 up to 300, which is faster than one by one. HOW: n jumps by 6.
-      for (let n = 1; n <= 300; n += 6) {
+      for (let n = startN; n <= 300; n += 6) {
         // WHY: Make the numbers of this group. HOW: fill an array with n to n+5.
         const group = []; for (let k = n; k < n + 6; k++) group.push(k);
         // WHY: Test the 6 pages at the same time. HOW: Promise.all waits for all answers.
@@ -3327,7 +3650,14 @@
     let list = sc.list.slice(), how = sc.how;
     const total = list.length + sc.holders;
     // WHY: nothing at all in the page. HOW: the numbered-preview way of round 10 (pictures next to the og:image picture).
-    if (!list.length) { const p = await probeNumbered(doc, base, ref); return { list: p, total: p.length, partial: false, sealed, how: p.length ? 'numbered preview picture' : 'none', scan: sc }; }
+    if (!list.length) {
+      picTrace.length = 0;
+      const p = await probeNumbered(doc, base, ref);
+      if (p.length) return { list: p, total: p.length, partial: false, sealed, how: 'numbered preview picture', scan: sc };
+      // ROUND 46: last resort for script-built readers (roliascan.com): read the site's own chapter script and ask the picture API it uses.
+      const a = await apiPictures(doc, base, ref);
+      return { list: a, total: a.length, partial: false, sealed, how: a.length ? 'the site\'s own picture API' : 'none', scan: sc };
+    }
     // WHY: every slot has its address, or (round 28) one single odd empty slot sits among 5 or more real pictures (an ad box, a spacer): not worth a warning. HOW: nothing more to do.
     if (!sc.holders || (sc.holders === 1 && list.length >= 5)) return { list, total, partial: false, sealed, how, scan: sc };
     // 1) the page text and 2) the scripts. A list is taken only when it is longer AND it contains the first picture (or is complete), so unrelated pictures never join.
@@ -3406,7 +3736,7 @@
     // WHY the 60% rule: a wrapper such as <div class="has-sidebar"> around the WHOLE page matches the words below; removing it would empty the text and hide a real "locked" notice.
     // HOW: an element that holds more than 60% of all the text is kept (only its smaller parts are cut).
     const whole = (copy.textContent || '').length;
-    copy.querySelectorAll('header, nav, footer, aside, script, style, noscript, [id*="comment" i], [class*="comment" i], [class*="menu" i], [class*="sidebar" i], [class*="widget" i], [class*="recommend" i], [class*="related" i]').forEach(n => { if (!n.isConnected || (n.textContent || '').length <= whole * 0.6 || /^(?:SCRIPT|STYLE|NOSCRIPT)$/.test(n.tagName)) n.remove(); });
+    copy.querySelectorAll('header, nav, footer, aside, script, style, noscript, [id*="comment" i], [class*="comment" i], [class*="menu" i], [class*="sidebar" i], [class*="widget" i], [class*="recommend" i], [class*="related" i]').forEach(n => { if ((n.textContent || '').length <= whole * 0.6 || /^(?:SCRIPT|STYLE|NOSCRIPT)$/.test(n.tagName)) n.remove(); });
     return (copy.textContent || '').replace(/\s+/g, ' ').trim();
   }
   // WHY: Words that show a chapter is locked or removed. HOW: one big regular expression (text pattern), case-insensitive.
@@ -3414,19 +3744,112 @@
   const LOCK_RE = /(?:please\s+)?log\s*in\s+to\s+(?:read|unlock|view|continue)|unlock\s+(?:this\s+)?chapter|(?:chapter|content)\s+is\s+locked|premium\s+(?:only|chapter|members?)|members?\s+only|(?:coins?|points?)\s+(?:required|needed)|sign\s*in\s+to\s+read|not\s+available\s+anymore|has\s+been\s+removed/i;
   // WHY: Make a helpful error when no pictures exist. HOW: read the MAIN text of the page and choose a message. IMPROVE: translate
   // messages.
-  function noImagesError(doc, base, kind) {
+  /* ROUND 46 — SCRIPT-BUILT READERS: ASK THE SITE'S OWN PICTURE API (roliascan.com and similar)
+     WHY: some readers (the page only says "Loading chapter...") get their picture list from a small JSON address that their own script calls after the page opens.
+          MangaFlow never runs the site's scripts, so the list never arrived, and guessing 0001.webp, 0002.webp ... next to the preview picture is not always possible
+          (the picture host may refuse strangers or number the files differently). Reading the SAME public JSON the site's script reads is not breaking anything: it is the
+          address the page itself uses for every visitor.
+     HOW: 1) numbers that look like ids in the chapter address (".../ch57-361460/" -> 361460) and in the preview picture folder ("manhwa_361395_57" -> 361395);
+          2) the site's own script files (same host, not analytics) are downloaded through the proxy and searched for quoted addresses that start with /api/, /ajax/, /wp-json/
+             (and fetch("...") calls); an address ending in "/" or "=" or containing {id} / ${...} / :id gets the id put in;
+          3) plus a short list of very common shapes (/api/chapters/<id>, /api/chapter/<id>, /api/reader/<id>, /ajax/chapter/<id> ...);
+          4) every candidate is fetched (at most 30, one after the other); an answer that is JSON (or text) holding 2 or more picture addresses wins. Relative addresses are made full.
+          Every step is written into picTrace, which noImagesError() puts in the error report ("Steps tried"), so a failure says exactly what each address answered.
+     LIMITS: needs the answers to be public (no cookie, no token). If the site wants a login the candidates answer 401/403 and the report shows it.
+     IMPROVE: remember the working address per site; also read data-* ids from the page; send the chapter address as Referer through the own proxy. */
+  async function apiPictures(doc, base, ref) {
+    const out = [];
+    let host = ''; try { host = new URL(ref).hostname.replace(/^www\./, ''); } catch { return out; }
+    const origin = new URL(ref).origin;
+    // 1) ids
+    const ids = []; const addId = v => { if (v && !ids.includes(v)) ids.push(v); };
+    try { (decodeURIComponent(new URL(ref).pathname).match(/\d{4,}/g) || []).reverse().forEach(addId); } catch { /* no ids */ }
+    metaImageSamples(doc, base).forEach(u => (u.match(/(?:^|[/_-])(\d{4,})(?=[/_-])/g) || []).forEach(x => addId(x.replace(/\D/g, ''))));
+    picTrace.push('picture API: ids found in the address / preview picture: ' + (ids.join(', ') || 'none'));
+    if (!ids.length) return out;
+    // 2) the site's own scripts
+    const scripts = Array.from(doc.querySelectorAll('script[src]')).map(x => absUrl(x.getAttribute('src'), base)).filter(u => u && (() => { try { const h = new URL(u).hostname.replace(/^www\./, ''); return h === host || h.endsWith('.' + host); } catch { return false; } })() && !/google|gtag|analytics|jquery|adsbygoogle/i.test(u));
+    scripts.sort((a, b) => (/chapter|read|app|main/i.test(b) ? 1 : 0) - (/chapter|read|app|main/i.test(a) ? 1 : 0));
+    const found = [];
+    for (const su of scripts.slice(0, 4)) {
+      try {
+        const js = await fetchRaw(su);
+        const re = /["'`]((?:\/|https?:\/\/[^"'`\s]+?\/)(?:api|ajax|wp-json|content\/api)[^"'`\s]{1,140})["'`]/gi; let m, n = 0;
+        while ((m = re.exec(js)) && n < 12) { if (!found.includes(m[1])) { found.push(m[1]); n++; } }
+        const re2 = /fetch\(\s*["'`]([^"'`]{3,160})["'`]/g; while ((m = re2.exec(js)) && n < 20) { if (!found.includes(m[1]) && /^(?:\/|https?:)/.test(m[1])) { found.push(m[1]); n++; } }
+        picTrace.push('picture API: read script ' + su.split('/').pop().slice(0, 40) + ' (' + js.length + ' chars) -> ' + n + ' address(es) that look like an API');
+      } catch (e) { picTrace.push('picture API: could not read script ' + su.split('/').pop().slice(0, 40) + ' (' + ((e && e.errors && e.errors[0] && e.errors[0].message) || (e && e.message) || 'error') + ')'); }
+    }
+    // 3) candidates
+    const cands = [];
+    const put = u => { const a = absUrl(u, origin + '/'); if (a && /^https?:/i.test(a) && !cands.includes(a)) cands.push(a); };
+    found.forEach(f => ids.slice(0, 2).forEach(id => {
+      let u = f.replace(/\$\{[^}]*\}|\{\{?[^}]*\}?\}|:id\b|\[id\]/gi, id);
+      if (u === f) { if (/[/=]$/.test(u)) u += id; else if (/\?[^=]*$/.test(u)) return; else if (!/\d{4,}/.test(u) && /chapter|page|image|reader/i.test(u)) u += (u.includes('?') ? '&id=' : '/') + id; else return; }
+      put(u);
+    }));
+    ids.slice(0, 2).forEach(id => ['/api/chapters/' + id, '/api/chapter/' + id, '/api/reader/' + id, '/api/chapters/' + id + '/pages', '/api/chapter/' + id + '/pages', '/ajax/chapter/' + id, '/api/chapter?id=' + id].forEach(put));
+    picTrace.push('picture API: ' + cands.length + ' address(es) to try');
+    // 4) try them
+    const picsIn = (x, acc) => {
+      if (typeof x === 'string') { const a = absUrl(x.replace(/\\\//g, '/'), origin + '/'); if (a && IMG_EXT.test(a) && !BAD_IMG.test(a) && !acc.includes(a)) acc.push(a); }
+      else if (Array.isArray(x)) x.forEach(v => picsIn(v, acc));
+      else if (x && typeof x === 'object') Object.keys(x).forEach(k => picsIn(x[k], acc));
+      return acc;
+    };
+    for (const c of cands.slice(0, 30)) {
+      try {
+        const txt = await fetchRaw(c);
+        let pics = [];
+        try { pics = picsIn(JSON.parse(txt), []); } catch { /* not JSON: look in the text */ }
+        if (pics.length < 2) { const mm = unescapeJs(txt).match(/(?:https?:)?\/\/[^"'\s<>\\)]+?\.(?:jpe?g|png|webp|avif|gif)(?:\?[^"'\s<>\\)]*)?/gi) || []; pics = mm.map(u => absUrl(u, origin + '/')).filter(u => u && !BAD_IMG.test(u)).filter((u, i, a) => a.indexOf(u) === i); }
+        picTrace.push('picture API: ' + c.replace(origin, '').slice(0, 90) + ' -> ' + txt.length + ' chars, ' + pics.length + ' picture address(es)');
+        if (pics.length >= 2) {
+          if (pics.every(u => NUM_IMG.test(u))) pics.sort((a, b) => +NUM_IMG.exec(a)[2] - +NUM_IMG.exec(b)[2]);
+          return pics;
+        }
+      } catch (e) { picTrace.push('picture API: ' + c.replace(origin, '').slice(0, 90) + ' -> ' + ((e && e.errors && e.errors[0] && e.errors[0].message) || (e && e.message) || 'failed')); }
+    }
+    return out;
+  }
+  // ROUND 45 (arenascan.com, report 2026-11-09). WHY: some sites (WordPress) answer an unknown or old chapter address with ANOTHER series' page
+  //   (the nearest guess). MangaFlow then read the wrong page's menu (8 chapters of a different manga) and said "no images found".
+  //   HOW: compare the page's own canonical/og:url with the address we asked for. If the last folder name differs and neither address
+  //   contains the other, the site sent a different page. Returns the canonical address, or '' when all is fine. IMPROVE: also compare titles.
+  function sentOtherPage(doc, base, ref) {
+    try {
+      const l = doc.querySelector('link[rel="canonical"][href]') || doc.querySelector('meta[property="og:url"][content]');
+      const c = l && (l.getAttribute('href') || l.getAttribute('content')); if (!c) return '';
+      const cp = new URL(c, base).pathname.replace(/\/+$/, ''), rp = new URL(ref).pathname.replace(/\/+$/, '');
+      if (cp.length < 2 || cp === rp || cp.startsWith(rp + '/') || rp.startsWith(cp + '/')) return '';
+      return cp.split('/').pop() !== rp.split('/').pop() ? new URL(c, base).href : '';
+    } catch { return ''; }
+  }
+  function noImagesError(doc, base, kind, ref) {
+    // ROUND 45: tell the truth when the site answered with a different page.
+    const other = ref ? sentOtherPage(doc, base, ref) : '';
+    if (other) { const e = new Error('The site answered with a DIFFERENT page (' + other + ') instead of this chapter address, so there was nothing to read. The chapter address may be old or wrong — open the manga page and choose the chapter again, or press Retry.'); e.details = 'Asked for: ' + ref + '\nGot (canonical): ' + other + '\n\n' + diagnose(doc, base); return e; }
     // WHY: Get the text that belongs to the page itself (round 28: not the menus and comments). HOW: mainText.
     const text = mainText(doc);
     // ROUND 30: the site sent the manga's MAIN PAGE instead of the chapter (see wrongPage). HOW: its own sentence; the report (details) still says what the page contained.
     if (kind === 'series') { const e = new Error('The site sent the manga\'s MAIN PAGE (series page) instead of this chapter, so there is nothing to show. The chapter may be locked, removed or need a login. MangaFlow does not show the main page\'s pictures as a chapter.'); e.details = diagnose(doc, base); return e; }
     // WHY: Create the error with the right message. HOW: if the text matches LOCK_RE, say locked or removed; else the plain
     // message.
+    // ROUND 45 (roliascan.com): the page's own HIDDEN placeholder text ("Loading chapter... This content is not available anymore") and its log-in pop-up matched the
+    //   lock words although the chapter was open to everyone. HOW: when the page has real previous/next chapter links and the text has NO log-in / coins / premium words (only the
+    //   "not available anymore" placeholder), the honest answer is "the site's own script fills in the pictures", not LOCKED. IMPROVE: read the placeholder's visibility.
+    let navOk = false; try { const nv = findNavLinks(doc, base, ref || base); navOk = !!(nv.prev || nv.next); } catch {}
+    const hardLock = /log\s*in\s+to\s+(?:read|unlock|view|continue)|unlock\s+(?:this\s+)?chapter|(?:chapter|content)\s+is\s+locked|premium|members?\s+only|coins?\s+(?:required|needed)|sign\s*in\s+to\s+read/i.test(text);
+    if (navOk && !hardLock && LOCK_RE.test(text)) {
+      const e2 = new Error('This site fills in its pictures with its own script (the page only says "Loading chapter…"), and MangaFlow could not find them next to the preview picture. It may be a temporary site problem — press Retry, or use "Open on the site".');
+      e2.details = diagnose(doc, base) + (picTrace.length ? '\n\nSteps tried to find the pictures (round 46):\n' + picTrace.join('\n') : ''); return e2;
+    }
     const err = new Error(LOCK_RE.test(text)
       ? 'This chapter may be LOCKED or REMOVED (the page asks for a login / coins / premium, or says it is not available any more). MangaFlow cannot log in for you.'
       : 'no images found on this chapter page');
     // WHY: Attach a report of what the page held, for the user to send. HOW: diagnose() builds it and it is stored on
     // err.details.
-    err.details = diagnose(doc, base);
+    err.details = diagnose(doc, base) + (picTrace.length ? '\n\nSteps tried to find the pictures (round 46):\n' + picTrace.join('\n') : '');
     // WHY: Return the error so the caller can throw it. HOW: return err.
     return err;
   }
@@ -3668,7 +4091,7 @@
       // WHY: Add the current chapter if missing. HOW: -1 means not found.
       if (i < 0) {                                                       // current page missing from list: add it
         // WHY: Work out its number. HOW: from the path or the page title.
-        const n = numFrom(decodeURIComponent(new URL(url).pathname)) ?? numFrom(doc.title);
+        const n = numFrom(safeDecode(new URL(url).pathname)) ?? numFrom(doc.title);
         // WHY: Add it to the list. HOW: push an object with address, short title and number.
         chapters.push({ url, title: doc.title.slice(0, 120), num: n == null ? chapters.length + 1 : n });
         // WHY: Keep order right. HOW: sort by number.
@@ -3726,7 +4149,7 @@
 
   // WHY: Load more chapters when the end marker nears the screen. HOW: IntersectionObserver watches the sentinel with
   // 1500px extra margin.
-  const io = new IntersectionObserver(es => { if (es[0].isIntersecting) loadNext(); }, { rootMargin: '1500px' });
+  const io = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) loadNext(); }, { rootMargin: '1500px' });
 
   // WHY: A name for chapter i. HOW: uses its number or index plus 1.
   const labelFor = i => {
@@ -3741,6 +4164,130 @@
           removed in leaveReader(). `quiet` is used by the automatic start (no pop-up if it cannot start).
      HOW: analyze() works out the chapters, then the first batch of chapters is loaded (loadNext). */
   // WHY: Start reading mode. HOW: finds chapters, switches the screen, loads the first batch. Returns true or false.
+
+  /* CHAPTER AUDIT (round 55) - nyxscans.com showed chapter 0, 1 and then 22..40: chapters 2 to 21 were missing from the site's own list, and the reader simply jumped from 1 to 22 without a word.
+     WHY: a list with holes is wrong, and the person must be told. HOW (3 steps):
+       1. fillChapterGaps(): read the chapter number from each address (".../chapter-22"), find every whole number missing between the first and the last, and add a GUESSED chapter for each one
+          (same address pattern, other number). Numbers before the first one are only added when the first number is small (0 to 5), so chapters 1,2,3 are never forgotten.
+       2. verifyChapterList(): ask the site for each guessed address (3 at a time). A page with pictures stays in the list; a 404 / no pictures = the site itself does not have that chapter,
+          so it is removed and written into the audit.
+       3. auditReport(): one pop-up with the report that names the missing numbers and WHY (not on the site / site page without pictures / could not be checked). 30 seconds later the same
+          check looks at the chapter boxes: a chapter that is in the list but did not show its pictures is reported as "not detected in reading mode".
+     IMPROVE: also look for chapters AFTER the newest one in the list (try last+1, last+2). */
+  function chapterNumInUrl(url) {
+    try { const m = CH_RE.exec(decodeURIComponent(new URL(url).pathname)); return m ? parseFloat(m[1].replace(/[_-]/, '.')) : null; } catch { return null; }
+  }
+  // WHY: build "same address with another number". HOW: like synthesizeChapters: replace the digits in the path and keep zero padding.
+  function chapterUrlMaker(url) {
+    let u; try { u = new URL(url); } catch { return null; }
+    const m = CH_RE.exec(u.pathname); if (!m) return null;
+    const at = m.index + m[0].length - m[1].length, width = m[1].length, pad = m[1].startsWith('0') && width > 1;
+    return n => u.origin + u.pathname.slice(0, at) + (pad ? String(n).padStart(width, '0') : String(n)) + u.pathname.slice(at + width) + u.search;
+  }
+  function fillChapterGaps(chapters, startIdx) {
+    const audit = { expected: 0, listed: chapters.length, gaps: [], dead: [], unsure: [], notDetected: [], verified: 0, done: false };
+    try {
+      const nums = chapters.map(c => chapterNumInUrl(c.url));
+      const known = nums.filter(n => n != null);
+      if (chapters.length < 2 || known.length < Math.max(2, chapters.length * 0.6)) { audit.skipped = 'chapter numbers cannot be read from the addresses'; auditHold = audit; return chapters; }
+      const whole = new Set(known.filter(n => Number.isInteger(n)));
+      const lo = Math.min(...known), hi = Math.max(...known);
+      const from = lo <= 5 ? (whole.has(0) || lo === 0 ? 0 : 1) : Math.ceil(lo);
+      const missing = [];
+      for (let n = from; n <= Math.floor(hi) && missing.length < 800; n++) if (!whole.has(n)) missing.push(n);
+      audit.expected = Math.floor(hi) - from + 1; audit.gaps = missing.slice();
+      if (missing.length) {
+        const out = chapters.slice();
+        missing.forEach(n => {
+          // pattern from the listed chapter whose number is closest
+          let best = -1, bd = 1e9; nums.forEach((x, i) => { if (x != null && Math.abs(x - n) < bd) { bd = Math.abs(x - n); best = i; } });
+          const mk = best >= 0 ? chapterUrlMaker(chapters[best].url) : null; if (!mk) return;
+          out.push({ url: mk(n), title: '', num: n, guess: true, gap: true });
+        });
+        out.sort((x, y) => (x.num - y.num) || 0);
+        chapters = out;
+      }
+    } catch (e) { audit.skipped = 'check failed: ' + (e && e.message); }
+    auditHold = audit; return chapters;
+  }
+  let auditHold = null;
+  const auditShown = new Set();
+  async function verifyChapterList(gen) {
+    const A = auditHold; if (!A) return; R.audit = A;
+    const gaps = R.chapters.filter(c => c.gap);
+    let k = 0;
+    const one = async () => {
+      while (k < gaps.length) {
+        const c = gaps[k++]; if (R.gen !== gen) return;
+        try {
+          const { doc, base } = await fetchDoc(c.url);
+          // ROUND 57: a page that ANSWERS (HTTP 200) is kept even when no picture can be seen in its HTML. WHY: sites such as arenascan write the pictures with a script, so the old rule
+          //   ("no picture = chapter missing") wrongly threw real chapters out and the reader jumped from chapter 1 to chapter 20. HOW: only an honest "not found" removes a chapter:
+          //   HTTP 404/410 (below) or a page whose title says 404 / not found and that does not mention this chapter number.
+          const sc = scanPictures(doc, base);
+          const ttl = ((doc.title || '') + ' ' + ((doc.querySelector('h1') || {}).textContent || '')).toLowerCase();
+          const says404 = /\b404\b|not found|page (does ?n.t|does not) exist|no longer available/.test(ttl) && !new RegExp('(^|[^0-9])' + c.num + '([^0-9]|$)').test(ttl);
+          if (says404 && sc.list.length < 1) { c.dead = true; A.dead.push(c.num + ' (the site shows its "not found" page)'); }
+          else { c.verified = true; A.verified++; }
+        } catch (e) {
+          const msg = String((e && e.message) || e);
+          if (/HTTP 404|HTTP 410|NOT FOUND/i.test(msg)) { c.dead = true; A.dead.push(c.num + ' (not on the site: ' + (msg.match(/HTTP 4\d\d/) || ['not found'])[0] + ')'); }
+          else A.unsure.push(c.num + ' (' + msg.slice(0, 60) + ')');
+        }
+      }
+    };
+    await Promise.all([one(), one(), one()]);
+    if (R.gen !== gen) return;
+    // take dead chapters off the screen and out of the menu
+    R.chapters.forEach((c, i) => { if (c.dead) { const sec = stream.querySelector('.chapter[data-index="' + i + '"]'); if (sec) removeSection(sec); } });
+    buildChapterMenu(); updateDlBar();
+    const byNum = (x, y) => parseFloat(x) - parseFloat(y); A.dead.sort(byNum); A.unsure.sort(byNum);
+    A.done = true;
+    auditReport(gen, false);
+    setTimeout(() => { if (R.gen === gen) auditReport(gen, true); }, 30000);
+  }
+  function auditReport(gen, late) {
+    const A = R.audit; if (!A || R.gen !== gen) return;
+    if (late) {
+      A.notDetected = [];
+      $$('.chapter', stream).forEach(x => {
+        const i = +x.dataset.index, c = R.chapters[i]; if (!c || c.dead) return;
+        const pics = x.querySelectorAll('img.page').length;
+        if (!pics && !x.dataset.verify && (x.dataset.failed === '1' || x.querySelector('.ch-msg')) ) A.notDetected.push(fmtNum(c.num));
+      });
+    }
+    const problems = A.dead.length + A.unsure.length + A.notDetected.length;
+    if (!problems && !A.skipped) return;
+    const key = (R.seriesUrl || R.title) + '|' + A.dead.join() + '|' + A.unsure.join() + '|' + A.notDetected.join();
+    if (auditShown.has(key)) return; auditShown.add(key);
+    if (A.skipped && !problems) return;      // nothing wrong was found; the note is only for the diagnostic report
+    const lines = [
+      'Chapter check for "' + R.title + '"',
+      'Chapters in the site\'s own list: ' + A.listed + ' | expected from the numbers: ' + A.expected,
+      'Missing from the site\'s list and added by guessing: ' + (A.gaps.length ? A.gaps.join(', ') : 'none'),
+      'Found on the site after checking: ' + A.verified,
+      'NOT on the original site (so the site itself lacks them): ' + (A.dead.length ? A.dead.join(', ') : 'none'),
+      'Could not be checked (network or block, will be tried again when reached): ' + (A.unsure.length ? A.unsure.join(', ') : 'none'),
+      'In the list but NOT shown in reading mode: ' + (A.notDetected.length ? A.notDetected.join(', ') : 'none')
+    ];
+    const head = A.notDetected.length ? 'Some chapters were found on the site but could not be shown in reading mode: ' + A.notDetected.slice(0, 8).join(', ')
+      : A.dead.length ? 'The site is missing ' + A.dead.length + ' chapter(s): ' + A.dead.slice(0, 8).map(x => x.split(' ')[0]).join(', ') + (A.dead.length > 8 ? ' …' : '')
+      : 'Some chapters could not be checked: ' + A.unsure.slice(0, 8).map(x => x.split(' ')[0]).join(', ');
+    showError(head, { title: '📚 Chapter check: ' + (A.notDetected.length ? 'not shown in reading mode' : A.dead.length ? 'missing on the site' : 'could not verify'), details: lines.join('\n'), hint: 'Open the original site and look at the chapter list. If the chapter is there, press Retry on its box or send this report.' });
+  }
+  // ROUND 57: what the site view (Page 2) knows about the chapter list - for the diagnostic report when "no chapter shows".
+  function pageListText() {
+    if (!cur) return 'no page open';
+    const L = cur.chapters || [];
+    let nums = ''; try { const n = L.map(c => chapterNumInUrl(c.url)).filter(x => x != null); if (n.length) nums = ', numbers ' + Math.min(...n) + ' to ' + Math.max(...n) + ' (' + new Set(n).size + ' different)'; } catch { /* ignore */ }
+    const busy = (document.getElementById('busy') || {}).hidden === false ? ', banner: "' + document.getElementById('busy').textContent + '"' : '';
+    return 'list ' + L.length + ' chapters' + nums + ', background reader ' + (cur.enhancingDone ? 'finished' : 'still working') + busy;
+  }
+  function chapterAuditText() {
+    const A = R && R.audit; if (!A) return 'no audit yet';
+    return 'listed ' + A.listed + ', expected ' + A.expected + ', gaps ' + (A.gaps.length || 0) + ', verified ' + A.verified + ', not on site [' + A.dead.join('; ') + '], unchecked [' + A.unsure.join('; ') + '], not shown [' + A.notDetected.join(', ') + ']' + (A.skipped ? ', skipped: ' + A.skipped : '') + (A.done ? '' : ' (still checking)');
+  }
+
   async function startReading(opts = {}) {
     // WHY: Need a page first. HOW: if none is open, show a message and stop.
     if (!cur) { toast('Open a manga page first'); return false; }
@@ -3774,6 +4321,9 @@
     Object.keys(estCache).forEach(k => delete estCache[k]);
     // WHY: Start a fresh reading session. HOW: new state object; gen goes up by 1 so old loads are ignored.
     humanHosts.clear();                                                  // round 29e: a new reading session starts with a clean slate (no site is "waiting for the check" yet)
+    { const keepU = info.chapters[info.start] && info.chapters[info.start].url;
+      info.chapters = fillChapterGaps(info.chapters, info.start);   // ROUND 55: add chapters the site's own list skipped (see fillChapterGaps)
+      if (keepU) { const k = info.chapters.findIndex(c => c.url === keepU); if (k >= 0) info.start = k; } }
     R = { gen: R.gen + 1, title: info.title, chapters: info.chapters, first: info.start, next: info.start, cur: info.start, loading: false, paused: false, seriesUrl: info.seriesUrl };
     // WHY: Fill the chapter menu. HOW: buildChapterMenu().
     buildChapterMenu();
@@ -3797,6 +4347,8 @@
     io.disconnect(); io.observe(sentinel);
     // WHY: Show the one-time tip. HOW: call readingTip().
     readingTip();
+    // ROUND 55: check the added chapters and the whole list in the background; any problem is reported by itself.
+    const auditGen = R.gen; verifyChapterList(auditGen);
     // WHY: Load the first batch. HOW: wait for loadNext().
     await loadNext();
     // WHY: Tell the caller it worked. HOW: return true.
@@ -3886,6 +4438,8 @@
 
   // WHY: Download one chapter and show its pictures. HOW: see steps below. IMPROVE: split into smaller helpers.
   async function fillChapter(sec, i, gen) {
+    // ROUND 43: two fills of the same box (reload pressed while still loading, or the keeper) used to BOTH add the pictures = every page twice. Only the newest call may touch the box.
+    const tok = sec._fillTok = {}; sec._fillStart = Date.now();   // ROUND 52: the keeper uses _fillStart to spot a box that has been "loading" for too long
     // WHY: Get the chapter data. HOW: from R.chapters.
     const ch = R.chapters[i];
     // WHY: Clear old messages and pictures, free memory. HOW: remove old nodes and revoke blob addresses.
@@ -3908,15 +4462,25 @@
       // WHY: Download the chapter page. HOW: fetchDoc gives doc and base.
       const { doc, base } = await fetchDoc(ch.url);
       // WHY: Stop if the user moved on. HOW: compare gen.
-      if (gen !== R.gen) return;                      // user jumped elsewhere meanwhile
+      if (gen !== R.gen || sec._fillTok !== tok) return;                      // user jumped elsewhere meanwhile
       // WHY: Find the pictures. HOW: chapterPictures (round 28) reads the page, counts the empty picture slots and completes the list when that is honestly possible (the page text, the
       // scripts, numbered pictures next to the first one; never for a page the site has sealed on purpose). Round 10's numbered-preview way is inside it.
       const found = await chapterPictures(doc, base, ch.url);
       // WHY: the checks above can take several seconds (they ask for pictures). HOW: stop if the person jumped elsewhere meanwhile.
-      if (gen !== R.gen) return;
+      if (gen !== R.gen || sec._fillTok !== tok) return;
       const imgs = found.list;
       // WHY: Explain the failure. HOW: throw noImagesError.
-      if (!imgs.length) throw noImagesError(doc, base, found.rejected);   // says WHY (locked / removed / script-built / main page instead; round 30) and carries a report
+      if (!imgs.length) {
+        // ROUND 45: when the site sent ANOTHER series' page, ask once more with a harmless cache-buster (a stale/wrong cached answer is the usual cause) before giving up.
+        if (sentOtherPage(doc, base, ch.url)) {
+          try {
+            const again = await fetchDoc(ch.url + (ch.url.includes('?') ? '&' : '?') + 'mf=' + Date.now());
+            if (gen !== R.gen || sec._fillTok !== tok) return;
+            if (!sentOtherPage(again.doc, again.base, ch.url)) { const f2 = await chapterPictures(again.doc, again.base, ch.url); if (f2.list.length) { Object.assign(found, f2); imgs.push(...f2.list); } }
+          } catch { /* the first answer stays */ }
+        }
+        if (!imgs.length) throw noImagesError(doc, base, found.rejected, ch.url);   // says WHY (locked / removed / script-built / main page / wrong page instead) and carries a report
+      }   // says WHY (locked / removed / script-built / main page instead; round 30) and carries a report
       // WHY: PDF download needs them. HOW: store on the box.
       sec._imgs = imgs;                               // remembered for the PDF download (original picture addresses)
       // List incomplete? The page's "Next" link adds the following chapter (only ever to the end of the list).
@@ -3950,7 +4514,7 @@
     // WHY: Handle errors. HOW: catch.
     } catch (e) {
       // WHY: Ignore old sessions. HOW: compare gen.
-      if (gen !== R.gen) return;
+      if (gen !== R.gen || sec._fillTok !== tok) return;
       // ROUND 29e: the site wants the person to pass a human check. WHY: this is NOT a failure the keeper may retry (that would hammer the site); the person is the one who can fix it.
       //   HOW: the box gets data-verify (the keeper skips it), the loading line goes, and a box with "Open the site" / "I did it - try again" takes its place. No red pop-up. IMPROVE: none needed.
       if (isHumanCheck(e.message)) { sec.dataset.verify = '1'; wait.remove(); sec.appendChild(verifyNote(sec, i, ch)); return; }
@@ -4011,7 +4575,7 @@
       } else keepNote.textContent = 'MangaFlow keeps trying again by itself in the background.';
       wait.appendChild(keepNote);
     // WHY: Stop the timer. HOW: finally.
-    } finally { stopWatch(); }
+    } finally { stopWatch(); if (sec._fillTok === tok) sec._fillStart = 0; }
   }
 
   /* Image element (round 8: more ways to load, and a visible Retry).
@@ -4162,6 +4726,17 @@
           fillChapter(bad, +bad.dataset.index, R.gen).catch(() => {}).finally(() => { keeper.busyCh--; if (bad.isConnected && bad.dataset.failed !== '1') keeper.healedCh++; });
         }
       }
+      // ROUND 52 — CHAPTER BOXES THAT ARE NEITHER LOADED NOR FAILED (reported: "chapters 4 and 5 are missing until I reload from the site").
+      // WHY: the keeper above only healed boxes that carry data-failed. A box that ended up EMPTY (a fill that was replaced and never restarted, a message that was wiped) or STUCK on its
+      //   spinner (an answer that never came, over 100 s) carried no flag, so nobody ever retried it; only a manual reload helped. HOW: an empty box seen empty for 20 s, or a spinner older
+      //   than 100 s, is flagged data-failed; step B then refills it like any failed chapter (growing waits; fillChapter's token makes sure only the newest fill touches the box).
+      //   IMPROVE: show the reason in the box ("waiting for the site").
+      secs.forEach(x => {
+        if (x.dataset.failed === '1' || x.dataset.verify) { x._emptyAt = 0; return; }
+        const hasPics = x.querySelector('img.page, .page-fail'), hasMsg = x.querySelector('.ch-msg');
+        if (x._fillStart && now - x._fillStart > 100000) { x.dataset.failed = '1'; x._healAt = 0; x._emptyAt = 0; return; }
+        if (!x._fillStart && !hasPics && !hasMsg) { if (!x._emptyAt) x._emptyAt = now; else if (now - x._emptyAt > 20000) { x.dataset.failed = '1'; x._healAt = 0; x._emptyAt = 0; } } else x._emptyAt = 0;
+      });
       const imgs = secs.flatMap(x => $$('img.page', x));
       // C. heal pictures: failed ones whose waiting time is over (3 at a time), and stalled ones (loading for more than 45 s)
       let busy = imgs.filter(i => i._healing).length;
@@ -4532,6 +5107,7 @@
     // the page, never sneaks in a hide on its own). A short holdUi window right after a show additionally
     // blocks any hide for the next 900ms, so a little scroll jitter right after the bar reappears cannot
     // immediately hide it again.
+    if (y < 40) showUi();   // ROUND 53: at the very top the bar is ALWAYS visible, even inside the short hold after a key jump (it used to stay hidden for 2.5 s)
     if (Date.now() > holdUi) {
       if (y < 40) showUi();                              // at the very top the bar is always visible
       // WHY: show the controls when the person scrolls up a little, hide them when scrolling down. HOW: upAcc / downAcc add up
@@ -4604,10 +5180,11 @@
     // ROUND 39: `push` (true only when the chapter actually changed, or when reading mode just started — never for
     //   the plain "still on the same chapter" keep-alive save) adds a real Back/Forward step. See rememberView above
     //   for the full explanation.
-    if (!settings.noHistory) {
-      const hash = '#r=' + encodeURIComponent(ch.url), full = location.pathname + location.search + hash;
-      const changed = full !== (location.pathname + location.search + location.hash);
-      try { if (push && !suppressPush && changed) history.pushState(null, '', full); else history.replaceState(null, '', full); } catch { /* address bar not writable: fine */ }
+    // ROUND 46: the address is written ONLY while reading mode is really on screen (a late timer after Home must never put #r= back), and an old ?url= is never kept.
+    if (!settings.noHistory && !reader.hidden) {
+      const hash = '#r=' + encodeURIComponent(ch.url), full = location.pathname + cleanSearch() + hash;
+      const changed = full !== (location.pathname + cleanSearch() + location.hash);
+      try { if (push && !suppressPush && changed) history.pushState({ mfi: ++navMax }, '', full); else history.replaceState(history.state, '', full); } catch { /* address bar not writable: fine */ }
     }
     saveRead({
       id: new URL(R.chapters[0].url).origin + '|' + R.title,
@@ -4791,6 +5368,33 @@
   // 200ms joined by dots, or says no requests yet. IMPROVE: Sort by most used.
   function routeStatText() {
     return routeStats.size ? [...routeStats].map(([n, x]) => n + ' ok ' + x.ok + '/fail ' + x.fail + (x.ok ? ' avg ' + Math.round(x.ms / x.ok) + 'ms' : '')).join(' · ') : 'no picture requests yet';
+  }
+  // ROUND 51 — WHY: when a chapter looked empty on Page 2 the report said nothing about it (reading mode worked, so "none" problems). HOW: counts the pictures in the site view:
+  //   total, loaded, still empty (no address), retried through the proxy and the first failing address (host only). IMPROVE: show it in a small overlay too.
+  // ROUND 52 — ONE LINE PER CHAPTER BOX FOR THE REPORT. WHY: "chapters 4 and 5 are missing" could not be told apart from "site refused" or "list incomplete" because the report only
+  //   had totals. HOW: for each box: number, state (pictures N / loading Ns / failed / needs human check / EMPTY), so one copied report shows exactly what the reader holds.
+  //   IMPROVE: add the proxy that answered and the time it took.
+  function chapterHealthText() {
+    try {
+      if (reader.hidden) return 'not reading';
+      const secs = $$('.chapter', stream); if (!secs.length) return 'no chapter boxes';
+      const now = Date.now();
+      const rows = secs.map(x => {
+        const i = +x.dataset.index, n = x.querySelectorAll('img.page').length, bad = x.querySelectorAll('img.page').length && Array.from(x.querySelectorAll('img.page')).filter(m => m._failed).length;
+        const st = x.dataset.verify ? 'human check' : x.dataset.failed === '1' ? 'FAILED (keeper retries)' : x._fillStart ? 'loading ' + Math.round((now - x._fillStart) / 1000) + 's' : n ? n + ' pictures' + (bad ? ', ' + bad + ' failed' : '') : x.querySelector('.ch-msg') ? 'message shown' : 'EMPTY';
+        return (R.chapters[i] ? labelFor(i) : '#' + i) + ': ' + st;
+      });
+      return 'list ' + R.chapters.length + ' chapters, boxes ' + secs.length + ' | ' + rows.join(' | ');
+    } catch (e) { return 'unknown (' + (e && e.message) + ')'; }
+  }
+  function pageViewPicText() {
+    try {
+      if (frame.hidden || !frame.contentDocument) return 'not on a site page';
+      const im = Array.from(frame.contentDocument.images || []); if (!im.length) return 'no pictures on this page';
+      const ok = im.filter(i => i.complete && i.naturalWidth > 20).length, noAddr = im.filter(i => !(i.getAttribute('src') || '').trim()).length, retried = im.filter(i => i.dataset.mfRetried).length;
+      const bad = im.find(i => (i.getAttribute('src') || '').trim() && i.complete && !i.naturalWidth), host = bad ? (() => { try { return new URL(bad.dataset.mfOrig || bad.src).hostname; } catch { return '?'; } })() : '-';
+      return im.length + ' pictures, ' + ok + ' loaded, ' + noAddr + ' without address, ' + retried + ' retried through the proxy, first failing host: ' + host;
+    } catch (e) { return 'unknown (' + (e && e.message) + ')'; }
   }
   /* The ways to get a picture's bytes. Your own proxy gets &ref=<chapter address> so picture hosts that check the
      "Referer" accept the request (round 8). Free public proxies do not get it (they would ignore or mishandle it). */
@@ -5493,12 +6097,12 @@
         const { doc, base } = await fetchDoc(it.url);
         // ROUND 28: the same completion as the reader (chapterPictures): empty picture slots, page text, scripts, numbered pictures (never for a sealed page).
         const found = await chapterPictures(doc, base, it.url), imgs = found.list;
-        if (found.partial) jlog(job, 'Chapter ' + (it.num != null ? it.num : '?') + ': only ' + imgs.length + ' of ' + found.total + ' pictures could be found' + (found.sealed ? ' (the site hides the rest on purpose)' : ''));
+        if (found.partial) jlog(job, 'Chapter ' + (it.label || it.no || '?') + ': only ' + imgs.length + ' of ' + found.total + ' pictures could be found' + (found.sealed ? ' (the site hides the rest on purpose)' : ''));
         // WHY: stop as soon as pictures were found. HOW: return them.
         if (imgs.length) return imgs;
         // WHY: remember why this try failed. HOW: stores an error in last. The catch below stores thrown errors; after two tries
         // the last error is thrown. IMPROVE: none needed.
-        last = found.rejected ? noImagesError(doc, base, found.rejected) : new Error('no pictures found');   // round 30: say WHY when the page was a login wall or the main page
+        last = found.rejected ? noImagesError(doc, base, found.rejected, it.url) : new Error('no pictures found');   // round 30: say WHY when the page was a login wall or the main page
       } catch (e) { last = e; }
     }
     // WHY: both tries failed. HOW: throw the last error so the caller reports it.
@@ -5827,6 +6431,7 @@
   // WHY: reader buttons. HOW: the read button starts reading; exit leaves reading mode; chapters button opens the menu
   // (stopPropagation keeps the document click from closing it at once). IMPROVE: none needed.
   $('#fabRead').onclick = () => startReading();
+  $('#p2Prev').onclick = () => openNavTarget('prev'); $('#p2List').onclick = () => openNavTarget('list'); $('#p2Next').onclick = () => openNavTarget('next');   // ROUND 56
   $('#btnExit').onclick = exitReading;
   $('#btnChapters').onclick = e => { e.stopPropagation(); toggleMenu(); };
   // WHY: previous/next chapter and reload buttons. HOW: each calls its function. IMPROVE: none needed.
@@ -5862,6 +6467,8 @@
   // That is a hard technical wall of the proxy design, not a bug, and is why this feature is scoped to our own
   // page only.
   // HOW: a small, self-contained copy of the up/down-accumulator idea the reading-mode header already uses, but
+  // ROUND 44 NOTE: the next lines were first written believing the iframe (Page 2) scroll cannot be observed. That was wrong;
+  //   Page 2 is handled by p2ScrollHook() next to hookDoc(). This block is for Page 1 (our own start page) only.
   // simpler — there is no "ignore the app's own scroll jumps" concern here (the start page never auto-scrolls
   // the way a reading chapter can), so every scroll is reacted to directly, no extra gating needed. See the
   // ".navbar" / ".navbar.mf-hide" rule in style.css for how the header actually animates away; updateNav() above
@@ -5968,7 +6575,8 @@
     const plain = !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey;
     // WHY: The main shortcut list. HOW: an if / else-if chain; Escape closes the chapter menu if open, otherwise leaves
     // reading mode. IMPROVE: replace the chain with an object that maps keys to functions.
-    if (k === 'escape') { if (!$('#chapterMenu').hidden) closeMenu(); else exitReading(); }
+    // ROUND 53: Esc while the page is in browser full screen only LEAVES full screen (it used to also close reading mode and leave the screen stuck in full-screen styling).
+    if (k === 'escape') { if (!$('#chapterMenu').hidden) closeMenu(); else if (fsApiEl()) { leaveFs(); setTimeout(syncFs, 150); } else exitReading(); }
     // WHY: Keyboard shortcut for chapters. HOW: n goes to the next chapter, p to the previous one (stepChapter(1) or -1).
     // IMPROVE: show the shortcuts in a help pop-up.
     else if (k === 'n') stepChapter(1);
@@ -6257,11 +6865,8 @@
   // SECURITY / PRIVACY: optional erase when the tab is closed.
   // WHY: Privacy option that erases traces when the tab closes. HOW: on pagehide, if wipeOnClose is on, overwrite saved
   // recent, books, reads with empty lists and progress with an empty object. IMPROVE: also clear the cache.
-  window.addEventListener('pagehide', () => {
-    if (!settings.wipeOnClose) return;
-    ['recent', 'books', 'reads', 'progress'].forEach(k => store.set(k, k === 'progress' ? {} : []));
-    store.set('clips', []);   // round 17: the clipboard list is erased too
-  });
+  // ROUND 43: pagehide ALSO fires on every refresh / reload (Fix automatically, Reset, profile sync...), so "erase when I close the tab" wiped bookmarks on F5.
+  //   NOW: sessionStorage survives a reload but not a closed tab, so the erase runs at the first start-up of a NEW tab session (see wipeIfNewSession before the lists load).
   /* "Check my setup": a quick, honest list of what is safe and what is not.
      WHY: so the owner can see the protections at a glance. It only reads settings, it changes nothing. */
   // WHY: The 'Check my setup' button gives a plain safety list. HOW: clears the list; row() adds a line with a tick,
@@ -6465,6 +7070,8 @@
       return 'Page cache, picture routes, request limits and size estimates were reset.'; } },
     // WHY: Retry broken pictures in one go. HOW: finds the first button of each failed picture box and clicks it. IMPROVE:
     // add a delay between retries.
+    // ROUND 59: repair the site view (Page 2) on its own: placeholders, missing pictures, endless loading, empty chapter list.
+    siteView: { label: 'Repair this site page', run: async () => (await siteViewRepair()).lines.join(' ') },
     retryPictures: { label: 'Retry failed pictures', run: async () => {
       const btns = $$('.page-fail .row button:first-child'); btns.forEach(b => b.click());
       return btns.length ? 'Retrying ' + btns.length + ' picture' + (btns.length === 1 ? '' : 's') + '.' : 'No failed pictures on the page.'; } },
@@ -6505,6 +7112,99 @@
   };
   // WHY: Make a health report. HOW: rows is a list of results; row(ok, text) adds one. First checks online state,
   // pdfmaker.js, compression support, WebP conversion and storage access. IMPROVE: group rows by topic.
+  /* ROUND 59 - THE SITE-VIEW DOCTOR (Page 2). WHY: the owner's arenascan chapter showed spinners / nothing on Page 2 while reading mode (Page 3) worked, and the old
+          troubleshooter could not see it (it only counted pictures that "loaded" - a spinner picture loads fine). HOW: siteViewScan() LOOKS at the page on screen and compares it with
+          what the reader's own finder knows (fromScripts / scanPictures / chapterPictures). It lists named problems (codes P2-...). siteViewRepair() fixes what can be fixed:
+          fills placeholder slots, adds missing pictures, retries failed ones through the proxies, switches off a loading bar/banner that never ends, asks for the chapter list again.
+          siteViewFull() is the long report that is used when something could not be fixed. IMPROVE: add a code for every new site problem that is reported. */
+  async function siteViewScan(deep) {
+    const r = { on: false, problems: [], counts: {}, finder: {}, notes: [], pics: [] };
+    try {
+      if (frame.hidden || !cur || cur.isSearch) return r;
+      const d = frame.contentDocument; if (!d) { r.problems.push({ code: 'P2-NODOC', text: 'The site view cannot be read (the page frame has no document).', fix: false }); r.on = true; return r; }
+      r.on = true;
+      const base = cur.base || cur.url, im = Array.from(d.images || []);
+      const kind = i => { const s = (i.getAttribute('src') || '').trim(); if (!s) return 'noaddr'; if (PLACEHOLDER_SRC.test(s)) return 'placeholder'; if (/^data:/i.test(s)) return 'datadrawing'; if (i.complete && !i.naturalWidth) return 'failed'; if (!i.complete) return 'pending'; return i.naturalWidth > 20 ? 'ok' : 'tiny'; };
+      const c = r.counts; c.total = im.length; im.forEach(i => { const k = kind(i); c[k] = (c[k] || 0) + 1; });
+      // what the reading pipeline knows about the SAME page (page scripts are only read as text)
+      let js = [], sc = { list: [], how: '-' }, best = [];
+      try { js = fromScripts(cur.doc, base); } catch { /* none */ }
+      try { sc = scanPictures(cur.doc, base); } catch { /* none */ }
+      best = js.length >= sc.list.length ? js : sc.list;
+      if (deep && cur.doc) { try { const f = await Promise.race([chapterPictures(cur.doc, base, cur.url), new Promise(x => setTimeout(() => x(null), 8000))]); if (f && f.list && f.list.length > best.length) best = f.list; r.finder.how = f && f.how; } catch (e) { r.notes.push('chapterPictures failed: ' + (e && e.message)); } }
+      r.finder.scripts = js.length; r.finder.reader = sc.list.length; r.finder.readerHow = sc.how; r.finder.best = best.length; r.pics = best;
+      const shown = (c.ok || 0) + (c.pending || 0);
+      if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
+      else if ((c.placeholder || 0) > 0) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
+      if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
+      if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
+      // loading signs that never end
+      const barOn = $('#loadbar').classList.contains('on'), busyOn = !$('#busy').hidden;
+      const idle = cur.enhancingDone || !cur.enhancing;
+      c.loadbar = barOn; c.busy = busyOn; c.idle = !!idle;
+      if ((barOn || busyOn) && idle && !jobs.some(j => j.status === 'running') && reader.hidden) r.problems.push({ code: 'P2-STUCK-LOADING', text: 'A loading bar / "working" note is on although the page and its background work are finished.', fix: true });
+      // chapter page without a list
+      let isCh = false; try { isCh = looksLikeChapter(cur.doc, base, cur.url); } catch { /* unknown */ }
+      c.isChapter = isCh; c.listLen = cur.chapters ? cur.chapters.length : 0;
+      c.needList = !!(isCh && !c.listLen && idle);      // a chapter page normally has no list until it is asked for (the picker / reading mode load it on demand), so this is only a note here
+      // links that go nowhere
+      const dead = Array.from(d.querySelectorAll('a')).filter(a => { try { return isDeadAnchor(a); } catch { return false; } }).length; c.deadLinks = dead;
+      // things on the page that need scripts (they can never work in the frame)
+      c.scriptsRemoved = !d.querySelector('script'); c.csp = Array.from(cspSeen).join(', ') || 'none';
+    } catch (e) { r.problems.push({ code: 'P2-SCAN-ERROR', text: 'The site-view scan itself failed: ' + (e && e.message), fix: false }); }
+    SVD.last = r; return r;
+  }
+  const SVD = { last: null, fixed: [], failed: [] };
+  async function siteViewRepair() {
+    const out = [], r0 = await siteViewScan(true);
+    if (!r0.on) return { lines: ['Site view: nothing to repair (no site page is open).'], left: [], scan: r0 };
+    if (!r0.problems.length && !r0.counts.needList) return { lines: ['Site view: everything looks right (' + (r0.counts.ok || 0) + ' pictures loaded, finder knows ' + r0.finder.best + ').'], left: [], scan: r0 };
+    const d = frame.contentDocument, base = cur.base || cur.url, codes = r0.problems.map(p => p.code);
+    if (codes.some(x => x === 'P2-PLACEHOLDER' || x === 'P2-MISSING')) {
+      const res = placePictures(d, base, r0.pics);
+      out.push('Site view: filled ' + res.filled + ' empty slot(s) and added ' + res.added + ' missing picture(s) from the reader finder.');
+    }
+    if (codes.includes('P2-FAILED')) { try { sweepFrameImgs(d); out.push('Site view: retried the failed pictures through the proxies.'); } catch { /* ignore */ } }
+    if (codes.includes('P2-STUCK-LOADING')) { setLoading(false); setBusy(''); out.push('Site view: switched off a loading bar that never ended.'); }
+    let listFail = false;
+    if (r0.counts.needList) {
+      try {
+        const lr = await Promise.race([loadSeriesList(cur.doc, base, cur.url), new Promise(x => setTimeout(() => x(null), 20000))]);
+        if (lr && lr.chapters && lr.chapters.length >= 2) { cur.chapters = lr.chapters; try { applyLive(frame.contentDocument); } catch { /* the list is kept anyway */ } out.push('Site view: loaded the chapter list from the series page (' + lr.chapters.length + ' chapters).'); }
+        else { listFail = true; out.push('Site view: the chapter list could not be found on the series page.'); }
+      } catch (e) { listFail = true; out.push('Site view: the chapter list could not be fetched (' + (e && e.message) + ').'); }
+    }
+    if (codes.includes('P2-STUCK-LOADING')) { setLoading(false); setBusy(''); }       // the list loading above may switch the note on again: switch it off once more
+    await new Promise(x => setTimeout(x, 2500));            // give the new pictures a moment to load, then look again
+    const r1 = await siteViewScan(false), left = r1.problems.filter(p => !(p.code === 'P2-FAILED' && (r1.counts.failed || 0) === 0));
+    if (listFail) left.push({ code: 'P2-NOLIST', text: 'Chapter page without a findable chapter list.', fix: false });
+    out.push(left.length ? 'Site view: ' + left.length + ' problem(s) remain: ' + left.map(p => p.code).join(', ') : 'Site view: all problems repaired.');
+    SVD.fixed = r0.problems.filter(p => !left.some(l => l.code === p.code)).map(p => p.code); SVD.failed = left.map(p => p.code);
+    return { lines: out, left, scan: r1 };
+  }
+  // WHY: the "everything we know" report for a problem that could not be repaired. HOW: scan data, every picture (kind, address attribute, address, size), the page's own head (CSP, base), a script count,
+  //   proxy answers, the problem log. It is plain text so it can be pasted into any AI. IMPROVE: add a screenshot hint.
+  async function siteViewFull() {
+    const r = SVD.last || await siteViewScan(true), L = [];
+    L.push('=== SITE VIEW (Page 2) DETAIL ===', 'Page: ' + (cur ? cur.url : '-'), 'Scan: ' + JSON.stringify(r.counts), 'Reader finder: ' + JSON.stringify(r.finder));
+    L.push('Problems found: ' + (r.problems.map(p => p.code + ' - ' + p.text).join(' | ') || 'none'), 'Repaired: ' + (SVD.fixed.join(', ') || 'none') + ' · Not repaired: ' + (SVD.failed.join(', ') || 'none'));
+    try {
+      const d = frame.contentDocument;
+      if (d) {
+        L.push('Frame title: ' + d.title, 'Frame text length: ' + (d.body ? d.body.innerText.length : 0), 'Frame head meta: ' + Array.from(d.querySelectorAll('meta')).map(m => (m.httpEquiv || m.name || m.getAttribute('property') || '') + '=' + (m.content || '').slice(0, 60)).join(' ; '));
+        L.push('First 40 pictures (state | attribute used | address as written | natural size):');
+        Array.from(d.images).slice(0, 40).forEach((i, k) => { const inf = imgAddressInfo(i, cur.base || cur.url); L.push('  ' + (k + 1) + '. ' + (i.complete ? (i.naturalWidth ? 'loaded' : 'FAILED') : 'pending') + ' | ' + (inf.attr || 'none') + ' | ' + (i.getAttribute('src') || '').slice(0, 110) + ' | ' + i.naturalWidth + 'x' + i.naturalHeight + (i.dataset.mfAdded ? ' (added by MangaFlow)' : '')); });
+        const cls = {}; d.querySelectorAll('[class]').forEach(e => { String(e.className).split(/\s+/).forEach(n => { if (/load|spin|lazy|reader|chapter|page/i.test(n)) cls[n] = (cls[n] || 0) + 1; }); });
+        L.push('Useful class names on the page (name x count): ' + Object.entries(cls).slice(0, 30).map(e => e[0] + 'x' + e[1]).join(', '));
+      }
+      if (cur && cur.doc) {
+        const sc = Array.from(cur.doc.querySelectorAll('script')); L.push('Original page scripts: ' + sc.length + ' (' + sc.filter(s => !s.src).length + ' inline, ' + sc.filter(s => s.src).length + ' external). Picture words inside inline scripts: ' + sc.filter(s => /images?["']?\s*:|\.webp|\.jpe?g/i.test(s.textContent || '')).length);
+      }
+    } catch (e) { L.push('(detail failed: ' + (e && e.message) + ')'); }
+    L.push('Chapter list on site view: ' + pageListText(), 'Chapter audit: ' + chapterAuditText(), 'CSP blocks seen: ' + (Array.from(cspSeen).join(', ') || 'none'));
+    L.push('Address hash: ' + location.hash.slice(0, 160), 'Screen: ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio);
+    return L.join('\n');
+  }
   async function selfCheck() {
     const rows = [], row = (ok, text) => rows.push({ ok, text });
     row(navigator.onLine, navigator.onLine ? 'The device says it is online.' : 'The device says it is OFFLINE. Check Wi-Fi / mobile data.');
@@ -6534,6 +7234,12 @@
     // WHY: one check row per download job. HOW: a job that failed or stalled is marked red.
     jobs.forEach(j => row(j.status === 'error' || j.stalled ? false : null, 'Download #' + j.id + ': ' + j.status + (j.stalled ? ' (STALLED)' : '') + ' · ' + (j.text || '')));
     row(null, 'Picture routes: ' + routeStatText());
+    row(null, 'Site view pictures (round 51): ' + pageViewPicText());
+    // ROUND 59: the site-view doctor - named problems with their codes (a green tick means "nothing found")
+    try { const sv = await siteViewScan(true); if (sv.on) { if (!sv.problems.length) row(true, 'Site view looks right: ' + (sv.counts.ok || 0) + ' pictures shown, reader finder knows ' + sv.finder.best + '.'); sv.problems.forEach(p => row(false, '[' + p.code + '] ' + p.text + (p.fix ? ' — "Fix automatically" can repair this.' : ' — needs a report.'))); } } catch (e) { row(false, 'Site view check failed: ' + (e && e.message)); }
+    row(null, 'Chapter boxes (round 52): ' + chapterHealthText());
+    row(null, 'Chapter audit (round 55): ' + chapterAuditText());
+    row(null, 'Site view chapter list (round 57): ' + pageListText());
     row(null, 'Memory: ' + heapText() + ' · PDF picture quality: ' + settings.pdfMode);
     return rows;
   }
@@ -6559,10 +7265,19 @@
       if (bad.length) { say('Reloading ' + bad.length + ' chapter box' + (bad.length === 1 ? '' : 'es') + ' that showed a message.'); reloadSections(bad); }
       if (performance && performance.memory && performance.memory.usedJSHeapSize > performance.memory.jsHeapSizeLimit * 0.6) say(await FIX.freeMemory.run());
     }
+    // ROUND 59: the site-view doctor. WHY: find and repair the problems that only show on Page 2 (spinners, missing pictures, never-ending loading, empty chapter list).
+    let svLeft = [];
+    try { const sv = await siteViewRepair(); sv.lines.forEach(say); svLeft = sv.left; } catch (e) { say('Site view repair failed: ' + (e && e.message)); }
     // WHY: Finish the auto repair. HOW: cancels stuck downloads and mentions it only if something was found, then prints the
     // final hint. IMPROVE: offer to copy the report automatically.
     const cs = await FIX.cancelStuck.run(); if (!/No stuck/.test(cs)) say(cs);
-    say('Done. If it still fails, press "Copy full report" and use a question from "Symptoms & answers".');
+    if (svLeft.length || errLog.length && Date.now() - errLog[errLog.length - 1].at < 120000) {
+      // ROUND 59: something could not be fixed -> build the COMPLETE report now (everything gathered), show it in the box and try to copy it.
+      log.push({ ok: false, text: 'Not everything could be repaired' + (svLeft.length ? ' (' + svLeft.map(p => p.code).join(', ') + ')' : '') + '. A complete error report was made for you (below) - paste it to Claude or any AI, or use "Send report to server".' });
+      paintRows(log, $('#fixList'));
+      const txt = diagnostic(await siteViewFull()), box = $('#fixReport'); if (box) { box.value = txt; box.hidden = false; }
+      try { await copyText(txt); } catch { /* the person can copy it from the box */ }
+    } else { const box = $('#fixReport'); if (box) { box.value = ''; box.hidden = true; } say('Done. Nothing is left that the checks can see. If it still fails, press "Copy full report".'); }
   }
   // WHY: Build the big report that is pasted into Claude questions. HOW: joins lines with time, page, browser, current
   // manga, settings, add-ons, routes, memory, downloads, last 4 problems and the latest download report. IMPROVE: hide
@@ -6570,7 +7285,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 31)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 59)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -6584,7 +7299,7 @@
       'Human check (round 29e): ' + (humanHosts.size ? [...humanHosts.keys()].join(', ') + ' waiting' : 'no site waiting'),
       'Search engine: ' + settings.searchEngine + ' (strict ' + !!settings.engineStrict + '), Google ID ' + (settings.googleCx || 'none') + ', last Google result: ' + (googleLast || 'no Google search yet') + ', blocked by page rules: ' + (Array.from(cspSeen).join(', ') || 'nothing'),
       'Profile: ' + (PF && PF.user() ? PF.user() + ' (' + PF.role() + ')' : 'not signed in') + ', sync: ' + (si && si.ok !== null ? (si.ok ? 'OK ' : 'FAILED ' + si.err + ' ') + new Date(si.t).toLocaleTimeString() : 'nothing sent yet'),
-      'Picture routes: ' + routeStatText(), 'Memory: ' + heapText(),
+      'Picture routes: ' + routeStatText(), 'Site view pictures (round 51): ' + pageViewPicText(), 'Chapter boxes (round 52): ' + chapterHealthText(), 'Chapter audit (round 55): ' + chapterAuditText(), 'Site view chapter list (round 57): ' + pageListText(), 'Memory: ' + heapText(),
       'Downloads: ' + (jobs.map(j => '#' + j.id + ' ' + j.status + ' ' + (j.pct || 0) + '% ' + (j.text || '')).join(' | ') || 'none'),
       extra || '',
       '--- last problems (newest last) ---', errLog.slice(-4).map(e => e.report).join('\n\n=====\n') || 'none',
@@ -6636,12 +7351,12 @@
   // it); Copy copies the report; Open draws the guide and shows the dialog. IMPROVE: show a spinner.
   $('#fixAuto').onclick = async e => { e.target.disabled = true; try { await autoFix(); } finally { e.target.disabled = false; } };
   $('#fixCheck').onclick = async e => { e.target.disabled = true; paintRows([{ ok: null, text: 'Checking…' }], $('#fixList')); try { paintRows(await selfCheck(), $('#fixList')); } finally { e.target.disabled = false; } };
-  $('#fixCopy').onclick = () => copyText(diagnostic());
+  $('#fixCopy').onclick = async () => copyText(diagnostic(await siteViewFull()));   // round 59: includes the site-view detail
   // ROUND 19: send the full diagnostic to the accounts server (profiles.js does the sending; it works signed in or not, with a limit of 3 per 10 minutes when not).
   // WHY: the owner wants every report on the server so the pages can be fixed from it. HOW: MangaFlowProfiles.sendReport(title, report, page).
   $('#fixSend').onclick = async () => {
     const P = window.MangaFlowProfiles; if (!P || !P.sendReport) { toast('The profile add-on (profiles.js) is not loaded'); return; }
-    try { await P.sendReport('Troubleshoot report', diagnostic(), cur && cur.url || location.href); toast('Report sent to the server. Thank you!'); }
+    try { await P.sendReport('Troubleshoot report', diagnostic(await siteViewFull()), cur && cur.url || location.href); toast('Report sent to the server. Thank you!'); }
     catch (e) { toast('Not sent: ' + clipText(e.message, 90)); }
   };
   // ROUND 19 (this code sits inside section 17; the Settings window has no section of its own): the Profile tab of Settings. WHY: reach the profile / sync from reading mode and from any page. HOW: buttons call the profiles.js doors.
@@ -6700,15 +7415,26 @@
   //   from pushing ANOTHER entry (which would otherwise fight with Back/Forward and break the stack).
   // IMPROVE: also remember and restore the exact scroll position, not just which chapter/page.
   let suppressPush = false;
+  // ROUND 46 — THE "?url=" THAT NEVER LEAVES (the real reason a refresh on the home page jumped back into reading mode, and why the address
+  //   did not look clean after pressing Home).
+  // WHY: a link like https://dharmadr.github.io/Mangat0/?url=https://site/chapter-2 opens that page once. But every later address write
+  //   (rememberView / rememberChapter / goHome) copied location.search, so "?url=..." stayed in the address for ever. On the next refresh
+  //   start-up saw "?url=" first, opened THAT page again as a user action (which jumps into reading mode) and even ignored the #r= / #p=
+  //   memory. HOW: cleanSearch() returns the current "?..." part WITHOUT the url and q values (other values, if any, are kept). Every
+  //   address write now uses it, so after the first page opens the address is only  /Mangat0/#r=...  (reading), /Mangat0/#p=... (a site page)
+  //   or just /Mangat0/ (home). IMPROVE: if more MangaFlow-only query values are added later, list them here.
+  function cleanSearch() {
+    try { const sp = new URLSearchParams(location.search); sp.delete('url'); sp.delete('q'); const t = sp.toString(); return t ? '?' + t : ''; } catch { return ''; }
+  }
   function rememberView(kind, value, push) {
     if (kind && value) lastView = { k: kind, v: value };
     if (settings.noHistory) return;                       // "Do not save my reading history" also means: no address-bar memory
     const hash = (kind && value ? '#' + kind + '=' + encodeURIComponent(value) : '');
-    const full = location.pathname + location.search + hash;
-    const changed = full !== (location.pathname + location.search + location.hash);
+    const full = location.pathname + cleanSearch() + hash;
+    const changed = full !== (location.pathname + cleanSearch() + location.hash);   // ROUND 46: a leftover ?url= is stripped with replaceState, never pushed
     try {
-      if (push && !suppressPush && changed) history.pushState(null, '', full);
-      else history.replaceState(null, '', full);
+      if (push && !suppressPush && changed) history.pushState({ mfi: ++navMax }, '', full);
+      else history.replaceState(history.state, '', full);
     } catch { /* address bar not writable: fine */ }
   }
 
@@ -6761,9 +7487,12 @@
   }
   // ROUND 22: the Google Programmable Search JSON API. Free: 100 searches a day. Returns [{title, url, snip}] or throws an Error whose text says what to fix.
   // ROUND 24: migration from round 23 (key was always baked in). When a saved key exists (from visiting before round 24), keep it; if the old default key was saved, clear it.
-  if (localStorage.getItem('mf_settings')) {
-    try { const s = JSON.parse(localStorage.getItem('mf_settings')); if (s.googleKey === 'AIzaSyC-cqQ06mqJyhQ89x3UAqF5in6PKSF9Sds') { s.googleKey = ''; localStorage.setItem('mf_settings', JSON.stringify(s)); } } catch { /* ignore */ }
-  }
+  // ROUND 43: getItem is now INSIDE the try (blocked storage threw here and stopped the whole start-up), and the old key is also cleared in memory (it was written straight back by the next applySettings()).
+  try {
+    const raw = localStorage.getItem('mf_settings');
+    if (raw) { const s = JSON.parse(raw); if (s.googleKey === 'AIzaSyC-cqQ06mqJyhQ89x3UAqF5in6PKSF9Sds') { s.googleKey = ''; localStorage.setItem('mf_settings', JSON.stringify(s)); } }
+    if (settings.googleKey === 'AIzaSyC-cqQ06mqJyhQ89x3UAqF5in6PKSF9Sds') settings.googleKey = '';
+  } catch { /* ignore */ }
   // ROUND 23b: gKeyOn() = a key exists AND Google has not refused it for access reasons (then the key-less Programmable Search box is used). Resets when the key is edited.
   let googleApiDead = false;
   function gKeyOn() { return !!settings.googleKey && !googleApiDead; }
@@ -6991,15 +7720,20 @@
   updateNav();
   // WHY: Support links like ?url=... that open a manga directly. HOW: URLSearchParams reads the url value; if present
   // navigate opens it as a user action. IMPROVE: validate the address first.
-  const qs = new URLSearchParams(location.search).get('url');
-  const qq = new URLSearchParams(location.search).get('q');                 // ROUND 22: a new tab opened from a search link: ?q=<words> = run it in OUR search
+  // ROUND 46: a saved place in the address (#r= / #p= / #q=) is where the person WAS when they refreshed, so it wins over ?url= / ?q= (those only come from a shared link and are
+  //   used once). Then ?url= / ?q= are removed from the address at once (replaceState, no new history entry) so a later refresh or Home can never open them again.
+  const hasSaved = /^#[rpq]=./.test(location.hash);
+  const qs = hasSaved ? null : new URLSearchParams(location.search).get('url');
+  const qq = hasSaved ? null : new URLSearchParams(location.search).get('q');
+  try { if (/[?&](url|q)=/.test(location.search)) history.replaceState(null, '', location.pathname + cleanSearch() + location.hash); } catch { /* address bar not writable: fine */ }                 // ROUND 22: a new tab opened from a search link: ?q=<words> = run it in OUR search
   if (qs) navigate(qs, true, { user: true }).then(endResume, endResume); else if (qq) navigate(qq, true, { user: false }).then(endResume, endResume);   // round 29a: the cover goes away when this is done (or failed)
   /* RESUME AFTER A REFRESH (round 9b): the address ends in #r=<chapter link> while you read. Open that chapter in reading mode again.
      If it cannot be loaded (offline, proxy down) the start page stays and the broken #r= is removed, so you are never stuck. */
   // WHY: After a page refresh, return to the chapter you were reading. HOW: reads the #r= part of the address, decodes it,
   // navigates and starts reading; if it fails the bad hash is removed. IMPROVE: show progress while resuming.
-  async function resumeFromHash() {
-    const m = /^#([rpq])=(.+)$/.exec(location.hash); if (!m || qs || qq) { if (!qs && !qq) endResume(); return; }
+  async function resumeFromHash(fromPop) {
+    // ROUND 43: qs/qq are read ONCE at start-up. popstate used to be blocked by them, so after opening ?url=... or ?q=... the browser Back/Forward did nothing. fromPop skips that start-up-only check.
+    const m = /^#([rpq])=(.+)$/.exec(location.hash); if (!m || (!fromPop && (qs || qq))) { if (!qs && !qq) endResume(); return; }
     let url; try { url = decodeURIComponent(m[2]); } catch { endResume(); return; }
     // ROUND 30 - THE REOPEN THAT NEVER ENDS. WHY: when the saved page is slow (a slow proxy, a site that does not answer) the cover stood there and the person only saw "reloading" with no word
     //   and no report. HOW: boot.js already offers "Open the start page" after resumeSlowMs (12 s); here, after TWICE that time, the cover is removed (the start page shows, the load goes on in
@@ -7030,7 +7764,7 @@
     const ok = await navigate(url, true, { user: false });
     step = 'starting reading mode (chapter list and first pictures)';
     if (ok && cur && sameUrl(cur.url, url)) { if (!(await startReading({ quiet: true }))) toast('Could not resume reading. Press "Reading mode".'); }
-    else { try { history.replaceState(null, '', location.pathname + location.search); } catch { /* ignore */ } }
+    else { try { history.replaceState(null, '', location.pathname + cleanSearch()); } catch { /* ignore */ } }
     } finally { clearTimeout(dog); endResume(); }                // round 29a (round 30: the slow-reopen timer is stopped too)
   }
   // ROUND 30 - LISTS FROM THE CLOUD WITHOUT A RELOAD. WHY: when a signed-in profile finds newer lists in the cloud, profiles.js used to reload the whole page; that reload could repeat for ever (see
@@ -7046,7 +7780,7 @@
       let sy = {}; try { sy = JSON.parse(localStorage.getItem('mf_sync') || '{}'); } catch { /* ignore */ }
       let who = '-'; try { const ss = JSON.parse(localStorage.getItem('mf_session') || 'null'); if (ss) who = ss.user + ' (' + ss.role + ', ' + (ss.cloud ? 'cloud' : 'local') + ')'; } catch { /* ignore */ }
       setTimeout(() => showError('The page was loaded ' + window.MF_LOOP.loads + ' times in ' + window.MF_LOOP.seconds + ' seconds', { title: '\u{1F501} The page keeps reloading',
-        hint: 'MangaFlow stopped its own automatic reloads for now. If this keeps happening, copy the report below and send it to Claude: it says what asked for each reload. Closing the tab and opening MangaFlow again usually ends it.',
+        hint: 'MangaFlow stopped its own automatic reloads for now. If the reasons below say "none written", the loads were probably your own refreshes or sign-in attempts (a successful sign-in reloads the page once) and nothing is wrong with the page itself. If it keeps happening on its own, copy the report and send it to Claude. Closing the tab and opening MangaFlow again usually ends it.',
         details: 'Loads of this tab in the last minute: ' + window.MF_LOOP.loads + ' (over ' + window.MF_LOOP.seconds + ' s)\nAutomatic reload reasons (newest last): ' + (window.MF_LOOP.why.length ? window.MF_LOOP.why.join(' | ') : 'none written (the browser or another script reloaded)') +
           '\nAddress: ' + location.href + '\nProfile: ' + who + ' | last sync: ' + (sy.t ? new Date(sy.t).toString() : 'never') + ' ok=' + sy.ok + ' ' + (sy.err || '') }), 1200);
     }
@@ -7063,6 +7797,7 @@
   //   it once the restore's own async work has finished) stops that.
   // IMPROVE: keep the exact scroll position per chapter, not just which chapter is open.
   window.addEventListener('popstate', () => {
+    setTimeout(() => { try { updateNav(); } catch { /* ignore */ } }, 0);   // ROUND 53: refresh Back/Forward greying after every native step
     const h = location.hash;
     suppressPush = true;
     const release = () => { suppressPush = false; };
@@ -7074,7 +7809,7 @@
         release();
         return;
       }
-      resumeFromHash().then(release, release);
+      resumeFromHash(true).then(release, release);
     } catch { release(); }
   });
   // START PAGE SEARCH CARD (round 10): same behaviour as the address bar (a link opens in reading mode, words search).
@@ -7224,8 +7959,9 @@
   // WHY: the Escape key closes the list. HOW: keydown listener. IMPROVE: none needed.
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeClip(); });
   // learn from copy / paste inside MangaFlow (only the text the person selected or pasted)
-  document.addEventListener('copy', () => { try { clipAdd(String(document.getSelection() || '')); } catch { /* ignore */ } });
-  document.addEventListener('paste', e => { try { clipAdd(e.clipboardData && e.clipboardData.getData('text')); } catch { /* ignore */ } });
+  const secretBox = el => !!(el && el.closest && el.closest('input[type=password], #setGKey, #setCx, #proxyNew, dialog:not(#searchPop)'));   // round 43: never remember keys / passwords / settings text
+  document.addEventListener('copy', () => { try { if (secretBox(document.activeElement)) return; clipAdd(String(document.getSelection() || '')); } catch { /* ignore */ } });
+  document.addEventListener('paste', e => { try { if (secretBox(e.target)) return; clipAdd(e.clipboardData && e.clipboardData.getData('text')); } catch { /* ignore */ } });
   $('#heroPaste').onclick = () => pasteInto($('#addrHero'));
   // WHY: the arrow beside the start-page paste button. HOW: opens the list for the start-page box. IMPROVE: none needed.
   $('#heroClip').onclick = () => openClip($('#heroClip'), $('#addrHero'));

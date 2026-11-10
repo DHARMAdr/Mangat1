@@ -17,7 +17,12 @@
             translate the texts into other languages.
    ===================================================================== */
 window.MF_FIX = {
-  SYMPTOMS: [                                                   // each one: what you see / why it may happen / what to press
+  SYMPTOMS: [
+    // ROUND 59: Page 2 (site view) shows spinners / no chapter pictures / loads for ever while reading mode works.
+    { id: 'p2empty', title: 'The site page (Page 2) keeps loading, shows only a spinner, or the chapter pictures are missing - but reading mode works',
+      why: 'Many sites put a spinner picture in every slot and let their own script swap in the real pages. MangaFlow never runs a site\'s scripts, so it must fill the slots itself. The repair button asks the same finder that reading mode uses and fills or adds the pictures.',
+      fix: ['siteView', 'clearCaches'], ask: 'noimages' },
+                                                  // each one: what you see / why it may happen / what to press
     { id: 'noimg', title: 'Red box: "no images found on this chapter page"',
       // WHY: the guide texts used by Settings > Troubleshoot. HOW: each entry has a symptom, a theory, steps and questions to
       // copy to Claude; app.js only reads this list. IMPROVE: add an entry whenever a new kind of site error appears.

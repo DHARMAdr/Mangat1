@@ -122,7 +122,7 @@
   // ROUND 30: the limits app.js keeps (addRecent keeps 20 pages, saveRead keeps 30 manga). WHY: a merged list longer than the app's own limit is cut by the app at its next save, then the cloud
   // gives the cut rows back, the copies differ again and the page reloaded - for ever. HOW: the merge keeps the same numbers. IMPROVE: let app.js tell profiles.js its limits in an event.
   // ROUND 38: raised from 20/30 to 500 to match the new limits in app.js — users want all history visible. IMPROVE: none needed.
-  const CAP = { recent: 500, reads: 500 };
+  const CAP = { recent: 500, reads: 500, books: 2000 };   // ROUND 43: books had no entry, so the merge silently cut bookmarks at 300
   function mergeLists(a, b) {                                   // a = one copy, b = another; returns the combined lists
     const out = {};
     LISTS.forEach(k => {
@@ -202,8 +202,18 @@
     // WHY: a network failure gives no useful message by itself. HOW: catch it and throw a clear sentence instead. IMPROVE:
     // show the address that failed.
     catch { throw new Error('Could not reach the accounts server (check the address and your connection).'); }
-    let data = {}; try { data = await res.json(); } catch { /* not JSON */ }
-    if (!res.ok) throw new Error(data.error || ('Server answered HTTP ' + res.status));
+    // ROUND 47: read the answer as text first, so an HTML error page (Cloudflare "Error 1101") can be shown, and say what each status usually means.
+    // WHY: the person only saw "Server answered HTTP 500" and could not tell a wrong Worker setting from a broken app. HOW: hintFor() adds the usual cause in plain words.
+    // IMPROVE: link the matching step of the setup guide.
+    const raw = await res.text(); let data = {}; try { data = JSON.parse(raw); } catch { /* not JSON */ }
+    if (!res.ok) {
+      const hintFor = c => c === 403 ? ' - the Worker variable ALLOWED_ORIGINS must contain exactly https://dharmadr.github.io (no path)'
+        : c === 404 ? ' - the accounts server address is wrong (Profile > Server)'
+        : c === 429 ? ' - too many tries, wait a few minutes'
+        : c >= 500 ? ' - the Worker itself failed: in Cloudflare check that the D1 binding is named DB and that ADMIN_USER and ADMIN_CODE are set, then Deploy again' : '';
+      const snippet = data.error ? '' : ' [' + String(raw).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) + ']';
+      throw new Error((data.error || ('Server answered HTTP ' + res.status + snippet)) + hintFor(res.status));
+    }
     return data;
   }
   const tok = () => ({ token: session && session.token });       // the sign-in token that goes with every call
@@ -333,11 +343,28 @@
   #mfProf .mfp-badge.admin{background:#e040fb33;border-color:#e040fb;} #mfProf .mfp-badge.mode{background:#ffffff14;border-color:#ffffff40;}
   #mfProf .mfp-tabs{display:flex;gap:6px;flex-wrap:wrap;}
   #mfProf .mfp-tabs button{flex:1;min-width:84px;min-height:40px;border-radius:10px;border:1px solid #ffffff30;background:#ffffff0d;color:#cfd6ff;font:600 .85rem system-ui,sans-serif;cursor:pointer;}
+  /* ROUND 44 — Read / Download / All filter buttons. WHY: they reused .mfp-tabs button (flex:1; min-width:84px) PLUS an inline
+     min-width:64px inside a flex-wrap row whose children are forced to flex:1 1 140px; the long word "Download" overflowed
+     its box and the text sat off-centre. HOW: a dedicated 3-equal-column grid; every button is the same size, nowrap, text
+     centred with line-height:1. IMPROVE: use icons next to the words. */
+  #mfProf .mfp-row>.mfp-kinds{flex:1 1 100%;}
+  #mfProf .mfp-kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
+  #mfProf .mfp-kinds button{box-sizing:border-box;min-height:40px;padding:0 6px;border-radius:10px;border:1px solid #ffffff30;background:#ffffff0d;color:#cfd6ff;font:600 .85rem/1 system-ui,sans-serif;cursor:pointer;display:flex;align-items:center;justify-content:center;text-align:center;white-space:nowrap;overflow:hidden;}
+  #mfProf .mfp-kinds button.on{background:linear-gradient(135deg,#25a8ff55,#bb20ff55);border-color:#7ff6ff;color:#fff;box-shadow:0 0 12px rgba(37,168,255,.4);}
+  #mfProf .mfp-chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 8px;}
+  #mfProf .mfp-chip{min-height:34px;padding:0 12px;border-radius:999px;border:1px solid #ffffff40;background:#ffffff10;color:#cfd6ff;font:600 .8rem/1 system-ui,sans-serif;cursor:pointer;}
+  #mfProf .mfp-chip:active{background:#25a8ff55;}
   #mfProf .mfp-tabs button.on{background:linear-gradient(135deg,#25a8ff55,#bb20ff55);border-color:#7ff6ff;color:#fff;box-shadow:0 0 12px rgba(37,168,255,.4);}
   #mfProf label{display:block;font:600 .78rem system-ui,sans-serif;color:#9fb0ff;margin:2px 0 4px;letter-spacing:.04em;text-transform:uppercase;}
   #mfProf input[type=text],#mfProf input[type=password],#mfProf input[type=search],#mfProf input[type=url]{width:100%;box-sizing:border-box;min-height:44px;padding:8px 12px;border-radius:10px;
     border:1px solid #ffffff3a;background:#05060f;color:#fff;font:500 16px ui-monospace,Consolas,monospace;}
   #mfProf input:focus{outline:2px solid #7ff6ff;border-color:transparent;}
+  /* ROUND 44 — THE REAL MOBILE DATE BUG: the date boxes had no colour rule, so on phones (iOS/Android) the chosen date was drawn
+     in the page's light text colour on the browser's white date field = invisible, and it looked like "nothing happened".
+     HOW: give date inputs a dark-on-white look (or dark theme) with colour-scheme so the native picker matches, bigger
+     tap height (44px) and 16px font (stops iOS zooming the page when the box is tapped). IMPROVE: theme from CSS variables. */
+  #mfProf input[type=date]{box-sizing:border-box;min-height:44px;padding:6px 8px;border-radius:10px;border:1px solid #ffffff40;background:#0b1020;color:#fff;color-scheme:dark;font:16px system-ui,sans-serif;-webkit-appearance:none;appearance:none;}
+  #mfProf input[type=date]::-webkit-date-and-time-value{text-align:left;color:#fff;min-height:1.2em;}
   #mfProf .mfp-code{letter-spacing:.5em;text-align:center;font-size:20px;}
   /* ROUND 39 FIX: buttons now use inline-flex to CENTER their text/icon both ways. WHY: before this, a button that
      ended up taller than its own text (because a row-sibling button wrapped to two lines, stretching every button in
@@ -428,7 +455,7 @@
     let downOut = false;
     const outside = e => { const r = dlg.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
     dlg.addEventListener('pointerdown', e => { downOut = e.target === dlg && outside(e); });
-    dlg.addEventListener('click', e => { if (downOut && e.target === dlg && outside(e)) dlg.close(); downOut = false; });
+    dlg.addEventListener('click', e => { if (downOut && e.target === dlg && outside(e) && Date.now() - dateTouched > 800 && !(document.activeElement && document.activeElement.type === 'date')) dlg.close(); downOut = false; });   // ROUND 44: ignore taps that just dismissed a date picker
   })();
   const icon = { read: '&#128214;', download: '&#11015;&#65039;' };   // little pictures for the history rows
   const setMsg = (m, ok) => { view.msg = m || ''; view.ok = !!ok; };   // the coloured message line at the top of the window
@@ -442,7 +469,10 @@
   //   can find the exact entry and remove it. We use t+url as a composite key because activity items have no unique id field.
   //   ROUND 38: removed the 200-entry cap; added date-range filter; canOpen also enables cloud delete.
   //   IMPROVE: paginate long lists; add undo (short grace period before the item disappears).
-  function listHtml(items, canOpen) {
+  // ROUND 44 — the list part is its own function. WHY: the From/To date boxes used to make the WHOLE dialog redraw on every change,
+  //   which destroyed the very <input type=date> the phone's native picker was still using (so the pick was lost / the picker closed).
+  //   HOW: histBody() builds ONLY the rows; applyHist() swaps just that part in place, the inputs are never touched. IMPROVE: paginate.
+  function histBody(items, canOpen) {
     const q = view.filter.toLowerCase();
     // ROUND 38: date range filter. WHY: without a cap, the full history can be very long — the filter gives quick access to
     //   any window. HOW: view.dateFrom / view.dateTo are timestamps; entries outside are hidden. 0 = no bound.
@@ -453,13 +483,28 @@
       (!q || (x.title + ' ' + x.chapter + ' ' + x.host).toLowerCase().includes(q)) &&
       ((x.t || 0) >= fromTs) && ((x.t || 0) <= toTs)
     );
+    return (rows.length ? '<ul class="mfp-list">' + rows.map(x => {
+        // WHY: the × button is only shown when canOpen=true (the profile owner is looking at their own history, not the admin view).
+        //   HOW: data-t holds the timestamp (used as part of the composite key); data-url is the other half.
+        //   We encode timestamp as a plain string — JSON.stringify is not needed because timestamp is always a number.
+        const delBtn = canOpen ? '<button class="mfp-btn small ghost mfp-del" data-act="delact" data-t="' + esc(String(x.t || '')) + '" data-url="' + esc(x.url || '') + '" title="Remove this entry" aria-label="Remove this entry">&#215;</button>' : '';
+        const openBtn = (canOpen && x.type === 'read' && safeHttp(x.url)) ? '<button class="mfp-btn small ghost" data-act="open" data-url="' + esc(x.url) + '">Open</button>' : '';
+        return '<li class="mfp-it"><span class="ico">' + (icon[x.type] || '&#8226;') + '</span><span class="txt"><div class="t">' + esc(x.title || x.url) + (x.chapter ? ' · ' + esc(x.chapter) : '') + '</div><div class="s">' + esc(x.host || '') + ' · ' + ago(x.t) + ' · ' + esc(fmt(x.t)) + '</div></span>' + openBtn + delBtn + '</li>';
+      }).join('') + '</ul>' : '<div class="mfp-empty">Nothing here yet.</div>');
+  }
+  // ROUND 44 — redraw only the rows (no input is recreated, so a native date picker / the keyboard never loses its element).
+  function applyHist() { const box = $('#mfpHistList'); if (box && view.histItems) box.innerHTML = histBody(view.histItems, view.histCan); }
+  function listHtml(items, canOpen) {
+    view.histItems = items; view.histCan = canOpen;   // ROUND 44: remembered so applyHist() can redraw just the rows
+    const fromTs = view.dateFrom || 0, toTs = view.dateTo || Infinity;
     // WHY: date <input type=date> uses YYYY-MM-DD strings; we convert to/from timestamps for the filter. IMPROVE: use Intl.
-    const tsToDate = ts => ts ? new Date(ts).toISOString().slice(0, 10) : '';
+    // ROUND 43: was toISOString() = UTC, but the dates are read as LOCAL midnight, so in India (UTC+5:30) picking 1 Nov showed 31 Oct after the redraw and 'today' could not be picked after midnight. Now both sides use local time.
+    const tsToDate = ts => { if (!ts) return ''; const d = new Date(ts); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
     const nowDate = tsToDate(Date.now()), weekAgoDate = tsToDate(Date.now() - 7 * 86400000);
     // WHY: the history list with its search box, date range, and the three filter buttons. HOW: builds an HTML text; every
     //   outside value goes through esc() first. IMPROVE: paginate long lists.
     return '<div class="mfp-row"><input type="search" id="mfpFilter" placeholder="Search the history…" value="' + esc(view.filter) + '" aria-label="Search the history">' +
-      '<span class="mfp-tabs" style="flex:0 0 auto">' + ['all', 'read', 'download'].map(k => '<button data-act="kind" data-v="' + k + '" class="' + (view.kind === k ? 'on' : '') + '" style="min-width:64px">' + k + '</button>').join('') + '</span></div>' +
+      '<span class="mfp-kinds" role="group" aria-label="Filter by type">' + [['all', 'All'], ['read', 'Read'], ['download', 'Download']].map(k => '<button type="button" data-act="kind" data-v="' + k[0] + '" class="' + (view.kind === k[0] ? 'on' : '') + '" aria-pressed="' + (view.kind === k[0]) + '">' + k[1] + '</button>').join('') + '</span></div>' +
       // ROUND 40 FIX — the From/To date pickers worked on a computer but were unusable on a phone.
       //   WHY: the old markup put FIVE separate flex children (two labels, two <input type=date>, one button) directly
       //   into one .mfp-row. On a wide desktop window there is enough space for all five side by side. On a phone
@@ -473,18 +518,14 @@
       //   the "To" group wrap onto their OWN lines (each full-width) instead of both being crushed onto one line.
       //   IMPROVE: swap <input type=date> for a custom calendar widget if a browser's native one still misbehaves.
       '<div class="mfp-row mfp-daterow">' +
-        '<span class="mfp-dateitem"><label for="mfpFrom">From:</label><input type="date" id="mfpFrom" data-act="datefrom" value="' + esc(tsToDate(fromTs) || weekAgoDate) + '" max="' + esc(nowDate) + '" aria-label="History from date"></span>' +
-        '<span class="mfp-dateitem"><label for="mfpTo">To:</label><input type="date" id="mfpTo" data-act="dateto" value="' + esc(tsToDate(toTs === Infinity ? 0 : toTs) || nowDate) + '" max="' + esc(nowDate) + '" aria-label="History to date"></span>' +
-        '<button data-act="dateall" class="mfp-btn ghost small">All dates</button>' +
+        '<span class="mfp-dateitem"><label for="mfpFrom">From:</label><input type="date" id="mfpFrom" data-act="datefrom" value="' + esc(tsToDate(fromTs)) + '" max="' + esc(nowDate) + '" aria-label="History from date"></span>' +
+        '<span class="mfp-dateitem"><label for="mfpTo">To:</label><input type="date" id="mfpTo" data-act="dateto" value="' + esc(tsToDate(toTs === Infinity ? 0 : toTs)) + '" max="' + esc(nowDate) + '" aria-label="History to date"></span>' +
       '</div>' +
-      (rows.length ? '<ul class="mfp-list">' + rows.map(x => {
-        // WHY: the × button is only shown when canOpen=true (the profile owner is looking at their own history, not the admin view).
-        //   HOW: data-t holds the timestamp (used as part of the composite key); data-url is the other half.
-        //   We encode timestamp as a plain string — JSON.stringify is not needed because timestamp is always a number.
-        const delBtn = canOpen ? '<button class="mfp-btn small ghost mfp-del" data-act="delact" data-t="' + esc(String(x.t || '')) + '" data-url="' + esc(x.url || '') + '" title="Remove this entry" aria-label="Remove this entry">&#215;</button>' : '';
-        const openBtn = (canOpen && x.type === 'read' && safeHttp(x.url)) ? '<button class="mfp-btn small ghost" data-act="open" data-url="' + esc(x.url) + '">Open</button>' : '';
-        return '<li class="mfp-it"><span class="ico">' + (icon[x.type] || '&#8226;') + '</span><span class="txt"><div class="t">' + esc(x.title || x.url) + (x.chapter ? ' · ' + esc(x.chapter) : '') + '</div><div class="s">' + esc(x.host || '') + ' · ' + ago(x.t) + ' · ' + esc(fmt(x.t)) + '</div></span>' + openBtn + delBtn + '</li>';
-      }).join('') + '</ul>' : '<div class="mfp-empty">Nothing here yet.</div>');
+      '<div class="mfp-chips" role="group" aria-label="Quick date ranges">' +
+        [['1', 'Today'], ['7', '7 days'], ['30', '30 days']].map(c => '<button type="button" data-act="dpreset" data-d="' + c[0] + '" class="mfp-chip">' + c[1] + '</button>').join('') +
+        '<button type="button" data-act="dateall" class="mfp-chip">All dates</button>' +
+      '</div>' +
+      '<div id="mfpHistList">' + histBody(items, canOpen) + '</div>';
   }
   // WHY: the three big numbers above a history list. HOW: counts from the items.
   const stats = items => '<div class="mfp-stats"><div class="mfp-stat"><b>' + items.filter(x => x.type === 'read').length + '</b><span>chapters read</span></div><div class="mfp-stat"><b>' + items.filter(x => x.type === 'download').length + '</b><span>downloads</span></div><div class="mfp-stat"><b>' + new Set(items.map(x => x.title)).size + '</b><span>manga</span></div></div>';
@@ -549,12 +590,14 @@
     if (!session) {
       const create = view.tab === 'create';
       h += '<div class="mfp-top">' + avatar('', true) + '<div class="grow"><h3>MangaFlow profile</h3><p class="mfp-note">Sign in to keep your own reading history and bookmarks.</p></div></div>' +
-        '<div class="mfp-tabs"><button data-act="tab" data-v="in" class="' + (view.tab === 'in' ? 'on' : '') + '">Sign in</button><button data-act="tab" data-v="create" class="' + (create ? 'on' : '') + '">Create profile</button>' + (adminDev() ? '<button data-act="tab" data-v="server" class="' + (view.tab === 'server' ? 'on' : '') + '">Server</button>' : '') + '</div>' + msg;
-      if (view.tab === 'server' && adminDev()) h += serverHtml();
+        '<div class="mfp-tabs"><button data-act="tab" data-v="in" class="' + (view.tab === 'in' ? 'on' : '') + '">Sign in</button><button data-act="tab" data-v="create" class="' + (create ? 'on' : '') + '">Create profile</button>' + (true ? '<button data-act="tab" data-v="server" class="' + (view.tab === 'server' ? 'on' : '') + '">Server</button>' : '') + '</div>' + msg;
+      if (view.tab === 'server') h += serverHtml();
       else h += '<form data-act="go" autocomplete="off" novalidate><label for="mfpUser">Username</label><input type="text" id="mfpUser" name="mfpuser" maxlength="20" autocapitalize="none" spellcheck="false" placeholder="3-20 letters or digits">' +
         '<label for="mfpCode">6-digit code</label><input type="password" id="mfpCode" class="mfp-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="••••••" autocomplete="off">' +
         (create ? '<p class="mfp-note">By creating a profile you agree that MangaFlow saves your <b>history</b> (manga names, chapters, download events, times) and your <b>bookmarks</b> in it, and that the <b>admin of this site can see them</b>. ' + (cloud ? 'They are stored on the accounts server.' : 'Without a server they stay in this browser only.') + ' The bookmarks you have now are copied into the new profile.</p>' : '') +
         '<p></p><button class="mfp-btn" type="submit" style="width:100%">' + (create ? 'Create profile and agree' : 'Sign in') + '</button></form>' +
+        // ROUND 47: anybody (not only a returning admin) can test the accounts server from the sign-in screen. WHY: when sign-in fails the first question is "is the server answering?".
+        (cloud ? '<p class="mfp-note"><button type="button" data-act="chk" class="mfp-btn ghost small">Check server</button></p>' : '') +
         '<p class="mfp-note">Mode: <b>' + (cloud ? 'cloud (works on all your devices)' : 'this device only') + '</b>.</p>';
     } else {
       const admin = session.role === 'admin';
@@ -575,9 +618,9 @@
         if (view.cache !== null) {
           items = view.cache;
         } else {
-          items = []; try { items = await API().items(session.user); } catch (e) { h += '<div class="mfp-msg">' + esc(e.message) + '</div>'; }
+          let fetchFailed = false; items = []; try { items = await API().items(session.user); } catch (e) { fetchFailed = true; h += '<div class="mfp-msg">' + esc(e.message) + '</div>'; }
           items = items.concat(session.cloud ? pending : []);
-          view.cache = items;
+          if (!fetchFailed) view.cache = items;   // ROUND 43: a failed fetch used to be cached as an empty history (Export then wrote [])
         }
         const si = syncInfo();
         h += '<p class="mfp-note">Sync: <b>' + (si.ok === null ? 'nothing sent yet' : si.ok ? 'saved on the server ' + ago(si.t) + ' (' + si.sent + ' items sent in total)' : 'FAILED ' + ago(si.t) + ': ' + esc(si.err)) + '</b>' + (pending.length ? ' · ' + pending.length + ' waiting' : '') + '</p>' + stats(items) + listHtml(items, true) +
@@ -612,11 +655,18 @@
   // WHY: the "Server" tab: the address box AND the step-by-step setup list, so linking the cloud needs no other document.
   function serverHtml() {
     const synced = session && session.cloud ? LS.get(atKey(), 0) : 0;
-    return '<label for="mfpUrl">Accounts server address (optional)</label><input type="url" id="mfpUrl" placeholder="https://mangaflow-accounts.YOURNAME.workers.dev" value="' + esc(cloudUrl()) + '" spellcheck="false">' +
+    // ROUND 49 — THE SITE OWNER'S SERVER ADDRESS IS PRIVATE. WHY: this tab used to show cloudUrl() (the owner's built-in accounts server) to anybody, even before sign-in,
+    //   because a browser that had once held the admin was remembered by mf_admin_dev. HOW: the real address is drawn ONLY while the signed-in person is the admin (session.role === 'admin').
+    //   Everybody else sees an empty box (or just the address THEY saved themselves, mf_acct_url) and the status sentence "built-in server" — without any address.
+    //   Everyone can still type and save their OWN server here, and with an empty box the built-in server keeps working. HONEST LIMIT: this is a static site, so the address is still
+    //   inside profiles.js in the public repository; hiding it on screen stops casual viewing, not someone who reads the source. IMPROVE: keep the address only in a Worker secret and give the site a short alias.
+    const isAdmin = !!(session && session.role === 'admin'), own = LS.get('mf_acct_url', '');
+    const shown = isAdmin ? cloudUrl() : own;
+    return '<label for="mfpUrl">Accounts server address (optional)</label><input type="url" id="mfpUrl" placeholder="' + (isAdmin ? 'https://mangaflow-accounts.YOURNAME.workers.dev' : 'Leave empty to use the built-in server, or paste your own') + '" value="' + esc(shown) + '" spellcheck="false" autocomplete="off">' +
       // WHY: the address box buttons. HOW: Save stores the Worker address, Test calls /ping to check it. IMPROVE: test
       // automatically after Save.
       '<div class="mfp-row"><button class="mfp-btn small" data-act="saveurl">Save</button><button class="mfp-btn ghost small" data-act="testurl">Test</button></div>' +
-      '<p class="mfp-note">Status: <b>' + (cloudUrl() ? 'server address set' + (synced ? ' · last sync ' + ago(synced) : '') : 'not linked (profiles stay in this browser)') + '</b>. Changing the address signs you out.</p>' +
+      '<p class="mfp-note">Status: <b>' + (cloudUrl() ? (own ? 'your own server is set' : 'built-in server in use') + (synced ? ' · last sync ' + ago(synced) : '') : 'not linked (profiles stay in this browser)') + '</b>. Changing the address signs you out.</p>' +
       '<h3>Link your own cloud (about 6 minutes, free)</h3><ol class="mfp-steps">' +
       '<li>Cloudflare dashboard &gt; <b>Storage &amp; databases &gt; D1 SQL database &gt; Create</b>. Name it <code>mangaflow</code>.</li>' +
       '<li><b>Workers &amp; Pages &gt; Create &gt; Worker</b>. Name it <code>mangaflow-accounts</code>, press Deploy, then <b>Edit code</b>, delete the sample and paste the code (button below). Deploy.</li>' +
@@ -664,11 +714,28 @@
   dlg.addEventListener('submit', async e => {
     // WHY: stop the browser's own form submit (it would reload the page). HOW: ignore submits that are not our sign-in form.
     e.preventDefault(); if (!e.target.matches('[data-act=go]')) return;
+    // ROUND 47: show "Signing in…" at once and block a second tap while the server answers (a slow Worker made people tap again and again: each tap was a new try, and 5 wrong tries lock the name for 15 minutes).
+    const btn = e.target.querySelector('button[type=submit]'); if (btn) { if (btn.disabled) return; btn.disabled = true; btn.textContent = 'Signing in…'; }
     try { await signIn($('#mfpUser').value, $('#mfpCode').value, view.tab === 'create'); } catch (err) { setMsg(err.message); }
     render();
   });
+  // ROUND 44 — ONE shared date handler (input + change both call it). WHY: phones differ (some fire only 'input', some only
+  //   'change', iOS fires 'input' on every wheel spin), and the old code rebuilt the whole dialog each time, destroying the
+  //   input while the native picker was still open — the pick was lost on mobile but fine on desktop. HOW: accept only a full
+  //   YYYY-MM-DD with a sane year (a half-typed "0002" is ignored), save it, then redraw ONLY the list (applyHist). An empty
+  //   box (user pressed Clear in the picker) means "no limit". Also stamps dateTouched so a tap that dismisses the picker is
+  //   not mistaken for a tap on the dark backdrop. IMPROVE: debounce if the list ever gets huge.
+  let dateTouched = 0;
+  function onDate(inp) {
+    dateTouched = Date.now();
+    const d = inp.value, ok = /^\d{4}-\d{2}-\d{2}$/.test(d) && +d.slice(0, 4) >= 1990;
+    if (!ok && d !== '') return;
+    const t = ok ? new Date(d + 'T00:00:00').getTime() : 0;
+    if (inp.id === 'mfpFrom') view.dateFrom = ok ? t : 0; else view.dateTo = ok ? t + 86399999 : Infinity;
+    applyHist();
+  }
   dlg.addEventListener('input', e => {
-    if (e.target.id === 'mfpFilter') { view.filter = e.target.value; const pos = e.target.selectionStart; render().then(() => { const f = $('#mfpFilter'); if (f) { f.focus(); f.setSelectionRange(pos, pos); } }); }
+    if (e.target.id === 'mfpFilter') { view.filter = e.target.value; applyHist(); }   // ROUND 44: only the rows redraw, so the keyboard never closes
     // ROUND 39 FIX: date inputs are handled on 'change' below now, NOT here (see that handler for why) — EXCEPT:
     // ROUND 41 FIX — a few mobile browsers were found to not reliably fire 'change' at all after a date is
     // picked from their native calendar widget (only 'input'), which is why some phones still looked broken
@@ -679,14 +746,7 @@
     // gets it from the other handler; a phone that fires both just applies the same (already-correct) value
     // twice, which is harmless. HOW: shares the exact same deferred safeRender() pattern as the 'change'
     // handler, for the same reason (let the native picker's own closing sequence finish first).
-    else if (e.target.id === 'mfpFrom' || e.target.id === 'mfpTo') {
-      const d = e.target.value;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-        if (e.target.id === 'mfpFrom') view.dateFrom = new Date(d + 'T00:00:00').getTime();
-        else view.dateTo = new Date(d + 'T00:00:00').getTime() + 86399999;
-        setTimeout(() => safeRender(), 0);
-      }
-    }
+    else if (e.target.id === 'mfpFrom' || e.target.id === 'mfpTo') onDate(e.target);
   });
   dlg.addEventListener('change', e => {
     if (e.target.id === 'mfpAuto') LS.set('mf_autobug', e.target.checked);   // the automatic-bug switch
@@ -702,23 +762,7 @@
     //   A regex double-checks the value is a full YYYY-MM-DD before converting it, so a browser quirk can never
     //   produce an invalid timestamp. Uses safeRender() (round 38's lock) instead of a bare render() so this can
     //   never race with a history delete tap. IMPROVE: none needed.
-    if (e.target.id === 'mfpFrom' || e.target.id === 'mfpTo') {
-      const d = e.target.value, valid = /^\d{4}-\d{2}-\d{2}$/.test(d);
-      if (e.target.id === 'mfpFrom') view.dateFrom = valid ? new Date(d + 'T00:00:00').getTime() : 0;
-      else view.dateTo = valid ? (new Date(d + 'T00:00:00').getTime() + 86399999) : Infinity;
-      // ROUND 41 FIX — still unreliable on phones even after round 40's layout fix.
-      // WHY: render() replaces the WHOLE dialog's HTML, including throwing away and recreating this very
-      // <input> element. On a computer the native date dropdown closes instantly the moment a date is picked,
-      // so by the time 'change' fires the picker is already fully gone and replacing the input a moment later
-      // is harmless. On a lot of phones, picking a date from the native calendar/wheel involves the picker's
-      // OWN closing animation and a focus-return step that is still finishing in the background exactly when
-      // 'change' fires — tearing the input out of the page synchronously, in the middle of that still-running
-      // native sequence, is what the round 39 comment above was already warning about for the OLD 'input'-based
-      // code, and it turns out 'change' was not fully immune to it either on some phones. HOW: let that
-      // in-flight browser sequence finish on its own first (setTimeout 0 defers to the next free moment, right
-      // after the current event finishes) and only THEN rebuild the dialog. IMPROVE: none needed.
-      setTimeout(() => safeRender(), 0);
-    }
+    if (e.target.id === 'mfpFrom' || e.target.id === 'mfpTo') onDate(e.target);
     // ROUND 41 — ticking/un-ticking one bookmark's checkbox (for the bulk "Remove selected" button).
     // WHY: a checkbox is not a [data-act] button, so it never reaches the click handler above — it needs its
     // own 'change' listener. HOW: add or remove this one url from view.bmSel, then safeRender() so the
@@ -760,6 +804,14 @@
       else if (act === 'kind') view.kind = b.dataset.v;
       // ROUND 38: "All dates" button clears the date range filter entirely.
       // WHY: user wants to see everything — reset both bounds so the filter passes every entry. IMPROVE: none needed.
+      else if (act === 'chk') {
+        // ROUND 47: ask the accounts Worker for /ping and say the result in plain words (address, version, whether the admin is set, how long it took).
+        const t0 = Date.now(); setMsg('Checking the server…', true); await safeRender();
+        // ROUND 48: the message never shows the server address or version (security): only a plain "connected" / "not connected" sentence.
+        try { const r = await post('/ping', {}); setMsg(r.admin ? 'Server connected successfully.' : 'Server connected successfully, but the admin account is not set up on it yet.', true); }
+        catch (e) { setMsg('Server not connected. ' + String(e.message).replace(/https?:\/\/\S+/g, '').trim()); }
+      }
+      else if (act === 'dpreset') { const n = +b.dataset.d || 1, d0 = new Date(); d0.setHours(0, 0, 0, 0); view.dateFrom = d0.getTime() - (n - 1) * 86400000; view.dateTo = Infinity; }   // ROUND 44: Today / 7 / 30 days
       else if (act === 'dateall') { view.dateFrom = 0; view.dateTo = Infinity; }
       else if (act === 'sel') view.sel = u;
       else if (act === 'open') { location.hash = '#r=' + encodeURIComponent(b.dataset.url); location.reload(); return; }
@@ -778,11 +830,9 @@
             const actKey = 'mf_act_' + session.user;
             LS.set(actKey, []);      // wipe local activity buffer
             pending = [];            // wipe queued-but-unsent items
-            try {
-              // WHY: attempt cloud wipe. If the endpoint is not supported by an older Worker, ignore silently.
-              await post('/activity/clear', { user: session.user });
-            } catch { /* old Worker — local wipe is enough */ }
+            // ROUND 43: /activity/clear was sent without the token (always 401) and API().clear() above already wipes the cloud with /clear-me, so the extra call is gone.
           }
+          view.cache = null;   // ROUND 43: the list kept showing the old rows because render() re-used the cache
           setMsg('History cleared.', true);
         }
       }
@@ -841,7 +891,7 @@
       // reads session.user's own list, fresh from storage — never a stale count from an earlier render.
       else if (act === 'marksall' && session) {
         const lists = readLists(session.user);
-        const urls = (lists.books || []).map(b => b && b.url).filter(Boolean);
+        const urls = (lists.books || []).slice(0, 100).map(b => b && b.url).filter(Boolean);   // ROUND 43: only the rows that are shown (100); it used to select hidden ones too
         const allSelected = urls.length > 0 && urls.every(x => view.bmSel.has(x));
         view.bmSel = allSelected ? new Set() : new Set(urls);
       }
@@ -874,17 +924,16 @@
         //   HOW: call the new /activity/delete endpoint on the Worker. Older Workers without this endpoint return 404 —
         //   we silently ignore that so the site still works. IMPROVE: batch multiple deletes into one request.
         if (session.cloud) {
-          try { await post('/activity/delete', { user: session.user, t: Number(tVal), url: urlVal }); } catch { /* old Worker — local delete is enough */ }
+          try { await post('/activity/delete', Object.assign({}, tok(), { t: Number(tVal), url: urlVal })); } catch (err) { view.cloudDelErr = err && err.message; /* ROUND 43: the call used to send NO token (Worker answered 401 and the catch hid it), so deleted rows came back after every reload. Now the token is sent; a real failure is shown below. */ }
         }
-        setMsg('Entry removed from history.', true);
+        setMsg(view.cloudDelErr ? 'Removed here, but the server said: ' + view.cloudDelErr : 'Entry removed from history.', !view.cloudDelErr); view.cloudDelErr = '';
       }
-      else if (act === 'syncnow') { const ch = await syncAll(); setMsg('Synced: history and bookmarks are saved on the server.', true); if (ch) { location.reload(); return; } }
+      else if (act === 'syncnow') { view.cache = null; const ch = await syncAll();   /* ROUND 43: fresh pull */ setMsg('Synced: history and bookmarks are saved on the server.', true); if (ch) { location.reload(); return; } }
       else if (act === 'copyworker') {
         let code = ''; try { const r = await fetch('accounts-worker.js', { cache: 'no-store' }); if (!r.ok) throw 0; code = await r.text(); } catch { throw new Error('accounts-worker.js is not next to index.html on this site. Upload it to GitHub, then try again.'); }
         await navigator.clipboard.writeText(code); setMsg('Worker code copied. Paste it in step 2.', true);
       }
-      else if (act === 'saveurl' && !adminDev()) { throw new Error('Only the admin can change the server.'); }
-      else if (act === 'saveurl') { const v = ($('#mfpUrl').value || '').trim().replace(/\/+$/, ''); if (v && !/^https:\/\//i.test(v)) throw new Error('The address must start with https://'); if (v) LS.set('mf_acct_url', v); else LS.del('mf_acct_url'); if (session) { session = null; LS.del('mf_session'); } setMsg(v ? 'Server saved. Please sign in again.' : 'Server removed: profiles stay in this browser.', true); view.tab = 'in'; }
+      else if (act === 'saveurl') { const v = ($('#mfpUrl').value || '').trim().replace(/\/+$/, ''); if (v && !/^https:\/\//i.test(v)) throw new Error('The address must start with https://'); if (v) LS.set('mf_acct_url', v); else LS.del('mf_acct_url'); if (session) { session = null; LS.del('mf_session'); } setMsg(v ? 'Server saved. Please sign in again.' : (cloudUrl() ? 'Your own server was removed: the built-in server is used again.' : 'Server removed: profiles stay in this browser.'), true); view.tab = 'in'; }
       else if (act === 'testurl') { const v = ($('#mfpUrl').value || '').trim().replace(/\/+$/, ''); const old = LS.get('mf_acct_url', ''); LS.set('mf_acct_url', v); try { const r = await post('/ping', {}); setMsg('Server answered: ' + (r.admin ? 'ready, admin is set.' : 'ready, but ADMIN_USER / ADMIN_CODE are not set.'), true); } catch (err) { setMsg(err.message); } if (old) LS.set('mf_acct_url', old); else LS.del('mf_acct_url'); }
     } catch (err) { setMsg(err.message); }
     // ROUND 38: use safeRender() instead of render() — the lock prevents race conditions on rapid clicks.
