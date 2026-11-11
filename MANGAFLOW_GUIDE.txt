@@ -1,7 +1,7 @@
 MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 Core file. Keep it next to MANGAFLOW.md (history + code map) and MANGAFLOW_FULL_SITE.md (all code). A plain-text copy is MANGAFLOW_GUIDE.txt (same content).
-Last updated: Round 62 — 2026-11-11
+Last updated: Round 63 — 2026-11-11
 
 HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -90,8 +90,10 @@ HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
   - Symptoms & answers :: A guide of common problems with fixes.
   - Copy full report / Send report to server :: The full report (includes the Page 2 detail) for you, Claude or any AI.
   - Reset settings :: Back to defaults.
-Site-View Doctor codes (Page 2): P2-PLACEHOLDER (spinner/empty slots), P2-MISSING (fewer pictures than the reader finder knows), P2-FAILED (pictures failed), P2-STALLED (pictures still loading after 12 s), P2-STUCK-LOADING (loading note that never ends), P2-NOLIST, P2-NODOC.
+Site-View Doctor codes (Page 2): P2-HIDDEN (loaded but not visible), P2-COVER (a cover hides the page), P2-PLACEHOLDER (spinner/empty slots), P2-MISSING (fewer pictures than the reader finder knows), P2-FAILED (pictures failed), P2-STALLED (pictures still loading after 12 s), P2-STUCK-LOADING (loading note that never ends), P2-NOLIST, P2-NODOC.
 Automatic algorithms (nothing to press):
+- Visibility doctor (Round 63): checks how each chapter picture is really drawn; un-hides it, removes "loading / JavaScript required" covers, or draws a plain strip of the chapter. Runs at 0.8, 2, 3.5 s and with the watchdog.
+- Reading speed (Round 63): the first pictures of the current and next chapter load at once; the preloader runs more pictures in parallel on good connections and reacts on every chapter change.
 - Picture watchdog (Round 61): after a site page appears it looks at 4, 9, 16, 28, 45, 70 s; failed pictures are restarted at once, hanging pictures after 9 s, through your proxy (with Referer), other proxies, then the same address with a changing word. From the 2nd look it also runs the quiet Doctor repair. Stops when all pictures are loaded or when you leave.
 - Placeholder rule (Round 59): spinner pictures such as readerarea.svg count as EMPTY slots and are filled with the real chapter pictures (in the correct order, Round 60).
 - Chapter audit (Round 55): detects missing/jumping chapter numbers (e.g. 1 then 22) and reports/repairs them.
@@ -115,6 +117,7 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - Round 60: added pages were placed after sidebar thumbnails → correct order; the "working" note covered the whole screen and blocked the site → small non-blocking note; detection stops when you touch the page.
 - Round 61: some Page 2 pictures hung until "Fix automatically" was pressed → picture watchdog does it automatically; this guide added.
 - Round 62: a "Related Series" box (links to OTHER manga labelled "Chapter 74") was read as the chapter list, so reading mode showed 8 empty "chapters" and the pop-up named chapters that never existed → such series-page links are now ignored, the real series page is found (also for names ending in -2 or -chapter-14), and chapters written in two address styles are joined into one list. Profile → Reports got a Copy button.
+- Round 63: script-built sites (Next.js, e.g. drakecomic) keep the reader hidden until their own script runs, so Page 2 showed a blank page / "JavaScript Required" cover although the pictures were loaded → MangaFlow now makes them visible (and removes the cover) by itself, or draws the chapter in a plain strip; the reader name "JavaScript Required" fixed; style sheets repaired up to 24 (was 8) with a second try; pictures start sooner in reading mode.
 
 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 62 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 63 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -273,6 +273,19 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 4. Troubleshoot "Run checks" in reading mode: new rows `RD-LIST-SERIES-LINKS` (list contains series-page links) and `RD-MANY-EMPTY` (half or more boxes empty).
 **Mock test (`arena10.js`):** before: 8 boxes, 7 empty, menu 8. After: 89 chapters in the menu, chapter boxes fill.
 **Profile > Reports:** every report now has a **Copy** button (profiles.js: `bugText` map, `copyplain()` with a hidden-text-box fallback for phones that block the clipboard, action `copybug`). Delete is unchanged. Test `copybug.js`: copy, fallback copy, delete.
+
+
+## 4s. Round 63 — Script-built sites (drakecomic.net / Next.js): hidden readers, covers, titles, stylesheets, speed (app.js, `?v=63`)
+
+**Report (drakecomic.net chapter, build 60):** reading mode worked but Page 2 did not look like arenascan's; the reader was titled "JavaScript Required"; Troubleshoot could not fix and made a report ("1 style sheet could not be loaded"); pictures took long to appear on every chapter.
+
+**Root causes / fixes**
+1. **Hidden reader (Page 2):** such sites keep the reader hidden (opacity 0 / visibility hidden / height 0) and show a full-screen "JavaScript Required" cover until THEIR script runs. MangaFlow never runs site scripts, and its checks only asked "did the picture load?". NEW `frameLook()` asks the browser how every chapter picture is really drawn (getComputedStyle up the parent chain) and finds covers; `unhideFrame()` switches those exact properties to visible with `!important` and removes covers (each change marked `data-mf-unhid`); `galleryFallback()` draws a plain strip of the chapter's pictures (own HTML+CSS) when the site still hides its reader. Runs automatically: quick looks at 0.8 / 2 / 3.5 s (no network), the watchdog looks from 4 s, and "Fix automatically". New problem codes `P2-HIDDEN`, `P2-COVER`; the full report lists how each picture was hidden, the covers, the parts made visible and whether the strip was used.
+2. **Title:** an `<h1>` "JavaScript Required" was taken as the manga name. `detectTitle()` now ignores warning words and understands "Chapter 1: Chapter 1 - Name | Site" (`fromChapterFirst`).
+3. **Style sheets:** `repairStyles()` repaired only 8 of 17 sheets, one at a time, no second chance ("All promises were rejected"). Now up to 24 sheets, 4 at a time, each failed sheet asked once more after a pause.
+4. **Speed (reading mode):** first 3 pictures of the current and next chapter start eager when the box is filled; keeper preload window 4/6 pictures at once (was 3/4; +2 on 4g, 2 on 2g); keeper tick 0.8 s (was 1.5 s); the keeper runs at once when the chapter changes.
+**Test (`drake1.js`, mock of a Next.js reader):** before = pictures hidden and cover shown; after = all visible within ~2.5 s, title "They Offered Their Loyalty", reading mode OK.
+**IMPROVE:** a visible "Hide strip" button; measure real load times per host and choose routes from them.
 
 ## How to Deploy / Set Up
 

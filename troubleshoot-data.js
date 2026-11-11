@@ -18,6 +18,10 @@
    ===================================================================== */
 window.MF_FIX = {
   SYMPTOMS: [
+    // ROUND 63: script-built sites (Next.js etc.) hide their reader until their own script runs.
+    { id: 'p2hidden', title: 'The site page (Page 2) looks blank or says "JavaScript Required" although reading mode works',
+      why: 'Some sites hide their reader (and show a cover) until their own script runs. MangaFlow never runs site scripts, so it makes the pictures visible itself, or draws the chapter in a plain strip.',
+      fix: ['siteView'], ask: 'noimages' },
     // ROUND 59: Page 2 (site view) shows spinners / no chapter pictures / loads for ever while reading mode works.
     { id: 'p2empty', title: 'The site page (Page 2) keeps loading, shows only a spinner, or the chapter pictures are missing - but reading mode works',
       why: 'Many sites put a spinner picture in every slot and let their own script swap in the real pages. MangaFlow never runs a site\'s scripts, so it must fill the slots itself. The repair button asks the same finder that reading mode uses and fills or adds the pictures.',

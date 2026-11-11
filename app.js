@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 62)',
+      'MangaFlow error report (build round 63)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -1766,17 +1766,27 @@
     const failed = links.filter(sheetBad);
     stat.failed = failed.length;
     const redo = failed;                              // sheets that are not surely good (see above)
-    // WHY: repair at most 8 sheets so a huge page cannot flood the proxy. HOW: slice keeps the first 8.
-    for (const l of redo.slice(0, 8)) {
-      try {
-        // ROUND 18: font files go THROUGH the proxy at once (viaProxy = true). WHY: the proxy adds the CORS permission fonts need, and the old
-        // "try without, then redo" cost 4+ seconds and sometimes never fixed the icons (the manhuatop report). Pictures stay direct.
-        const href = l.href, css = await packCss(await fetchRaw(href), href, true);
-        fd = liveDoc(token); if (!fd) return;                                   // the person left while we were fetching
-        const st = fd.createElement('style'); st.setAttribute('data-mf', 'repaired'); st.setAttribute('data-from', href);
-        const media = l.getAttribute('media'); st.textContent = media && !/^(all|screen)$/i.test(media) ? '@media ' + media + '{' + css + '}' : css;
-        l.replaceWith(st); stat.repaired++;
-      } catch (e) { stat.stillFailed++; stat.notes.push('style sheet ' + l.href + ' : ' + (e && e.message ? e.message : 'failed')); }
+    // ROUND 63 (drakecomic: 17 sheets, only 8 were repaired and the 8th failed with "All promises were rejected"). WHY: the old loop stopped after 8 sheets and asked the proxies one sheet at a time with
+    //   no second chance, so the sheets after the 8th were never repaired and one busy answer left the page plain. HOW: up to 24 sheets, 4 at the same time (the proxy is not flooded), and a sheet
+    //   that fails is asked once more after a short pause (the second ask uses the other proxies first). IMPROVE: remember which proxy answered best.
+    const fixSheet = async l => {
+      const href = l.href, css = await packCss(await fetchRaw(href), href, true);
+      fd = liveDoc(token); if (!fd) return false;                                   // the person left while we were fetching
+      const st = fd.createElement('style'); st.setAttribute('data-mf', 'repaired'); st.setAttribute('data-from', href);
+      const media = l.getAttribute('media'); st.textContent = media && !/^(all|screen)$/i.test(media) ? '@media ' + media + '{' + css + '}' : css;
+      l.replaceWith(st); stat.repaired++; return true;
+    };
+    const queue = redo.slice(0, 24);
+    for (let i = 0; i < queue.length; i += 4) {
+      await Promise.all(queue.slice(i, i + 4).map(async l => {
+        try { await fixSheet(l); }
+        catch (e1) {
+          await wait(1200);
+          try { if (liveDoc(token)) await fixSheet(l); }
+          catch (e2) { stat.stillFailed++; stat.notes.push('style sheet ' + l.href + ' : ' + (e2 && e2.message ? e2.message : 'failed') + ' (asked twice)'); }
+        }
+      }));
+      if (!liveDoc(token)) return;
     }
     await wait(1800);
     fd = liveDoc(token); if (!fd) return;
@@ -1906,13 +1916,16 @@
             const bad = i.complete && !i.naturalWidth, hang = !i.complete && n >= 2;
             if (bad || hang) { left++; if (budget > 0 && kickImg(i)) { budget--; page.watch.kicked++; } }
           });
-          if (n >= 2 && n <= 4 && !page.isSearch) { const sc = await siteViewScan(false); if (sc.problems.some(p => /PLACEHOLDER$|MISSING|STUCK/.test(p.code))) { page.watch.repairs++; await siteViewRepair(); } }
+          if (n >= 1 && n <= 5 && !page.isSearch) { const sc = await siteViewScan(false); if (sc.problems.some(p => /PLACEHOLDER$|MISSING|STUCK|HIDDEN|COVER/.test(p.code))) { page.watch.repairs++; await siteViewRepair(); } }
           page.watch.left = left;
           if (!left && n >= 3) return;                                   // everything is loaded: stop watching
         }
       } catch { /* the watchdog must never break the page */ }
       if (n < at.length) setTimeout(look, (at[n] - at[n - 1]) * 1000);
     };
+    // ROUND 63: a QUICK look at 0.8 s, 2 s and 3.5 s that only un-hides (cheap, no network): the person should not see a blank page for 4 seconds.
+    const quick = () => { try { if (cur !== page || frame.hidden || page.isSearch || !reader.hidden) return; const d = frame.contentDocument; if (!d) return; let pics = []; try { pics = scanPictures(page.doc, page.base || page.url).list; } catch { /* none */ } const lk = frameLook(d, pics); if (lk.hidden.length || lk.covers.length) unhideFrame(d, lk); } catch { /* speed only */ } };
+    [800, 2000, 3500].forEach(ms => setTimeout(quick, ms));
     setTimeout(look, at[0] * 1000);
   }
   // ROUND 51 — retry ONE broken picture of the site view through the proxy, with the page address as Referer (see the long note where the 'error' listener is attached).
@@ -2774,12 +2787,18 @@
       .replace(/\s*[-–—|:]?\s*(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:]*\d.*$/i, '')
       .split(/\s[|–—-]\s/)[0].trim();
     // WHY: list of possible titles. HOW: each one is cleaned; empty ones are skipped later.
+    // ROUND 63 (drakecomic report: the reader said "JavaScript Required" instead of the manga name). WHY: (1) a script-built site puts a "JavaScript Required" warning in an <h1>; (2) titles written
+    //   "Chapter 1: Chapter 1 - Series name | Site" were cut away completely by clean() because the chapter part comes FIRST. HOW: warning-like words are not accepted as a name, and
+    //   fromChapterFirst() takes the series name that follows "Chapter N: " (and an optional second "Chapter N - "). IMPROVE: add more warning words when a site shows another one.
+    const WARN = /^(?:javascript|enable javascript|please enable|just a moment|attention required|access denied|loading|please wait|checking|error|403|404|not found|redirecting)/i;
+    const fromChapterFirst = t => { const m = /^\s*(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:]*\d+(?:\.\d+)?\s*[:\-–—]\s*(?:(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:]*\d+(?:\.\d+)?\s*[:\-–—]\s*)?(.+?)\s*(?:\s[|–—]\s.*)?$/i.exec((t || '').replace(/\s+/g, ' ')); return m ? m[1].trim() : ''; };
+    const ogT = $('meta[property="og:title"]', doc) && $('meta[property="og:title"]', doc).content;
     const cands = [
       clean($('h1', doc) && $('h1', doc).textContent),
-      clean($('meta[property="og:title"]', doc) && $('meta[property="og:title"]', doc).content),
+      clean(ogT) || fromChapterFirst(ogT),
       // WHY: the page title, cleaned of site name noise. HOW: clean() trims and shortens it.
-      clean(doc.title)
-    ];
+      clean(doc.title) || fromChapterFirst(doc.title)
+    ].map(x => (x && !WARN.test(x) ? x : ''));
     // WHY: pick the first non-empty title. HOW: find(Boolean) skips empty ones; fall back to the site name.
     return cands.find(Boolean) || new URL(base).hostname;
   }
@@ -4579,6 +4598,10 @@
       imgs.forEach((src, k) => frag.appendChild(makeImg(src, k, ch.url)));
       // WHY: Show all at once. HOW: append the fragment.
       sec.appendChild(frag);
+      // ROUND 63 (speed, owner: "I have to wait for the pictures of each chapter"): a picture marked lazy starts only when the browser thinks it is near, which is late for very tall pictures. WHY: the first
+      //   pictures of the chapter being read and of the next one must start AT ONCE. HOW: those 3 pictures are made eager as soon as the box is filled (the keeper's step D does the rest, nearest first).
+      //   IMPROVE: make the number a setting.
+      try { if (Math.abs(i - R.cur) <= 1) $$('img.page', sec).slice(0, 3).forEach(im => { im.loading = 'eager'; im._eagerAt = Date.now(); }); } catch { /* speed only */ }
       // ROUND 28: tell the person plainly when only part of the chapter could be found (with Retry, Open on the site and Details buttons).
       if (found.partial) sec.appendChild(partialNote(found, doc, base, ch, i, sec));
       // WHY: Add an end marker. HOW: a div ch-end.
@@ -4824,7 +4847,7 @@
       imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._healing && now - i._eagerAt > 45000).forEach(i => { if (busy >= 3 || !i._reload) return; i._healN++; busy++; i._reload(); });
       // D. preload: switch the lazy pictures of the window to eager, nearest first, a few at a time
       if (ahead > 0) {
-        let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed).length; const limit = small ? 3 : 4;
+        let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed).length; let limit = small ? 4 : 6; try { const ct = navigator.connection && navigator.connection.effectiveType; if (ct === '4g' && !navigator.connection.saveData) limit += 2; else if (ct === '2g' || ct === 'slow-2g') limit = 2; } catch { /* default */ }   // ROUND 63: was 3 / 4
         secs.filter(x => { const k = +x.dataset.index; return k >= cur && k <= cur + ahead; }).sort((a, b) => a.dataset.index - b.dataset.index).forEach(x => {
           $$('img.page', x).forEach(i => { if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return; i.loading = 'eager'; i._eagerAt = now; pending++; });
         });
@@ -4834,7 +4857,7 @@
   }
   // WHY: after the internet returns or the tab comes back, do not wait for the old (long) waiting times. HOW: forget them and run a tick now. IMPROVE: none needed.
   function keeperPoke() { try { $$('#stream img.page').forEach(i => { if (i._failed) i._healAt = 0; }); $$('#stream .chapter').forEach(x => { x._healAt = 0; }); } catch { /* ignore */ } keeperTick(); }
-  setInterval(keeperTick, 1500);
+  setInterval(keeperTick, 800);                                       // ROUND 63: was 1500 ms - the next pictures are started sooner
   window.addEventListener('online', keeperPoke);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) keeperPoke(); });
 
@@ -5211,7 +5234,7 @@
     for (const x of secs) { if (x.getBoundingClientRect().top <= mid) s = x; else break; }
     const idx = +s.dataset.index;
     // WHY: the chapter on screen changed. HOW: remember it, update the title line and the current mark in the menu.
-    if (idx !== R.cur) { R.cur = idx; $('#rSub').textContent = labelFor(idx); markCurrent(); }
+    if (idx !== R.cur) { R.cur = idx; $('#rSub').textContent = labelFor(idx); markCurrent(); setTimeout(keeperTick, 0); }   // round 63: start the next pictures now
     // Close to the end of what is loaded (2 chapters left)? Start the next batch now, so you never wait.
     if (!R.loading && R.next < R.chapters.length && idx >= R.next - 2) loadNext();
     autoFree();
@@ -7197,6 +7220,90 @@
           what the reader's own finder knows (fromScripts / scanPictures / chapterPictures). It lists named problems (codes P2-...). siteViewRepair() fixes what can be fixed:
           fills placeholder slots, adds missing pictures, retries failed ones through the proxies, switches off a loading bar/banner that never ends, asks for the chapter list again.
           siteViewFull() is the long report that is used when something could not be fixed. IMPROVE: add a code for every new site problem that is reported. */
+  /* ROUND 63 - THE VISIBILITY DOCTOR (Page 2). WHY (owner report, drakecomic.net, a Next.js / React site): the chapter pictures were in the page and "loaded", yet Page 2 did not look like the original.
+          Such sites keep their reader hidden (opacity 0, visibility hidden, height 0, a full-screen "loading / JavaScript required" cover) until THEIR OWN script has run - and MangaFlow never runs a site's scripts.
+          The old checks only asked "did the picture load?", never "can a person SEE it?".
+     HOW: frameLook() asks the browser how every chapter picture is really drawn (getComputedStyle on the picture and on each parent up to the top): display none, visibility hidden, opacity near 0,
+          height 0 with clipping, content-visibility hidden, and it finds covers (fixed/absolute boxes that fill most of the screen and say loading / JavaScript / verify, or are almost opaque).
+          unhideFrame() switches exactly those properties to "visible" with !important and removes the covers; each change is marked data-mf-unhid so the report can list it.
+          If a picture is STILL not visible, galleryFallback() builds a plain strip of the chapter's pictures (our own HTML+CSS) on top of the page: the same result as the original reader.
+     IMPROVE: also look at pictures that are drawn but cut off by a parent with overflow hidden and a fixed height. */
+  function frameLook(d, pics) {
+    const out = { checked: 0, hidden: [], covers: [] };
+    try {
+      const win = d.defaultView, want = new Set((pics || []).map(u => absUrl(u, cur ? (cur.base || cur.url) : '')));
+      const chapterImgs = Array.from(d.images || []).filter(i => { const a = absUrl((i.getAttribute('src') || '').trim(), cur ? (cur.base || cur.url) : ''); return want.has(a) || (i.naturalWidth >= 300 && i.naturalHeight >= 300); });
+      chapterImgs.forEach(img => {
+        out.checked++;
+        let reason = '', el = img;
+        for (let k = 0; el && el.nodeType === 1 && k < 40; k++, el = el.parentElement) {
+          const cs = win.getComputedStyle(el);
+          if (cs.display === 'none') { reason = 'display:none'; break; }
+          if (cs.visibility === 'hidden' || cs.visibility === 'collapse') { reason = 'visibility:' + cs.visibility; break; }
+          if (parseFloat(cs.opacity) < 0.05) { reason = 'opacity:' + cs.opacity; break; }
+          if (cs.contentVisibility === 'hidden') { reason = 'content-visibility:hidden'; break; }
+          if (el !== img && parseFloat(cs.height) === 0 && cs.overflow !== 'visible') { reason = 'height:0 + overflow:' + cs.overflow; break; }
+          if (/inset\(\s*(?:50|100)%/.test(cs.clipPath || '')) { reason = 'clip-path:' + cs.clipPath; break; }
+          if (el === d.documentElement) break;
+        }
+        const r = img.getBoundingClientRect();
+        if (!reason && (r.width < 20 || r.height < 20) && img.naturalHeight > 100) reason = 'drawn ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' (collapsed)';
+        if (reason) out.hidden.push({ img, el, reason, src: (img.getAttribute('src') || '').slice(-60) });
+      });
+      // covers: big fixed/absolute boxes that hide the page
+      const area = Math.max(1, win.innerWidth * win.innerHeight);
+      const all = Array.from(d.body ? d.body.querySelectorAll('*') : []).slice(0, 4000);
+      all.forEach(e => {
+        if (e.hasAttribute('data-mf-gallery') || e.closest('[data-mf-gallery]')) return;
+        const cs = win.getComputedStyle(e); if (cs.position !== 'fixed' && cs.position !== 'absolute') return;
+        if (cs.display === 'none' || cs.visibility === 'hidden' || parseFloat(cs.opacity) < 0.05 || cs.pointerEvents === 'none' && !/javascript|enable|required|verify/i.test(e.textContent || '')) return;
+        const r = e.getBoundingClientRect(); if (r.width * r.height < area * 0.6) return;
+        if (e.querySelector('img') && !/javascript|enable|required|loading|verify/i.test(e.textContent || '')) return;          // a picture viewer, not a cover
+        const bg = /rgba?\(([^)]+)\)/.exec(cs.backgroundColor || ''); const alpha = bg ? (bg[1].split(',')[3] === undefined ? 1 : parseFloat(bg[1].split(',')[3])) : 0;
+        const talks = /javascript|enable|required|please wait|loading|verify|checking your browser/i.test((e.textContent || '').slice(0, 400));
+        if (talks || alpha > 0.6) out.covers.push({ el: e, why: (talks ? 'says: ' + (e.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60) : 'almost opaque cover'), tag: e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.split(/\s+/).slice(0, 2).join('.') : '') });
+      });
+    } catch (e) { out.error = e && e.message; }
+    return out;
+  }
+  function unhideFrame(d, look) {
+    let n = 0; const mark = (e, p) => { e.setAttribute('data-mf-unhid', ((e.getAttribute('data-mf-unhid') || '') + ' ' + p).trim()); };
+    try {
+      look.hidden.forEach(h => {
+        let el = h.img;
+        for (let k = 0; el && el.nodeType === 1 && k < 40; k++, el = el.parentElement) {
+          const cs = d.defaultView.getComputedStyle(el);
+          if (cs.display === 'none') { el.style.setProperty('display', el === h.img ? 'block' : 'block', 'important'); mark(el, 'display'); n++; }
+          if (cs.visibility === 'hidden' || cs.visibility === 'collapse') { el.style.setProperty('visibility', 'visible', 'important'); mark(el, 'visibility'); n++; }
+          if (parseFloat(cs.opacity) < 0.05) { el.style.setProperty('opacity', '1', 'important'); mark(el, 'opacity'); n++; }
+          if (cs.contentVisibility === 'hidden') { el.style.setProperty('content-visibility', 'visible', 'important'); mark(el, 'content-visibility'); n++; }
+          if (el !== h.img && parseFloat(cs.height) === 0 && cs.overflow !== 'visible') { el.style.setProperty('height', 'auto', 'important'); el.style.setProperty('overflow', 'visible', 'important'); mark(el, 'height'); n++; }
+          if (/inset\(\s*(?:50|100)%/.test(cs.clipPath || '')) { el.style.setProperty('clip-path', 'none', 'important'); mark(el, 'clip-path'); n++; }
+          if (el === d.documentElement) break;
+        }
+        if (h.reason.indexOf('collapsed') >= 0) { h.img.style.setProperty('height', 'auto', 'important'); h.img.style.setProperty('width', '100%', 'important'); h.img.style.setProperty('display', 'block', 'important'); mark(h.img, 'size'); n++; }
+      });
+      look.covers.forEach(c => { c.el.style.setProperty('display', 'none', 'important'); mark(c.el, 'cover-removed'); n++; });
+    } catch { /* never break the page */ }
+    return n;
+  }
+  // last resort: our own plain reading strip (HTML + CSS only) made of the chapter's pictures. WHY: whatever the site's CSS does, the person sees the chapter. HOW: a <div data-mf-gallery> at the top of
+  // the page body with one <img> per picture (width 100%). It is created once; repeated calls only fill in missing pictures. IMPROVE: add a "Hide strip" button.
+  function galleryFallback(d, pics) {
+    try {
+      if (!d.body || !pics || pics.length < 1) return 0;
+      let g = d.querySelector('[data-mf-gallery]');
+      if (!g) {
+        g = d.createElement('div'); g.setAttribute('data-mf-gallery', '1');
+        g.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;position:static!important;max-width:900px;margin:12px auto;background:#111;padding:0;text-align:center';
+        const note = d.createElement('div'); note.style.cssText = 'font:600 12px system-ui,sans-serif;color:#aaa;padding:6px 8px'; note.textContent = 'MangaFlow drew this chapter itself because the site hides its own reader without scripts.'; g.appendChild(note);
+        d.body.insertBefore(g, d.body.firstChild);
+      }
+      const have = new Set(Array.from(g.querySelectorAll('img')).map(i => i.getAttribute('src')));
+      let added = 0; pics.forEach(u => { if (have.has(u)) return; const n = d.createElement('img'); n.setAttribute('src', u); n.setAttribute('referrerpolicy', 'no-referrer'); n.setAttribute('data-mf-added', '1'); n.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;width:100%;height:auto;margin:0 auto'; g.appendChild(n); added++; });
+      return added;
+    } catch { return 0; }
+  }
   async function siteViewScan(deep) {
     const r = { on: false, problems: [], counts: {}, finder: {}, notes: [], pics: [] };
     try {
@@ -7219,6 +7326,13 @@
       if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
       if ((c.pending || 0) > 0 && cur.shownAt && Date.now() - cur.shownAt > 12000) r.problems.push({ code: 'P2-STALLED', text: (c.pending) + ' picture(s) are still loading after 12 seconds (slow or silent host).', fix: true });
       if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
+      // ROUND 63: can a person SEE the pictures? (and covers on top of the page)
+      try {
+        const look = frameLook(d, best); c.seeChecked = look.checked; c.hiddenPics = look.hidden.length; c.covers = look.covers.length;
+        r.vis = { hidden: look.hidden.map(h => h.reason + ' <- ' + h.src), covers: look.covers.map(x => x.tag + ' ' + x.why) };
+        if (look.hidden.length) r.problems.push({ code: 'P2-HIDDEN', text: look.hidden.length + ' of ' + look.checked + ' chapter picture(s) are loaded but NOT visible (' + look.hidden[0].reason + '). The site keeps its reader hidden until its own script runs.', fix: true });
+        if (look.covers.length) r.problems.push({ code: 'P2-COVER', text: look.covers.length + ' cover(s) hide the page (' + look.covers[0].why + ').', fix: true });
+      } catch { /* the look is only an extra */ }
       // loading signs that never end
       const barOn = $('#loadbar').classList.contains('on'), busyOn = !$('#busy').hidden;
       const idle = cur.enhancingDone || !cur.enhancing;
@@ -7244,6 +7358,13 @@
     if (codes.some(x => x === 'P2-PLACEHOLDER' || x === 'P2-MISSING')) {
       const res = placePictures(d, base, r0.pics);
       out.push('Site view: filled ' + res.filled + ' empty slot(s) and added ' + res.added + ' missing picture(s) from the reader finder.');
+    }
+    if (codes.includes('P2-HIDDEN') || codes.includes('P2-COVER')) {
+      const look = frameLook(d, r0.pics), n = unhideFrame(d, look);
+      out.push('Site view: made ' + n + ' hidden part(s) of the page visible (' + look.hidden.length + ' picture(s), ' + look.covers.length + ' cover(s) removed).');
+      await new Promise(x => setTimeout(x, 400));
+      const again = frameLook(d, r0.pics);
+      if (again.hidden.length && r0.pics.length) { const g = galleryFallback(d, r0.pics); out.push('Site view: the site still hides its reader, so MangaFlow drew the chapter itself (' + g + ' pictures in a plain strip).'); }
     }
     if (codes.includes('P2-FAILED') || codes.includes('P2-STALLED')) { let k = 0; try { Array.from(d.images).forEach(i => { if (i.getAttribute('src') && ((i.complete && !i.naturalWidth) || !i.complete) && kickImg(i)) k++; }); out.push('Site view: restarted ' + k + ' failed/hanging picture(s) through other routes.'); } catch { /* ignore */ } }
     if (codes.includes('P2-STUCK-LOADING')) { setLoading(false); setBusy(''); out.push('Site view: switched off a loading bar that never ended.'); }
@@ -7282,6 +7403,8 @@
         const sc = Array.from(cur.doc.querySelectorAll('script')); L.push('Original page scripts: ' + sc.length + ' (' + sc.filter(s => !s.src).length + ' inline, ' + sc.filter(s => s.src).length + ' external). Picture words inside inline scripts: ' + sc.filter(s => /images?["']?\s*:|\.webp|\.jpe?g/i.test(s.textContent || '')).length);
       }
     } catch (e) { L.push('(detail failed: ' + (e && e.message) + ')'); }
+    if (r.vis) L.push('Hidden pictures (how they are hidden <- picture): ' + (r.vis.hidden.join(' | ') || 'none'), 'Covers on the page: ' + (r.vis.covers.join(' | ') || 'none'));
+    try { const d2 = frame.contentDocument; const fixed = Array.from(d2.querySelectorAll('[data-mf-unhid]')).slice(0, 12).map(e => e.tagName.toLowerCase() + '(' + e.getAttribute('data-mf-unhid') + ')'); L.push('Parts made visible by MangaFlow: ' + (fixed.join(', ') || 'none'), 'Plain strip used: ' + (d2.querySelector('[data-mf-gallery]') ? 'yes' : 'no')); } catch { /* no frame */ }
     L.push('Chapter list on site view: ' + pageListText(), 'Chapter audit: ' + chapterAuditText(), 'CSP blocks seen: ' + (Array.from(cspSeen).join(', ') || 'none'));
     L.push('Address hash: ' + location.hash.slice(0, 160), 'Screen: ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio);
     return L.join('\n');
@@ -7375,7 +7498,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 62)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 63)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
