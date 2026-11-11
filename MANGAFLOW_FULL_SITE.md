@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 61 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 62 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -325,6 +325,20 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 **New core files:** `MANGAFLOW_GUIDE.md` and `MANGAFLOW_GUIDE.txt` list every button, shortcut, setting, server option, troubleshoot option and algorithm, with "FIX NOTE (Round N)" lines. Rule: update them with every change; never put private server names, profile names, passwords or keys in them. `MANGAFLOW_FULL_SITE.md` now contains the guide too, so the whole site (all code + guide + history) can be rebuilt from that one file with `node split.js`.
 
 **IMPROVE:** make the look times a setting; show a small "retrying pictures" hint.
+
+
+## 4r. Round 62 — "Related Series" links taken as chapters + Copy button for profile Reports (app.js, profiles.js, `?v=62`)
+
+**Report (arenascan "A Corporate Underling Who Excels at Work 2", build 60/61):** reading mode showed "chapter 1 of 8", chapter boxes 2-8 stayed empty, the pop-up said "chapters 39, 50, 54, 70, 73, 135, 142 could not be shown", and a later pop-up said "Could not load Chapter 10: no images found" (page title "Master Wants Me Dead").
+
+**Root cause (confirmed with the real site):** the opened page is a chapter whose address has NO word "chapter" (`/a-corporate-underling-who-excels-at-work-2/`). Its only "chapter-looking" links were the **Related Series** cards ("Half Blood Chapter 60" -> `/manga/half-blood/`, a different manga's SERIES page). The number came from the card text, so seven other manga were taken as chapters 39..142 of this one (8 "chapters"), and because there were 8 the code never fetched the real list (the series page `/manga/a-corporate-underling-who-excels-at-work/` has 89 chapters; chapters 1-10 are `/<name>-N/`, later ones `/<name>-chapter-N/`).
+**Fixes (app.js)**
+1. `detectChapters()`: a link whose address is just `<folder>/<name>/` (`SERIES_PAGE_PATH`: manga, series, comic(s), manhwa, manhua, webtoon, title, read...) with NO number in the address itself is a series page, not a chapter.
+2. `guessSeriesUrls()`: also tries the name WITHOUT the trailing number (`-2`, `-chapter-14`) in every typical folder (`/manga/<name>/` is found), up to 8 guesses.
+3. `pickSeries()`: when a site changes its address style half way, the other style's links `<name>-<number>` are added back (chapters 1-10 were lost before).
+4. Troubleshoot "Run checks" in reading mode: new rows `RD-LIST-SERIES-LINKS` (list contains series-page links) and `RD-MANY-EMPTY` (half or more boxes empty).
+**Mock test (`arena10.js`):** before: 8 boxes, 7 empty, menu 8. After: 89 chapters in the menu, chapter boxes fill.
+**Profile > Reports:** every report now has a **Copy** button (profiles.js: `bugText` map, `copyplain()` with a hidden-text-box fallback for phones that block the clipboard, action `copybug`). Delete is unchanged. Test `copybug.js`: copy, fallback copy, delete.
 
 ## How to Deploy / Set Up
 
@@ -768,17 +782,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=61" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=62" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=61" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=62" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=61">
+  <link rel="stylesheet" href="style.css?v=62">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=61"></script>
+  <script src="boot.js?v=62"></script>
 </head>
 <body data-side="right">
 
@@ -1351,24 +1365,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=61"></script>
+  <script src="pdfmaker.js?v=62"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=61"></script>
-  <script src="app.js?v=61"></script>
+  <script src="troubleshoot-data.js?v=62"></script>
+  <script src="app.js?v=62"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=61"></script>
+  <script src="chapter-slider.js?v=62"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=61"></script>
+  <script src="reload-wheel.js?v=62"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=61"></script>
+  <script src="edge-slider.js?v=62"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=61"></script>
+  <script src="translate.js?v=62"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=61"></script>
+  <script src="profiles.js?v=62"></script>
 </body>
 </html>
 ~~~~~~
@@ -3648,7 +3662,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8056 lines)
+### File: `app.js`  (8087 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4543,7 +4557,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 61)',
+      'MangaFlow error report (build round 62)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -6333,6 +6347,18 @@ window.MF_FIX = {
         else pick = best;
       } else if (asChapter || best.length >= 3) pick = best;
     }
+    // ROUND 62: sites that change their address style half way (chapters 1-10 as /name-5/, later ones as /name-chapter-75/) made the first style a different "group" and it was thrown away,
+    //   so the list lost chapters 1-10. HOW: add links of the other groups whose address is exactly <the picked series name> + "-<number>". IMPROVE: also accept "-ch-<number>".
+    if (pick && pick.length && groups.size > 1) {
+      try {
+        const key = (seriesKey(pick[0].url) || '').toLowerCase().replace(/\/+$/, '');
+        if (key.length > 3) {
+          const have = new Set(pick.map(c => c.url)), extra = [];
+          list.forEach(c => { if (have.has(c.url)) return; const pth = decodeURIComponent(new URL(c.url).pathname).toLowerCase(); if (pth.startsWith(key) && /^[-_]\d+(?:[-_.]\d+)?\/?$/.test(pth.slice(key.length))) extra.push(c); });
+          if (extra.length) pick = pick.concat(extra).sort((a, b) => (a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num));
+        }
+      } catch { /* keep the plain pick */ }
+    }
     // WHY: always return a list. HOW: the pick or an empty array.
     return pick || [];
   }
@@ -6361,6 +6387,7 @@ window.MF_FIX = {
 
   // WHY: find chapter links on a page. HOW: collects links and select options with chapter numbers, sorted. IMPROVE: add
   // per-site rules.
+  const SERIES_PAGE_PATH = /^\/(?:manga|mangas|series|serie|comic|comics|manhwa|manhua|webtoon|webtoons|title|titles|novel|read|b|m)\/[^/]+\/?$/i;   // ROUND 62: "<folder>/<name>/" = a series page
   function detectChapters(doc, base) {
     // WHY: only same-site links count. HOW: origin is the site part of the address.
     const origin = new URL(base).origin;
@@ -6383,6 +6410,10 @@ window.MF_FIX = {
       if (num == null) num = numFrom(text);
       // WHY: no number means not a chapter. HOW: skip.
       if (num == null) return;
+      // ROUND 62 (arenascan "Related Series" bug, owner report 2026-11-11): cards such as "Half Blood Chapter 60" link to ANOTHER manga's SERIES page (/manga/half-blood/). The number came only
+      //   from the card's TEXT, so they were taken as chapters of this manga (8 "chapters", 7 of them other manga, all empty), and the real list (89 chapters) was never fetched.
+      //   HOW: a link whose address is just "<series folder>/<one name>/" with NO number in the address itself is a series page, not a chapter. IMPROVE: add more folder names if a site uses others.
+      if (numFrom(safeDecode(p.pathname)) == null && SERIES_PAGE_PATH.test(p.pathname)) return;
       // WHY: a key without the # part so duplicates match. HOW: split at # and keep the first part.
       const key = u.split('#')[0];
       // WHY: see if already stored. HOW: get from the Map.
@@ -7039,7 +7070,12 @@ window.MF_FIX = {
     const dirs = ['/comics/', '/manga/', '/series/', '/comic/', '/manhwa/', '/manhua/', '/webtoon/', '/title/', '/'];
     // WHY: Build the final guesses. HOW: join origin, folder, slug; Set removes duplicates; then drop the current page
     // itself.
-    return Array.from(new Set(dirs.map(d => u.origin + d + slug + '/'))).filter(g => !sameUrl(g, url));
+    // ROUND 62: chapter addresses like /a-corporate-underling-who-excels-at-work-2/ (no word "chapter") or /name-chapter-14/ keep the series name in front of the number. WHY: the series page is
+    //   /manga/a-corporate-underling-who-excels-at-work/ - the guesses must try the name WITHOUT the trailing number too. HOW: strip "-chapter-12", "-ch-12" or "-12" from the end.
+    const slugs = [slug]; const bare = slug.replace(/[-_](?:chapter|chap|ch|episode|ep)?[-_]?\d+(?:[-_.]\d+)?$/i, '').replace(/[-_]+$/, '');
+    if (bare && bare !== slug && bare.length >= 3) slugs.push(bare);
+    const out = []; dirs.forEach(d => slugs.forEach(sg => out.push(u.origin + d + sg + '/')));
+    return Array.from(new Set(out)).filter(g => !sameUrl(g, url));
   }
 
   /* ROUND 28 - A CHAPTER LIST THAT IS SPLIT INTO PAGES ("1 2 3 … 5")
@@ -7144,7 +7180,7 @@ window.MF_FIX = {
       // WHY: Time limit for guessing. HOW: remember the start time in milliseconds.
       const t0 = Date.now();
       // WHY: Way 4: try typical addresses, at most 6. HOW: loop over the first 6 guesses.
-      for (const g of guessSeriesUrls(url).slice(0, 6)) {
+      for (const g of guessSeriesUrls(url).slice(0, 8)) {
         // WHY: Stop waiting too long on slow sites. HOW: break after 25000 ms (25 seconds).
         if (Date.now() - t0 > 25000) break;
         // WHY: Tell the user what is happening. HOW: setBusy shows the status text.
@@ -10950,6 +10986,15 @@ window.MF_FIX = {
     jobs.forEach(j => row(j.status === 'error' || j.stalled ? false : null, 'Download #' + j.id + ': ' + j.status + (j.stalled ? ' (STALLED)' : '') + ' · ' + (j.text || '')));
     row(null, 'Picture routes: ' + routeStatText());
     row(null, 'Site view pictures (round 51): ' + pageViewPicText());
+    // ROUND 62: reading mode with a suspicious chapter list (links that are really OTHER manga's series pages, e.g. a "Related Series" box). Detected here, fixed by reopening the manga page.
+    try {
+      if (!reader.hidden && R.chapters.length) {
+        const bad = R.chapters.filter(c => { try { const pth = new URL(c.url).pathname; return numFrom(safeDecode(pth)) == null && SERIES_PAGE_PATH.test(pth); } catch { return false; } });
+        const empty = $$('.chapter', stream).filter(x => !x.querySelector('img.page') && (x.dataset.failed === '1' || x.querySelector('.ch-msg'))).length;
+        if (bad.length) row(false, '[RD-LIST-SERIES-LINKS] ' + bad.length + ' of the ' + R.chapters.length + ' "chapters" are links to other manga\'s series pages. Leave reading mode, open the manga\'s own page (its chapter list) and start reading again.');
+        else if (empty >= 3 && empty >= R.chapters.length * 0.5) row(false, '[RD-MANY-EMPTY] ' + empty + ' of ' + R.chapters.length + ' chapter boxes show no pictures. The list may be wrong or the site is blocking. Use Fix automatically, then copy the full report.');
+      }
+    } catch { /* the check must never break the checks */ }
     // ROUND 59: the site-view doctor - named problems with their codes (a green tick means "nothing found")
     try { const sv = await siteViewScan(true); if (sv.on) { if (!sv.problems.length) row(true, 'Site view looks right: ' + (sv.counts.ok || 0) + ' pictures shown, reader finder knows ' + sv.finder.best + '.'); sv.problems.forEach(p => row(false, '[' + p.code + '] ' + p.text + (p.fix ? ' — "Fix automatically" can repair this.' : ' — needs a report.'))); } } catch (e) { row(false, 'Site view check failed: ' + (e && e.message)); }
     row(null, 'Chapter boxes (round 52): ' + chapterHealthText());
@@ -11000,7 +11045,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 61)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 62)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -13038,7 +13083,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `profiles.js`  (1005 lines)
+### File: `profiles.js`  (1015 lines)
 
 **Why this file exists / what it does:** Optional add-on: profiles, sign in, history, bookmarks, cloud sync, admin screens, Server tab.
 
@@ -13623,8 +13668,17 @@ window.MF_FIX = {
       '<h3>&#128214; Continue reading (' + reads.length + ')</h3>' + (reads.length ? '<ul class="mfp-list">' + reads.slice(0, 50).map(readRow).join('') + '</ul>' : '<div class="mfp-empty">Nothing yet.</div>');
   }
   // WHY: bug reports as a list (admin: all, or one profile's). Each report opens as text; the admin can delete it.
+  // ROUND 62: every report has a COPY button (owner request). WHY: to paste the whole report to Claude or another AI. HOW: while the list is drawn, each report's full text is kept in bugText (by id);
+  //   the button reads it from there (so no long text sits in the HTML) and copies it with the clipboard (falls back to a hidden text box on phones that block navigator.clipboard).
+  //   IMPROVE: add "copy all".
+  const bugText = new Map();
+  async function copyPlain(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* use the old way below */ }
+    try { const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(t); t.select(); t.setSelectionRange(0, text.length); const ok = document.execCommand('copy'); t.remove(); return ok; } catch { return false; }
+  }
   function bugsHtml(bugs, canDel) {
-    return bugs.length ? '<ul class="mfp-list">' + bugs.map(b => '<li class="mfp-it" style="align-items:flex-start"><span class="ico">&#128027;</span><span class="txt" style="white-space:normal"><div class="t" style="white-space:normal">' + esc(b.title || 'Report') + (b.user ? ' · ' + esc(b.user) : '') + '</div><div class="s">' + esc(fmt(b.t)) + ' · ' + ago(b.t) + '</div><details><summary class="s" style="cursor:pointer">show report</summary><pre class="mfp-bug">' + esc(b.report) + '</pre></details></span>' + (canDel ? '<button class="mfp-btn small red" data-act="delbug" data-id="' + esc(b.id) + '">Delete</button>' : '') + '</li>').join('') + '</ul>' : '<div class="mfp-empty">No bug reports.</div>';
+    bugs.forEach(b => bugText.set(String(b.id), (b.title || 'Report') + (b.user ? ' (' + b.user + ')' : '') + '\n' + (b.page ? 'Page: ' + b.page + '\n' : '') + '\n' + (b.report || '')));
+    return bugs.length ? '<ul class="mfp-list">' + bugs.map(b => '<li class="mfp-it" style="align-items:flex-start"><span class="ico">&#128027;</span><span class="txt" style="white-space:normal"><div class="t" style="white-space:normal">' + esc(b.title || 'Report') + (b.user ? ' · ' + esc(b.user) : '') + '</div><div class="s">' + esc(fmt(b.t)) + ' · ' + ago(b.t) + '</div><details><summary class="s" style="cursor:pointer">show report</summary><pre class="mfp-bug">' + esc(b.report) + '</pre></details></span><span style="display:flex;flex-direction:column;gap:6px"><button class="mfp-btn small ghost" data-act="copybug" data-id="' + esc(b.id) + '" title="Copy this report">Copy</button>' + (canDel ? '<button class="mfp-btn small red" data-act="delbug" data-id="' + esc(b.id) + '">Delete</button>' : '') + '</span></li>').join('') + '</ul>' : '<div class="mfp-empty">No bug reports.</div>';
   }
 
   // WHY: draws the whole window for the current state. HOW: builds HTML text from `session` and `view`, then wires nothing (clicks are handled once, by delegation below).
@@ -13884,6 +13938,7 @@ window.MF_FIX = {
       }
       else if (act === 'del') { if (confirm('Delete the profile "' + u + '" and its history? This cannot be undone.')) { await API().remove(u); if (u === session.user) { session = null; LS.del('mf_session'); location.reload(); return; } view.sel = ''; setMsg('Profile deleted.', true); } }
       else if (act === 'reset') { const c = prompt('New 6-digit code for "' + u + '":'); if (c !== null) { await API().reset(u, c); setMsg('Code changed for ' + u + '.', true); } }
+      else if (act === 'copybug') { const txt = bugText.get(String(b.dataset.id)); if (!txt) throw new Error('This report is no longer in the list. Open the Reports tab again.'); const ok = await copyPlain(txt); setMsg(ok ? 'Report copied. Paste it where you need it.' : 'Copy was blocked by the browser. Open "show report", select the text and copy it by hand.', ok); }
       else if (act === 'delbug') { await API().delBug(+b.dataset.id || b.dataset.id); setMsg('Report deleted.', true); }
       // ROUND 35: delete one "Continue reading" entry from the owner's Bookmarks tab.
       // WHY: the user asked for a × button on each reading-history row in the profile. HOW: find the entry by its id (or chapterUrl
@@ -14629,7 +14684,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (136 lines)
+### File: `MANGAFLOW_GUIDE.md`  (137 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -14638,7 +14693,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 61 — 2026-11-11*
+*Last updated: Round 62 — 2026-11-11*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -14720,7 +14775,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 - **Reading:** page width, chapter-bar side (left/right), PDF quality, Chapter slider, Reload wheel, Keep screen awake (turns off after a reload), Open manga link straight in reading mode (auto-read), Load chapters ahead (how many), Keys ← →, Tap to scroll (top = up), Full-screen button, Top/End slider (edge).
 - **Search:** Search engine, Google search ID and key (private — stored only in the browser), Test Google search, "Copy my sites for Google", Only use the engine I chose, Open search straight after Paste, add the word "manga" to Google searches. FIX NOTE (Round 47/49): the owner's own address and old key must never be written in files.
 - **Translate add-on:** button on/off, language to translate into, language written on pages, engine, start automatically, Test translate.
-- **Profile (accounts add-on):** Open my profile, Sync now (history, bookmarks synced to the accounts server). Profile names and passwords are NOT listed in any file.
+- **Profile (accounts add-on):** Open my profile, Sync now (history, bookmarks synced to the accounts server). Tabs: My history, Bookmarks, and (admin) All profiles, Reports, Server. **Reports tab:** each report can be opened ("show report"), **Copied** (Copy button, Round 62 — copies title, user, page and the whole report; works even when the phone blocks the clipboard) or Deleted (admin). Profile names and passwords are NOT listed in any file.
 - **Memory / history:** Clear a range of chapters, clear all before my chapter, automatic clearing, "Do not save my reading history", "Erase history and cache when I close this tab", Clear history & cache.
 - **Servers (proxies):** list of picture/page proxies, Add, Test all, Reset to defaults (see section 4).
 - **Troubleshoot:** see section 5. Reset settings puts every setting back to default.
@@ -14735,7 +14790,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 ## 5. Troubleshoot (Settings → Troubleshoot)
 | Option | What it does |
 |---|---|
-| Run checks | Tests browser features, proxies, downloads and (new, Round 59) the site view: lists named problems with codes. |
+| Run checks | Tests browser features, proxies, downloads and (new, Round 59) the site view: lists named problems with codes. Round 62 adds reading-mode rows `RD-LIST-SERIES-LINKS` (the chapter list holds other manga's pages) and `RD-MANY-EMPTY` (half or more chapter boxes empty). |
 | Fix automatically | Clears caches, tests proxies, repairs reading-mode pictures/boxes, cancels stuck work, and runs the Site-View Doctor. If something cannot be fixed it builds the COMPLETE error report, shows it in a box and copies it. |
 | Symptoms & answers | A guide of common problems with fixes. |
 | Copy full report / Send report to server | The full report (includes the Page 2 detail) for you, Claude or any AI. |
@@ -14765,6 +14820,7 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 59:** Page 2 showed only a spinner (placeholder pictures were counted as real) → fixed; Site-View Doctor added to Troubleshoot with full error report.
 - **Round 60:** added pages were placed after sidebar thumbnails → correct order; the "working" note covered the whole screen and blocked the site → small non-blocking note; detection stops when you touch the page.
 - **Round 61:** some Page 2 pictures hung until "Fix automatically" was pressed → picture watchdog does it automatically; this guide added.
+- **Round 62:** a "Related Series" box (links to OTHER manga labelled "Chapter 74") was read as the chapter list, so reading mode showed 8 empty "chapters" and the pop-up named chapters that never existed → such series-page links are now ignored, the real series page is found (also for names ending in -2 or -chapter-14), and chapters written in two address styles are joined into one list. Profile → Reports got a Copy button.
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

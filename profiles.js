@@ -577,8 +577,17 @@
       '<h3>&#128214; Continue reading (' + reads.length + ')</h3>' + (reads.length ? '<ul class="mfp-list">' + reads.slice(0, 50).map(readRow).join('') + '</ul>' : '<div class="mfp-empty">Nothing yet.</div>');
   }
   // WHY: bug reports as a list (admin: all, or one profile's). Each report opens as text; the admin can delete it.
+  // ROUND 62: every report has a COPY button (owner request). WHY: to paste the whole report to Claude or another AI. HOW: while the list is drawn, each report's full text is kept in bugText (by id);
+  //   the button reads it from there (so no long text sits in the HTML) and copies it with the clipboard (falls back to a hidden text box on phones that block navigator.clipboard).
+  //   IMPROVE: add "copy all".
+  const bugText = new Map();
+  async function copyPlain(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* use the old way below */ }
+    try { const t = document.createElement('textarea'); t.value = text; t.setAttribute('readonly', ''); t.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(t); t.select(); t.setSelectionRange(0, text.length); const ok = document.execCommand('copy'); t.remove(); return ok; } catch { return false; }
+  }
   function bugsHtml(bugs, canDel) {
-    return bugs.length ? '<ul class="mfp-list">' + bugs.map(b => '<li class="mfp-it" style="align-items:flex-start"><span class="ico">&#128027;</span><span class="txt" style="white-space:normal"><div class="t" style="white-space:normal">' + esc(b.title || 'Report') + (b.user ? ' · ' + esc(b.user) : '') + '</div><div class="s">' + esc(fmt(b.t)) + ' · ' + ago(b.t) + '</div><details><summary class="s" style="cursor:pointer">show report</summary><pre class="mfp-bug">' + esc(b.report) + '</pre></details></span>' + (canDel ? '<button class="mfp-btn small red" data-act="delbug" data-id="' + esc(b.id) + '">Delete</button>' : '') + '</li>').join('') + '</ul>' : '<div class="mfp-empty">No bug reports.</div>';
+    bugs.forEach(b => bugText.set(String(b.id), (b.title || 'Report') + (b.user ? ' (' + b.user + ')' : '') + '\n' + (b.page ? 'Page: ' + b.page + '\n' : '') + '\n' + (b.report || '')));
+    return bugs.length ? '<ul class="mfp-list">' + bugs.map(b => '<li class="mfp-it" style="align-items:flex-start"><span class="ico">&#128027;</span><span class="txt" style="white-space:normal"><div class="t" style="white-space:normal">' + esc(b.title || 'Report') + (b.user ? ' · ' + esc(b.user) : '') + '</div><div class="s">' + esc(fmt(b.t)) + ' · ' + ago(b.t) + '</div><details><summary class="s" style="cursor:pointer">show report</summary><pre class="mfp-bug">' + esc(b.report) + '</pre></details></span><span style="display:flex;flex-direction:column;gap:6px"><button class="mfp-btn small ghost" data-act="copybug" data-id="' + esc(b.id) + '" title="Copy this report">Copy</button>' + (canDel ? '<button class="mfp-btn small red" data-act="delbug" data-id="' + esc(b.id) + '">Delete</button>' : '') + '</span></li>').join('') + '</ul>' : '<div class="mfp-empty">No bug reports.</div>';
   }
 
   // WHY: draws the whole window for the current state. HOW: builds HTML text from `session` and `view`, then wires nothing (clicks are handled once, by delegation below).
@@ -838,6 +847,7 @@
       }
       else if (act === 'del') { if (confirm('Delete the profile "' + u + '" and its history? This cannot be undone.')) { await API().remove(u); if (u === session.user) { session = null; LS.del('mf_session'); location.reload(); return; } view.sel = ''; setMsg('Profile deleted.', true); } }
       else if (act === 'reset') { const c = prompt('New 6-digit code for "' + u + '":'); if (c !== null) { await API().reset(u, c); setMsg('Code changed for ' + u + '.', true); } }
+      else if (act === 'copybug') { const txt = bugText.get(String(b.dataset.id)); if (!txt) throw new Error('This report is no longer in the list. Open the Reports tab again.'); const ok = await copyPlain(txt); setMsg(ok ? 'Report copied. Paste it where you need it.' : 'Copy was blocked by the browser. Open "show report", select the text and copy it by hand.', ok); }
       else if (act === 'delbug') { await API().delBug(+b.dataset.id || b.dataset.id); setMsg('Report deleted.', true); }
       // ROUND 35: delete one "Continue reading" entry from the owner's Bookmarks tab.
       // WHY: the user asked for a × button on each reading-history row in the profile. HOW: find the entry by its id (or chapterUrl

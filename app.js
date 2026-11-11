@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 61)',
+      'MangaFlow error report (build round 62)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -2677,6 +2677,18 @@
         else pick = best;
       } else if (asChapter || best.length >= 3) pick = best;
     }
+    // ROUND 62: sites that change their address style half way (chapters 1-10 as /name-5/, later ones as /name-chapter-75/) made the first style a different "group" and it was thrown away,
+    //   so the list lost chapters 1-10. HOW: add links of the other groups whose address is exactly <the picked series name> + "-<number>". IMPROVE: also accept "-ch-<number>".
+    if (pick && pick.length && groups.size > 1) {
+      try {
+        const key = (seriesKey(pick[0].url) || '').toLowerCase().replace(/\/+$/, '');
+        if (key.length > 3) {
+          const have = new Set(pick.map(c => c.url)), extra = [];
+          list.forEach(c => { if (have.has(c.url)) return; const pth = decodeURIComponent(new URL(c.url).pathname).toLowerCase(); if (pth.startsWith(key) && /^[-_]\d+(?:[-_.]\d+)?\/?$/.test(pth.slice(key.length))) extra.push(c); });
+          if (extra.length) pick = pick.concat(extra).sort((a, b) => (a.num == null ? 1e9 : a.num) - (b.num == null ? 1e9 : b.num));
+        }
+      } catch { /* keep the plain pick */ }
+    }
     // WHY: always return a list. HOW: the pick or an empty array.
     return pick || [];
   }
@@ -2705,6 +2717,7 @@
 
   // WHY: find chapter links on a page. HOW: collects links and select options with chapter numbers, sorted. IMPROVE: add
   // per-site rules.
+  const SERIES_PAGE_PATH = /^\/(?:manga|mangas|series|serie|comic|comics|manhwa|manhua|webtoon|webtoons|title|titles|novel|read|b|m)\/[^/]+\/?$/i;   // ROUND 62: "<folder>/<name>/" = a series page
   function detectChapters(doc, base) {
     // WHY: only same-site links count. HOW: origin is the site part of the address.
     const origin = new URL(base).origin;
@@ -2727,6 +2740,10 @@
       if (num == null) num = numFrom(text);
       // WHY: no number means not a chapter. HOW: skip.
       if (num == null) return;
+      // ROUND 62 (arenascan "Related Series" bug, owner report 2026-11-11): cards such as "Half Blood Chapter 60" link to ANOTHER manga's SERIES page (/manga/half-blood/). The number came only
+      //   from the card's TEXT, so they were taken as chapters of this manga (8 "chapters", 7 of them other manga, all empty), and the real list (89 chapters) was never fetched.
+      //   HOW: a link whose address is just "<series folder>/<one name>/" with NO number in the address itself is a series page, not a chapter. IMPROVE: add more folder names if a site uses others.
+      if (numFrom(safeDecode(p.pathname)) == null && SERIES_PAGE_PATH.test(p.pathname)) return;
       // WHY: a key without the # part so duplicates match. HOW: split at # and keep the first part.
       const key = u.split('#')[0];
       // WHY: see if already stored. HOW: get from the Map.
@@ -3383,7 +3400,12 @@
     const dirs = ['/comics/', '/manga/', '/series/', '/comic/', '/manhwa/', '/manhua/', '/webtoon/', '/title/', '/'];
     // WHY: Build the final guesses. HOW: join origin, folder, slug; Set removes duplicates; then drop the current page
     // itself.
-    return Array.from(new Set(dirs.map(d => u.origin + d + slug + '/'))).filter(g => !sameUrl(g, url));
+    // ROUND 62: chapter addresses like /a-corporate-underling-who-excels-at-work-2/ (no word "chapter") or /name-chapter-14/ keep the series name in front of the number. WHY: the series page is
+    //   /manga/a-corporate-underling-who-excels-at-work/ - the guesses must try the name WITHOUT the trailing number too. HOW: strip "-chapter-12", "-ch-12" or "-12" from the end.
+    const slugs = [slug]; const bare = slug.replace(/[-_](?:chapter|chap|ch|episode|ep)?[-_]?\d+(?:[-_.]\d+)?$/i, '').replace(/[-_]+$/, '');
+    if (bare && bare !== slug && bare.length >= 3) slugs.push(bare);
+    const out = []; dirs.forEach(d => slugs.forEach(sg => out.push(u.origin + d + sg + '/')));
+    return Array.from(new Set(out)).filter(g => !sameUrl(g, url));
   }
 
   /* ROUND 28 - A CHAPTER LIST THAT IS SPLIT INTO PAGES ("1 2 3 … 5")
@@ -3488,7 +3510,7 @@
       // WHY: Time limit for guessing. HOW: remember the start time in milliseconds.
       const t0 = Date.now();
       // WHY: Way 4: try typical addresses, at most 6. HOW: loop over the first 6 guesses.
-      for (const g of guessSeriesUrls(url).slice(0, 6)) {
+      for (const g of guessSeriesUrls(url).slice(0, 8)) {
         // WHY: Stop waiting too long on slow sites. HOW: break after 25000 ms (25 seconds).
         if (Date.now() - t0 > 25000) break;
         // WHY: Tell the user what is happening. HOW: setBusy shows the status text.
@@ -7294,6 +7316,15 @@
     jobs.forEach(j => row(j.status === 'error' || j.stalled ? false : null, 'Download #' + j.id + ': ' + j.status + (j.stalled ? ' (STALLED)' : '') + ' · ' + (j.text || '')));
     row(null, 'Picture routes: ' + routeStatText());
     row(null, 'Site view pictures (round 51): ' + pageViewPicText());
+    // ROUND 62: reading mode with a suspicious chapter list (links that are really OTHER manga's series pages, e.g. a "Related Series" box). Detected here, fixed by reopening the manga page.
+    try {
+      if (!reader.hidden && R.chapters.length) {
+        const bad = R.chapters.filter(c => { try { const pth = new URL(c.url).pathname; return numFrom(safeDecode(pth)) == null && SERIES_PAGE_PATH.test(pth); } catch { return false; } });
+        const empty = $$('.chapter', stream).filter(x => !x.querySelector('img.page') && (x.dataset.failed === '1' || x.querySelector('.ch-msg'))).length;
+        if (bad.length) row(false, '[RD-LIST-SERIES-LINKS] ' + bad.length + ' of the ' + R.chapters.length + ' "chapters" are links to other manga\'s series pages. Leave reading mode, open the manga\'s own page (its chapter list) and start reading again.');
+        else if (empty >= 3 && empty >= R.chapters.length * 0.5) row(false, '[RD-MANY-EMPTY] ' + empty + ' of ' + R.chapters.length + ' chapter boxes show no pictures. The list may be wrong or the site is blocking. Use Fix automatically, then copy the full report.');
+      }
+    } catch { /* the check must never break the checks */ }
     // ROUND 59: the site-view doctor - named problems with their codes (a green tick means "nothing found")
     try { const sv = await siteViewScan(true); if (sv.on) { if (!sv.problems.length) row(true, 'Site view looks right: ' + (sv.counts.ok || 0) + ' pictures shown, reader finder knows ' + sv.finder.best + '.'); sv.problems.forEach(p => row(false, '[' + p.code + '] ' + p.text + (p.fix ? ' — "Fix automatically" can repair this.' : ' — needs a report.'))); } } catch (e) { row(false, 'Site view check failed: ' + (e && e.message)); }
     row(null, 'Chapter boxes (round 52): ' + chapterHealthText());
@@ -7344,7 +7375,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 61)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 62)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),

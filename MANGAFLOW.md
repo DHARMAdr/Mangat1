@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 61 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 62 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -259,6 +259,20 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 **New core files:** `MANGAFLOW_GUIDE.md` and `MANGAFLOW_GUIDE.txt` list every button, shortcut, setting, server option, troubleshoot option and algorithm, with "FIX NOTE (Round N)" lines. Rule: update them with every change; never put private server names, profile names, passwords or keys in them. `MANGAFLOW_FULL_SITE.md` now contains the guide too, so the whole site (all code + guide + history) can be rebuilt from that one file with `node split.js`.
 
 **IMPROVE:** make the look times a setting; show a small "retrying pictures" hint.
+
+
+## 4r. Round 62 — "Related Series" links taken as chapters + Copy button for profile Reports (app.js, profiles.js, `?v=62`)
+
+**Report (arenascan "A Corporate Underling Who Excels at Work 2", build 60/61):** reading mode showed "chapter 1 of 8", chapter boxes 2-8 stayed empty, the pop-up said "chapters 39, 50, 54, 70, 73, 135, 142 could not be shown", and a later pop-up said "Could not load Chapter 10: no images found" (page title "Master Wants Me Dead").
+
+**Root cause (confirmed with the real site):** the opened page is a chapter whose address has NO word "chapter" (`/a-corporate-underling-who-excels-at-work-2/`). Its only "chapter-looking" links were the **Related Series** cards ("Half Blood Chapter 60" -> `/manga/half-blood/`, a different manga's SERIES page). The number came from the card text, so seven other manga were taken as chapters 39..142 of this one (8 "chapters"), and because there were 8 the code never fetched the real list (the series page `/manga/a-corporate-underling-who-excels-at-work/` has 89 chapters; chapters 1-10 are `/<name>-N/`, later ones `/<name>-chapter-N/`).
+**Fixes (app.js)**
+1. `detectChapters()`: a link whose address is just `<folder>/<name>/` (`SERIES_PAGE_PATH`: manga, series, comic(s), manhwa, manhua, webtoon, title, read...) with NO number in the address itself is a series page, not a chapter.
+2. `guessSeriesUrls()`: also tries the name WITHOUT the trailing number (`-2`, `-chapter-14`) in every typical folder (`/manga/<name>/` is found), up to 8 guesses.
+3. `pickSeries()`: when a site changes its address style half way, the other style's links `<name>-<number>` are added back (chapters 1-10 were lost before).
+4. Troubleshoot "Run checks" in reading mode: new rows `RD-LIST-SERIES-LINKS` (list contains series-page links) and `RD-MANY-EMPTY` (half or more boxes empty).
+**Mock test (`arena10.js`):** before: 8 boxes, 7 empty, menu 8. After: 89 chapters in the menu, chapter boxes fill.
+**Profile > Reports:** every report now has a **Copy** button (profiles.js: `bugText` map, `copyplain()` with a hidden-text-box fallback for phones that block the clipboard, action `copybug`). Delete is unchanged. Test `copybug.js`: copy, fallback copy, delete.
 
 ## How to Deploy / Set Up
 
