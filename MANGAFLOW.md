@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 59 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 60 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -232,6 +232,19 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 **Tests (mock arenascan, Playwright):** old code = 3 spinners (reproduced); new = 20 pictures; healthy page shows "Site view looks right", no false alarm; broken page (spinners, 3 slots, loading bar stuck) is repaired by Fix automatically; page with spinners and no data anywhere produces the complete report.
 
 **IMPROVE:** add more placeholder names when a new site reports a spinner; add a screenshot hint to the report.
+
+
+## 4p. Round 60 — Page 2 picture order, full-screen "working" overlay, quiet background detection (app.js, style.css, `?v=60`)
+
+**Report (arenascan chapter 14, build 59, 2026-11-11):** pictures now load (104 loaded) but (a) the chapter was split by "popular manga" thumbnails, (b) the note "Looking for the manga page…" stayed, and (c) after coming back from reading mode the automatic detection "overlapped" the site and blocked it.
+
+**Root causes**
+1. `placePictures()` added missing pages after the LAST real-looking picture of the page, which was a sidebar thumbnail. Now it walks the finder's list in order: a page already present is a marker, a missing one is inserted right after the previous marker (leading missing ones go before the first marker). Test: p0..p19 are consecutive, thumbnails stay after them.
+2. `#busy` (the working note) was a FULL-SCREEN fixed overlay (`inset: 0`, z-index 55) that swallowed every tap. It is now a small pill at the bottom with `pointer-events: none`, so the site stays usable while detection runs.
+3. `loadSeriesList()` never cleared its note ("Looking for the manga page…") when it finished; it now clears it at the end.
+4. Background detection (`tryAutoRead`) now backs off when the person has touched/clicked the page (`cur.touched`, set by pointerdown in the frame and in `onFrameClick`), so it cannot pull them into reading mode while they use the site.
+
+**IMPROVE:** a visible "Stop detecting" button on the pill; a setting to turn the quiet detection off for one site.
 
 ## How to Deploy / Set Up
 

@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 59 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 60 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -298,6 +298,19 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 **Tests (mock arenascan, Playwright):** old code = 3 spinners (reproduced); new = 20 pictures; healthy page shows "Site view looks right", no false alarm; broken page (spinners, 3 slots, loading bar stuck) is repaired by Fix automatically; page with spinners and no data anywhere produces the complete report.
 
 **IMPROVE:** add more placeholder names when a new site reports a spinner; add a screenshot hint to the report.
+
+
+## 4p. Round 60 — Page 2 picture order, full-screen "working" overlay, quiet background detection (app.js, style.css, `?v=60`)
+
+**Report (arenascan chapter 14, build 59, 2026-11-11):** pictures now load (104 loaded) but (a) the chapter was split by "popular manga" thumbnails, (b) the note "Looking for the manga page…" stayed, and (c) after coming back from reading mode the automatic detection "overlapped" the site and blocked it.
+
+**Root causes**
+1. `placePictures()` added missing pages after the LAST real-looking picture of the page, which was a sidebar thumbnail. Now it walks the finder's list in order: a page already present is a marker, a missing one is inserted right after the previous marker (leading missing ones go before the first marker). Test: p0..p19 are consecutive, thumbnails stay after them.
+2. `#busy` (the working note) was a FULL-SCREEN fixed overlay (`inset: 0`, z-index 55) that swallowed every tap. It is now a small pill at the bottom with `pointer-events: none`, so the site stays usable while detection runs.
+3. `loadSeriesList()` never cleared its note ("Looking for the manga page…") when it finished; it now clears it at the end.
+4. Background detection (`tryAutoRead`) now backs off when the person has touched/clicked the page (`cur.touched`, set by pointerdown in the frame and in `onFrameClick`), so it cannot pull them into reading mode while they use the site.
+
+**IMPROVE:** a visible "Stop detecting" button on the pill; a setting to turn the quiet detection off for one site.
 
 ## How to Deploy / Set Up
 
@@ -741,17 +754,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=59" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=60" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=59" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=60" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=59">
+  <link rel="stylesheet" href="style.css?v=60">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=59"></script>
+  <script src="boot.js?v=60"></script>
 </head>
 <body data-side="right">
 
@@ -1324,31 +1337,31 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=59"></script>
+  <script src="pdfmaker.js?v=60"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=59"></script>
-  <script src="app.js?v=59"></script>
+  <script src="troubleshoot-data.js?v=60"></script>
+  <script src="app.js?v=60"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=59"></script>
+  <script src="chapter-slider.js?v=60"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=59"></script>
+  <script src="reload-wheel.js?v=60"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=59"></script>
+  <script src="edge-slider.js?v=60"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=59"></script>
+  <script src="translate.js?v=60"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=59"></script>
+  <script src="profiles.js?v=60"></script>
 </body>
 </html>
 ~~~~~~
 <!-- END FILE -->
 
 
-### File: `style.css`  (1433 lines)
+### File: `style.css`  (1436 lines)
 
 **Why this file exists / what it does:** The whole look of the site: colours (light/dark), header, buttons, reading mode columns, floating keys, dialogs, phone layout. Every block starts with a comment saying why it exists.
 
@@ -1911,10 +1924,13 @@ body[data-side="left"] #side { flex-direction: row-reverse; }        /* Settings
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 /* WHY: a full-screen overlay while the app is busy. HOW: fixed with inset:0 covers everything; z-index 55; flex centres */
 /* the message; - -bar background is see-through. IMPROVE: add a spinner inside. */
+/* ROUND 59 (owner report): the note used to cover the WHOLE screen and block taps ("detection overlaps the site"). It is now a small pill at the bottom that lets every tap through (pointer-events: none). */
 #busy {
-  position: fixed; inset: 0; z-index: 55; display: flex; align-items: center; justify-content: center;
-  background: var(--bar); font-weight: 600;
+  position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%); z-index: 55; max-width: 88vw;
+  padding: 8px 14px; border-radius: 999px; font: 600 13px/1.3 system-ui, sans-serif; text-align: center;
+  background: var(--bar); border: 1px solid var(--line); box-shadow: 0 2px 10px rgba(0,0,0,.25); pointer-events: none;
 }
+#busy[hidden] { display: none; }
 /* WHY: the shared look of all pop-up dialogs. HOW: the width is the smaller of 92% of the screen or 480px; max-height */
 /* 90dvh with overflow:auto scrolls inside; theme border, radius, colours and padding. Browsers colour dialogs by */
 /* default, so colours are set here. IMPROVE: none needed. */
@@ -3618,7 +3634,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (7997 lines)
+### File: `app.js`  (8008 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4513,7 +4529,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 59)',
+      'MangaFlow error report (build round 60)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -5200,13 +5216,19 @@ window.MF_FIX = {
       imgs.filter(i => { const cs = (i.getAttribute('src') || '').trim(); return (!cs || cs.startsWith('data:') || BAD_IMG.test(cs) || PLACEHOLDER_SRC.test(cs)) && (isHolder(i) || PLACEHOLDER_SRC.test(cs)); }).forEach((i, k) => { if (free[k]) { filled++; i.setAttribute('src', free[k]); i.removeAttribute('srcset'); i.setAttribute('referrerpolicy', 'no-referrer'); } });
       // ROUND 59: pictures the scripts list but the page has no slot for are ADDED after the last real picture (same box), so the whole chapter shows on Page 2
       if (extraPics.length >= 3) {
-        const used = new Set(Array.from(d.querySelectorAll('img')).map(i => absUrl((i.getAttribute('src') || '').trim(), base)).filter(Boolean));
-        const left = extraPics.filter(u => !used.has(u));
-        const real = Array.from(d.querySelectorAll('img')).filter(i => { const u = absUrl((i.getAttribute('src') || '').trim(), base); return u && !PLACEHOLDER_SRC.test(u) && isHolderOrPage(i); });
-        const anchor = real[real.length - 1];
-        if (left.length && anchor && anchor.parentNode) {
-          let ref = anchor;
-          left.forEach(u => { const n = d.createElement('img'); n.setAttribute('src', u); n.setAttribute('referrerpolicy', 'no-referrer'); n.setAttribute('data-mf-added', '1'); added++; n.style.cssText = 'display:block;max-width:100%;margin:0 auto'; ref.parentNode.insertBefore(n, ref.nextSibling); ref = n; });
+        // WHY (owner report 2026-11-11): the added pages landed AFTER the sidebar thumbnails, so chapter pages were split by "popular manga" pictures. HOW: walk the finder's list IN ORDER; a picture the page
+        //   already has becomes the marker, a missing one is inserted right after the previous marker (or right before the first marker when it comes first). IMPROVE: none needed.
+        const byUrl = new Map(); Array.from(d.querySelectorAll('img')).forEach(i => { const u = absUrl((i.getAttribute('src') || '').trim(), base); if (u && !byUrl.has(u)) byUrl.set(u, i); });
+        const firstKnown = extraPics.map(u => byUrl.get(u)).find(Boolean);
+        if (firstKnown && firstKnown.parentNode) {
+          let prev = null; const pending = [];
+          const make = u => { const n = d.createElement('img'); n.setAttribute('src', u); n.setAttribute('referrerpolicy', 'no-referrer'); n.setAttribute('data-mf-added', '1'); added++; n.style.cssText = 'display:block;max-width:100%;margin:0 auto'; return n; };
+          extraPics.forEach(u => {
+            const have = byUrl.get(u);
+            if (have) { if (pending.length && !prev) pending.forEach(p => have.parentNode.insertBefore(make(p), have)); pending.length = 0; prev = have; }
+            else if (prev) { const n = make(u); prev.parentNode.insertBefore(n, prev.nextSibling); prev = n; }
+            else pending.push(u);
+          });
         }
       }
       return { filled: filled, added: added };
@@ -5466,6 +5488,7 @@ window.MF_FIX = {
     if (!d || d.mfHooked) return;
     // WHY: avoid attaching handlers twice. HOW: set a flag on the document object itself.
     d.mfHooked = true;                                                   // never attach twice to the same document
+    d.addEventListener('pointerdown', () => { if (cur) cur.touched = true; }, true);   // ROUND 59: any touch on the page = the person is using it
     // WHY: catch all link clicks in the frame. HOW: the true at the end means capture mode, so our code runs before the
     // page's own code.
     d.addEventListener('click', onFrameClick, true);
@@ -5727,6 +5750,7 @@ window.MF_FIX = {
   // WHY: runs when the person clicks inside the frame. HOW: e is the click event; find the nearest link above the clicked
   // thing; stop if none. IMPROVE: none.
   function onFrameClick(e) {
+    if (cur) cur.touched = true;       // ROUND 59: the person is using the site -> background detection backs off
     if (bridgeClick(e)) return;               // ROUND 56: the site's own Next / Previous / Chapters buttons (see the button bridge above)
     // ROUND 25: Allow all site interactions (buttons, dropdowns, forms) to work. Only intercept link navigation.
     // WHY: preventing all clicks broke site features like filters, buttons, dropdowns. HOW: only preventDefault on actual link clicks.
@@ -6045,7 +6069,8 @@ window.MF_FIX = {
       // WHY: clear the busy message. HOW: empty text.
       setBusy('');
       // WHY: start reading. HOW: only if ok and still on this page; quiet means no error pop-up.
-      if (ok && cur === page) await startReading({ quiet: true });
+      // ROUND 59: if the person already tapped something on the page, the quiet detection must not pull them into reading mode (it used to "take over" the site).
+      if (ok && cur === page && !page.touched) await startReading({ quiet: true });
     // WHY: any failure just leaves the page open. HOW: empty catch on purpose.
     } catch { /* staying on the page is always fine */ }
     // WHY: always remove the busy text. HOW: finally runs every time.
@@ -7067,6 +7092,8 @@ window.MF_FIX = {
         r = await attempt(g); if (r) break;
       }
     }
+    // ROUND 59: the working note must never stay on after the search for the list is over.
+    setBusy('');
     // WHY: Give the result back. HOW: r is the list info or null if all ways failed.
     return r;
   }
@@ -10911,7 +10938,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 59)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 60)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),

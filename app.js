@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 59)',
+      'MangaFlow error report (build round 60)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -1574,13 +1574,19 @@
       imgs.filter(i => { const cs = (i.getAttribute('src') || '').trim(); return (!cs || cs.startsWith('data:') || BAD_IMG.test(cs) || PLACEHOLDER_SRC.test(cs)) && (isHolder(i) || PLACEHOLDER_SRC.test(cs)); }).forEach((i, k) => { if (free[k]) { filled++; i.setAttribute('src', free[k]); i.removeAttribute('srcset'); i.setAttribute('referrerpolicy', 'no-referrer'); } });
       // ROUND 59: pictures the scripts list but the page has no slot for are ADDED after the last real picture (same box), so the whole chapter shows on Page 2
       if (extraPics.length >= 3) {
-        const used = new Set(Array.from(d.querySelectorAll('img')).map(i => absUrl((i.getAttribute('src') || '').trim(), base)).filter(Boolean));
-        const left = extraPics.filter(u => !used.has(u));
-        const real = Array.from(d.querySelectorAll('img')).filter(i => { const u = absUrl((i.getAttribute('src') || '').trim(), base); return u && !PLACEHOLDER_SRC.test(u) && isHolderOrPage(i); });
-        const anchor = real[real.length - 1];
-        if (left.length && anchor && anchor.parentNode) {
-          let ref = anchor;
-          left.forEach(u => { const n = d.createElement('img'); n.setAttribute('src', u); n.setAttribute('referrerpolicy', 'no-referrer'); n.setAttribute('data-mf-added', '1'); added++; n.style.cssText = 'display:block;max-width:100%;margin:0 auto'; ref.parentNode.insertBefore(n, ref.nextSibling); ref = n; });
+        // WHY (owner report 2026-11-11): the added pages landed AFTER the sidebar thumbnails, so chapter pages were split by "popular manga" pictures. HOW: walk the finder's list IN ORDER; a picture the page
+        //   already has becomes the marker, a missing one is inserted right after the previous marker (or right before the first marker when it comes first). IMPROVE: none needed.
+        const byUrl = new Map(); Array.from(d.querySelectorAll('img')).forEach(i => { const u = absUrl((i.getAttribute('src') || '').trim(), base); if (u && !byUrl.has(u)) byUrl.set(u, i); });
+        const firstKnown = extraPics.map(u => byUrl.get(u)).find(Boolean);
+        if (firstKnown && firstKnown.parentNode) {
+          let prev = null; const pending = [];
+          const make = u => { const n = d.createElement('img'); n.setAttribute('src', u); n.setAttribute('referrerpolicy', 'no-referrer'); n.setAttribute('data-mf-added', '1'); added++; n.style.cssText = 'display:block;max-width:100%;margin:0 auto'; return n; };
+          extraPics.forEach(u => {
+            const have = byUrl.get(u);
+            if (have) { if (pending.length && !prev) pending.forEach(p => have.parentNode.insertBefore(make(p), have)); pending.length = 0; prev = have; }
+            else if (prev) { const n = make(u); prev.parentNode.insertBefore(n, prev.nextSibling); prev = n; }
+            else pending.push(u);
+          });
         }
       }
       return { filled: filled, added: added };
@@ -1840,6 +1846,7 @@
     if (!d || d.mfHooked) return;
     // WHY: avoid attaching handlers twice. HOW: set a flag on the document object itself.
     d.mfHooked = true;                                                   // never attach twice to the same document
+    d.addEventListener('pointerdown', () => { if (cur) cur.touched = true; }, true);   // ROUND 59: any touch on the page = the person is using it
     // WHY: catch all link clicks in the frame. HOW: the true at the end means capture mode, so our code runs before the
     // page's own code.
     d.addEventListener('click', onFrameClick, true);
@@ -2101,6 +2108,7 @@
   // WHY: runs when the person clicks inside the frame. HOW: e is the click event; find the nearest link above the clicked
   // thing; stop if none. IMPROVE: none.
   function onFrameClick(e) {
+    if (cur) cur.touched = true;       // ROUND 59: the person is using the site -> background detection backs off
     if (bridgeClick(e)) return;               // ROUND 56: the site's own Next / Previous / Chapters buttons (see the button bridge above)
     // ROUND 25: Allow all site interactions (buttons, dropdowns, forms) to work. Only intercept link navigation.
     // WHY: preventing all clicks broke site features like filters, buttons, dropdowns. HOW: only preventDefault on actual link clicks.
@@ -2419,7 +2427,8 @@
       // WHY: clear the busy message. HOW: empty text.
       setBusy('');
       // WHY: start reading. HOW: only if ok and still on this page; quiet means no error pop-up.
-      if (ok && cur === page) await startReading({ quiet: true });
+      // ROUND 59: if the person already tapped something on the page, the quiet detection must not pull them into reading mode (it used to "take over" the site).
+      if (ok && cur === page && !page.touched) await startReading({ quiet: true });
     // WHY: any failure just leaves the page open. HOW: empty catch on purpose.
     } catch { /* staying on the page is always fine */ }
     // WHY: always remove the busy text. HOW: finally runs every time.
@@ -3441,6 +3450,8 @@
         r = await attempt(g); if (r) break;
       }
     }
+    // ROUND 59: the working note must never stay on after the search for the list is over.
+    setBusy('');
     // WHY: Give the result back. HOW: r is the list info or null if all ways failed.
     return r;
   }
@@ -7285,7 +7296,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 59)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 60)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
