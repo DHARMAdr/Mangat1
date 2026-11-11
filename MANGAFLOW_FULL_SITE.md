@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 60 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 61 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -311,6 +311,20 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 4. Background detection (`tryAutoRead`) now backs off when the person has touched/clicked the page (`cur.touched`, set by pointerdown in the frame and in `onFrameClick`), so it cannot pull them into reading mode while they use the site.
 
 **IMPROVE:** a visible "Stop detecting" button on the pill; a setting to turn the quiet detection off for one site.
+
+
+## 4q. Round 61 — Automatic picture watchdog for Page 2 + the Options Guide files (app.js, `?v=61`)
+
+**Report (arenascan chapter 15):** pictures stayed "loading" (11 of 28 pending) until Settings > Troubleshoot > Fix automatically was pressed; then they loaded. The owner does not want to press it on every chapter.
+
+**Root cause:** the old retry ran only for pictures that had already FAILED (error event) and only once. A picture that just HANGS (slow or silent host, big 690x8000 images, many at once) never fires an error, so nothing ever restarted it. The troubleshooter's "Fix automatically" restarted them by hand.
+
+**Fix:** `kickImg(img)` restarts one picture through the next route (level 1 own proxy + `&ref=` page address, level 2 other proxies, level 3 same address + changing word). `frameWatch(page)` (started in `navigate()` after the page appears) looks at 4, 9, 16, 28, 45, 70 s: failed pictures are kicked at once, hanging ones from 9 s (max 6 per look), and from the 2nd look it runs the quiet Site-View Doctor when the scan finds placeholder/missing/stuck problems. New scan code `P2-STALLED` (pictures still pending after 12 s) is repaired with the same kicks. The watchdog stops when everything loaded or the person leaves the page, never runs on search lists or in reading mode, and its counters appear in the full report ("Picture watchdog").
+**Test:** mock chapter where 8 pictures never answer directly: the old code never finished loading; the new code restarts them through the proxy and all 20 load.
+
+**New core files:** `MANGAFLOW_GUIDE.md` and `MANGAFLOW_GUIDE.txt` list every button, shortcut, setting, server option, troubleshoot option and algorithm, with "FIX NOTE (Round N)" lines. Rule: update them with every change; never put private server names, profile names, passwords or keys in them. `MANGAFLOW_FULL_SITE.md` now contains the guide too, so the whole site (all code + guide + history) can be rebuilt from that one file with `node split.js`.
+
+**IMPROVE:** make the look times a setting; show a small "retrying pictures" hint.
 
 ## How to Deploy / Set Up
 
@@ -754,17 +768,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=60" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=61" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=60" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=61" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=60">
+  <link rel="stylesheet" href="style.css?v=61">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=60"></script>
+  <script src="boot.js?v=61"></script>
 </head>
 <body data-side="right">
 
@@ -1337,24 +1351,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=60"></script>
+  <script src="pdfmaker.js?v=61"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=60"></script>
-  <script src="app.js?v=60"></script>
+  <script src="troubleshoot-data.js?v=61"></script>
+  <script src="app.js?v=61"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=60"></script>
+  <script src="chapter-slider.js?v=61"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=60"></script>
+  <script src="reload-wheel.js?v=61"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=60"></script>
+  <script src="edge-slider.js?v=61"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=60"></script>
+  <script src="translate.js?v=61"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=60"></script>
+  <script src="profiles.js?v=61"></script>
 </body>
 </html>
 ~~~~~~
@@ -3634,7 +3648,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8008 lines)
+### File: `app.js`  (8056 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4529,7 +4543,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 60)',
+      'MangaFlow error report (build round 61)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -5511,6 +5525,52 @@ window.MF_FIX = {
     // WHY: add chapter list and shortcuts if data is already known. HOW: applyLive is below.
     applyLive(d);
   }
+  /* ROUND 61 - THE PICTURE WATCHDOG FOR PAGE 2 (automatic "Fix automatically").
+     WHY (owner report, arenascan chapter 15): some pictures of a site page stayed "pending" (the host answered slowly / not at all) and only after pressing Settings > Troubleshoot > Fix
+            automatically did they load. Nobody wants to press that on every chapter. The old retry ran only for pictures that had already FAILED (error event), never for pictures that just hang.
+     HOW: kickImg() restarts ONE picture through the next route: level 1 = your own proxy with the chapter page as Referer, level 2 = the other proxies, level 3 = the same address with a
+          tiny changing word added (breaks a stuck cache entry). frameWatch() looks at the page at 4, 9, 16, 28, 45 and 70 seconds after it appeared: failed pictures are kicked at once, hanging
+          ones after 9 seconds (at most 6 per look so the phone is not flooded), and from the 2nd look on it also runs the quiet site-view repair when the scan finds placeholder / missing pictures
+          or a stuck loading note. It stops by itself when the person goes elsewhere or when nothing is left. IMPROVE: make the look times a setting. */
+  function kickImg(img) {
+    try {
+      const orig = img.dataset.mfOrig || img.getAttribute('src') || ''; if (!orig || /^(data:|blob:)/.test(orig)) return false;
+      const tries = parseInt(img.dataset.mfTry || '0', 10); if (tries >= 3) return false;
+      img.dataset.mfOrig = orig; img.dataset.mfTry = String(tries + 1); img.dataset.mfRetried = '1';
+      const tpls = proxyList(false).slice().sort((a, b) => (DEFAULT_PROXIES.includes(a) ? 1 : 0) - (DEFAULT_PROXIES.includes(b) ? 1 : 0));
+      const ref = cur && cur.url ? '&ref=' + encodeURIComponent(cur.url) : '';
+      let next;
+      if (tries === 0 && tpls[0]) next = tpls[0].replace('{url}', encodeURIComponent(orig)) + (tpls[0].includes('workers.dev') ? ref : '');
+      else if (tries === 1 && tpls[1]) next = tpls[1].replace('{url}', encodeURIComponent(orig));
+      else next = orig + (orig.includes('?') ? '&' : '?') + 'mfr=' + Date.now().toString(36);
+      if (!next || next === img.getAttribute('src')) return false;
+      img.setAttribute('src', next); return true;
+    } catch { return false; }
+  }
+  function frameWatch(page) {
+    const at = [4, 9, 16, 28, 45, 70]; let n = 0;
+    page.watch = { looks: 0, kicked: 0, repairs: 0, left: -1 };
+    const look = async () => {
+      if (cur !== page) return;
+      n++; page.watch.looks = n;
+      try {
+        const d = frame.contentDocument;
+        if (d && !frame.hidden && reader.hidden && !page.isSearch) {
+          let budget = 6, left = 0;
+          Array.from(d.images || []).forEach(i => {
+            const src = i.getAttribute('src'); if (!src || /^data:/.test(src)) return;
+            const bad = i.complete && !i.naturalWidth, hang = !i.complete && n >= 2;
+            if (bad || hang) { left++; if (budget > 0 && kickImg(i)) { budget--; page.watch.kicked++; } }
+          });
+          if (n >= 2 && n <= 4 && !page.isSearch) { const sc = await siteViewScan(false); if (sc.problems.some(p => /PLACEHOLDER$|MISSING|STUCK/.test(p.code))) { page.watch.repairs++; await siteViewRepair(); } }
+          page.watch.left = left;
+          if (!left && n >= 3) return;                                   // everything is loaded: stop watching
+        }
+      } catch { /* the watchdog must never break the page */ }
+      if (n < at.length) setTimeout(look, (at[n] - at[n - 1]) * 1000);
+    };
+    setTimeout(look, at[0] * 1000);
+  }
   // ROUND 51 — retry ONE broken picture of the site view through the proxy, with the page address as Referer (see the long note where the 'error' listener is attached).
   function retryFrameImg(img) {
     if (!img || !img.src || /^(data:|blob:)/.test(img.src) || img.dataset.mfRetried) return;
@@ -6015,6 +6075,7 @@ window.MF_FIX = {
       // WHY: mark success. HOW: ok = true.
       ok = true;
       // WHY: if the person typed this link, maybe jump into reading mode. HOW: tryAutoRead runs in the background (no await).
+      if (!isSearch) { page.shownAt = Date.now(); frameWatch(page); }   // ROUND 61: automatic picture watchdog (no need to press Fix automatically)
       if (opts.user) tryAutoRead(page);                // not awaited: the page is already on screen
     // WHY: handle load errors. HOW: the catch gets the error e.
     } catch (e) {
@@ -10790,6 +10851,7 @@ window.MF_FIX = {
       if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
       else if ((c.placeholder || 0) > 0) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
       if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
+      if ((c.pending || 0) > 0 && cur.shownAt && Date.now() - cur.shownAt > 12000) r.problems.push({ code: 'P2-STALLED', text: (c.pending) + ' picture(s) are still loading after 12 seconds (slow or silent host).', fix: true });
       if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
       // loading signs that never end
       const barOn = $('#loadbar').classList.contains('on'), busyOn = !$('#busy').hidden;
@@ -10817,7 +10879,7 @@ window.MF_FIX = {
       const res = placePictures(d, base, r0.pics);
       out.push('Site view: filled ' + res.filled + ' empty slot(s) and added ' + res.added + ' missing picture(s) from the reader finder.');
     }
-    if (codes.includes('P2-FAILED')) { try { sweepFrameImgs(d); out.push('Site view: retried the failed pictures through the proxies.'); } catch { /* ignore */ } }
+    if (codes.includes('P2-FAILED') || codes.includes('P2-STALLED')) { let k = 0; try { Array.from(d.images).forEach(i => { if (i.getAttribute('src') && ((i.complete && !i.naturalWidth) || !i.complete) && kickImg(i)) k++; }); out.push('Site view: restarted ' + k + ' failed/hanging picture(s) through other routes.'); } catch { /* ignore */ } }
     if (codes.includes('P2-STUCK-LOADING')) { setLoading(false); setBusy(''); out.push('Site view: switched off a loading bar that never ended.'); }
     let listFail = false;
     if (r0.counts.needList) {
@@ -10829,7 +10891,7 @@ window.MF_FIX = {
     }
     if (codes.includes('P2-STUCK-LOADING')) { setLoading(false); setBusy(''); }       // the list loading above may switch the note on again: switch it off once more
     await new Promise(x => setTimeout(x, 2500));            // give the new pictures a moment to load, then look again
-    const r1 = await siteViewScan(false), left = r1.problems.filter(p => !(p.code === 'P2-FAILED' && (r1.counts.failed || 0) === 0));
+    const r1 = await siteViewScan(false), left = r1.problems.filter(p => !((p.code === 'P2-FAILED' || p.code === 'P2-STALLED') && !(r1.counts.failed || 0) && !(r1.counts.pending || 0)));
     if (listFail) left.push({ code: 'P2-NOLIST', text: 'Chapter page without a findable chapter list.', fix: false });
     out.push(left.length ? 'Site view: ' + left.length + ' problem(s) remain: ' + left.map(p => p.code).join(', ') : 'Site view: all problems repaired.');
     SVD.fixed = r0.problems.filter(p => !left.some(l => l.code === p.code)).map(p => p.code); SVD.failed = left.map(p => p.code);
@@ -10839,7 +10901,7 @@ window.MF_FIX = {
   //   proxy answers, the problem log. It is plain text so it can be pasted into any AI. IMPROVE: add a screenshot hint.
   async function siteViewFull() {
     const r = SVD.last || await siteViewScan(true), L = [];
-    L.push('=== SITE VIEW (Page 2) DETAIL ===', 'Page: ' + (cur ? cur.url : '-'), 'Scan: ' + JSON.stringify(r.counts), 'Reader finder: ' + JSON.stringify(r.finder));
+    L.push('=== SITE VIEW (Page 2) DETAIL ===', 'Page: ' + (cur ? cur.url : '-'), 'Scan: ' + JSON.stringify(r.counts), 'Reader finder: ' + JSON.stringify(r.finder), 'Picture watchdog: ' + JSON.stringify(cur && cur.watch || null));
     L.push('Problems found: ' + (r.problems.map(p => p.code + ' - ' + p.text).join(' | ') || 'none'), 'Repaired: ' + (SVD.fixed.join(', ') || 'none') + ' · Not repaired: ' + (SVD.failed.join(', ') || 'none'));
     try {
       const d = frame.contentDocument;
@@ -10938,7 +11000,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 60)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 61)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -14563,6 +14625,151 @@ async function wipe(DB, user) {
 <!-- BEGIN FILE: googledb6fd0cf04d837f7.html -->
 ~~~~~~html
 google-site-verification: googledb6fd0cf04d837f7.html
+~~~~~~
+<!-- END FILE -->
+
+
+### File: `MANGAFLOW_GUIDE.md`  (136 lines)
+
+**Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
+
+<!-- BEGIN FILE: MANGAFLOW_GUIDE.md -->
+~~~~~~md
+# MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
+
+*Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
+*Last updated: Round 61 — 2026-11-11*
+
+## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
+1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
+2. Every time an ERROR is fixed, put a note on that line in this form: `FIX NOTE (Round N): it used to <problem>; now <what happens>.` Keep old notes (they are the history).
+3. NEVER write private things here: no server addresses of the owner, no profile names, no passwords, no keys or IDs. Use placeholders such as `<your Cloudflare proxy>`.
+4. Only HTML, CSS and JavaScript are used. Nothing else is needed to run the site.
+
+## 0. Page names (how we talk about the site)
+- **Page 1** = start page (search box, recent list, Paste / clipboard list, search engine picker).
+- **Page 2** = site view (a mini browser showing the outside manga page; its scripts are blocked, MangaFlow draws what it needs).
+- **Page 3** = reading mode (chapters one under another, endless scroll).
+
+## 1. Buttons
+### 1.1 Top bar (Page 1 and Page 2)
+| Button | What it does / how it works |
+|---|---|
+| Back / Forward | Moves through the pages opened inside MangaFlow (also works with the phone's own Back). FIX NOTE (Round 53): Forward after Back used to do nothing; now works. |
+| Reload | Loads the current page again (clears its saved copy first). |
+| Start page (home) | Goes to Page 1. |
+| Address box + search pill | Paste a manga link (opens it; if chapters exist it may open reading mode) or type a name (searches with the chosen search engine). |
+| Bookmark star | Adds / removes the page from bookmarks (saved in the profile). FIX NOTE (Round 41): bookmarks could be added but not removed; now removable. |
+| White/Black | Switches the theme. |
+| Full screen | Hides the bars; Esc leaves. |
+| Settings | Opens the settings window (section 3). |
+| Open on original site | Opens the real page in a new browser tab. |
+| Report / Open original / Dismiss (page note) | Small note shown when a page looks wrong: send a report, open the real site, or close the note. |
+
+### 1.2 Page 1 (start page)
+| Button | What it does |
+|---|---|
+| Paste (clipboard icon) | Pastes the copied link or words into the box. |
+| Clipboard list (arrow) | Shows the last copied links to pick from. |
+| Search engine picker | Chooses which engine is used for names (Google, DuckDuckGo, etc.). |
+| Google | Searches the words with Google inside MangaFlow; "google.com" opens it in a tab; Close hides the panel. |
+
+### 1.3 Page 2 floating buttons
+| Button | What it does |
+|---|---|
+| Reading mode (book icon, icon only) | Starts reading mode for this page. FIX NOTE (Round 56): used to show words and was too big; now a small icon. |
+| Previous / Chapter list / Next (bottom bar) | MangaFlow's own chapter buttons for the site view. FIX NOTE (Round 56): sites with script-driven chapter bars (their Next/Prev did nothing here) are handled by the "button bridge" — the site's own Next / Previous / Chapters controls are recognised and made to work. FIX NOTE (Round 58): dead links like `#/next/` no longer cause an error. |
+
+### 1.4 Reading mode (Page 3) bars and menus
+| Button | What it does |
+|---|---|
+| Home | Leaves reading and goes to Page 1 (also cleans the address). |
+| Exit (Esc) | Leaves reading mode and opens the chapter you were on. |
+| Chapters (C) | Chapter list menu to jump. |
+| White/Black (T) | Theme. |
+| Settings | Settings; also "clear chapter cache". |
+| Address box (reading) | Paste another link or type a name without leaving reading mode first. |
+| Menu: Download chapters (PDF), Full screen, Free memory | PDF maker, full screen, clears the chapter cache. |
+| Load earlier chapters | Loads the chapters before the first one shown. |
+| Top / Previous chapter / Next chapter / End | Jump to the top, previous chapter, next chapter, end of loaded chapters. FIX NOTE (Round 53): after a key jump the header could stay hidden; now shown at the top. |
+| Full screen (and Exit full screen) | Full-screen reading. FIX NOTE (Round 53): Esc in full screen used to leave reading mode; now it only leaves full screen. |
+| Downloads dock (icon, minimise) | Shows running PDF downloads; they keep running when minimised. |
+
+### 1.5 Windows
+| Window | Buttons |
+|---|---|
+| PDF maker | From / To chapter, split, mode, Cancel, Make PDF. |
+| Search pop-up | Link/name box, Paste, clipboard list. |
+| Error window | Close, Troubleshoot, Copy report. |
+| Human check window | Open the site, "I did it – try again", Close (for sites that ask "are you a robot"). |
+
+## 2. Keyboard shortcuts (reading mode)
+| Key | Action |
+|---|---|
+| Esc | Closes menus / leaves full screen / leaves reading mode (in that order). |
+| N / P | Next / previous chapter. |
+| T | Theme. |
+| C | Chapter menu. |
+| Left / Right arrows | Previous / next chapter (only when "Keys ← → change chapter" is on). |
+| Home / End | Top / end of loaded chapters (hidden on purpose when the Slider or Edge add-on is on). |
+| Up / Page Up at the very top | Loads earlier chapters. |
+| F11 | Full screen (when the full-screen button setting is on). |
+| Enter in the proxy box | Adds the proxy. |
+
+## 3. Settings (window "Settings")
+- **Reading:** page width, chapter-bar side (left/right), PDF quality, Chapter slider, Reload wheel, Keep screen awake (turns off after a reload), Open manga link straight in reading mode (auto-read), Load chapters ahead (how many), Keys ← →, Tap to scroll (top = up), Full-screen button, Top/End slider (edge).
+- **Search:** Search engine, Google search ID and key (private — stored only in the browser), Test Google search, "Copy my sites for Google", Only use the engine I chose, Open search straight after Paste, add the word "manga" to Google searches. FIX NOTE (Round 47/49): the owner's own address and old key must never be written in files.
+- **Translate add-on:** button on/off, language to translate into, language written on pages, engine, start automatically, Test translate.
+- **Profile (accounts add-on):** Open my profile, Sync now (history, bookmarks synced to the accounts server). Profile names and passwords are NOT listed in any file.
+- **Memory / history:** Clear a range of chapters, clear all before my chapter, automatic clearing, "Do not save my reading history", "Erase history and cache when I close this tab", Clear history & cache.
+- **Servers (proxies):** list of picture/page proxies, Add, Test all, Reset to defaults (see section 4).
+- **Troubleshoot:** see section 5. Reset settings puts every setting back to default.
+
+## 4. Server options (generic — no private names)
+- **Proxy server (Cloudflare Worker, `worker.js`):** `<your Cloudflare proxy>/?url={url}&ref=<page address>`. Fetches pages and pictures for MangaFlow because browsers block direct access. `&ref=` sends the chapter page as Referer so picture hosts that check it answer. Optional allow-list `ALLOWED` limits which sites it will fetch.
+- **Public proxies (backup):** a few free public proxy services are tried when your own proxy fails. They cannot send a Referer.
+- **Accounts server (Cloudflare Worker + D1 database, `accounts-worker.js`):** sign-in, history/bookmark sync, and receiving "Send report to server". Passwords are never shown to the page or stored in files.
+- **Picture routes (reading mode):** direct → your proxy with Referer → other proxies → image resizer service; the first that works is used.
+- **Hosting:** GitHub Pages (static files). Cache busting uses `?v=NN` in `index.html`; raise NN every update. FIX NOTE (Round 42): updates seemed "not to arrive" because browsers kept old files; version numbers fixed that.
+
+## 5. Troubleshoot (Settings → Troubleshoot)
+| Option | What it does |
+|---|---|
+| Run checks | Tests browser features, proxies, downloads and (new, Round 59) the site view: lists named problems with codes. |
+| Fix automatically | Clears caches, tests proxies, repairs reading-mode pictures/boxes, cancels stuck work, and runs the Site-View Doctor. If something cannot be fixed it builds the COMPLETE error report, shows it in a box and copies it. |
+| Symptoms & answers | A guide of common problems with fixes. |
+| Copy full report / Send report to server | The full report (includes the Page 2 detail) for you, Claude or any AI. |
+| Reset settings | Back to defaults. |
+
+**Site-View Doctor codes (Page 2):** `P2-PLACEHOLDER` (spinner/empty slots), `P2-MISSING` (fewer pictures than the reader finder knows), `P2-FAILED` (pictures failed), `P2-STALLED` (pictures still loading after 12 s), `P2-STUCK-LOADING` (loading note that never ends), `P2-NOLIST`, `P2-NODOC`.
+**Automatic algorithms (nothing to press):**
+- *Picture watchdog (Round 61):* after a site page appears it looks at 4, 9, 16, 28, 45, 70 s; failed pictures are restarted at once, hanging pictures after 9 s, through your proxy (with Referer), other proxies, then the same address with a changing word. From the 2nd look it also runs the quiet Doctor repair. Stops when all pictures are loaded or when you leave.
+- *Placeholder rule (Round 59):* spinner pictures such as `readerarea.svg` count as EMPTY slots and are filled with the real chapter pictures (in the correct order, Round 60).
+- *Chapter audit (Round 55):* detects missing/jumping chapter numbers (e.g. 1 then 22) and reports/repairs them.
+- *Quiet detection (Round 60):* the check "is this a manga? open reading mode" runs in the background, shows only a small non-blocking note, and stops as soon as you touch the page.
+
+## 6. Add-ons
+Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each can be turned off in Settings. Files: `chapter-slider.js`, `reload-wheel.js`, `edge-slider.js`, `translate.js`, `profiles.js`.
+
+## 7. Fix notes by round (what was broken → what happens now)
+- **Round 38–42:** chapter lists incomplete (all chapters now load); history delete/date filter/export on phones; keep-screen-awake stopping; header hiding too eagerly; bookmarks not removable; old files cached (version numbers added).
+- **Round 43:** full audit of app, profiles, translate and style files (many small bugs fixed; see `MANGAFLOW.md`).
+- **Round 45–46:** chapter errors from reports; refresh on Page 1 reopened the last chapter (now stays on Page 1); roliascan picture API.
+- **Round 47/49:** sign-in problems fixed; owner's server address removed from visible text.
+- **Round 50–52:** Page 2 chapter pages show all pictures; hotlink-protected pictures load through the proxy with Referer; stuck/empty chapter boxes recovered.
+- **Round 53:** whole-site audit of every button, shortcut, setting, profile and server option (Forward, Esc in full screen, header at top fixed).
+- **Round 54:** one-picture chapters accepted; false "font" warning fixed.
+- **Round 55:** chapter audit — no silent jump from chapter 1 to 22.
+- **Round 56:** icon-only Reading button; button bridge for script-driven chapter bars.
+- **Round 57–58:** "Page 2 keeps loading"; chapter list 1..N; dead `#/next/` links.
+- **Round 59:** Page 2 showed only a spinner (placeholder pictures were counted as real) → fixed; Site-View Doctor added to Troubleshoot with full error report.
+- **Round 60:** added pages were placed after sidebar thumbnails → correct order; the "working" note covered the whole screen and blocked the site → small non-blocking note; detection stops when you touch the page.
+- **Round 61:** some Page 2 pictures hung until "Fix automatically" was pressed → picture watchdog does it automatically; this guide added.
+
+## 8. Known open items
+- Replace/revoke any old Google key that was ever shown in a report.
+- Fill the proxy's `ALLOWED` list if you want to restrict it.
+- Sites with strong bot checks may still need the "Human check" window.
 ~~~~~~
 <!-- END FILE -->
 

@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 60)',
+      'MangaFlow error report (build round 61)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -1869,6 +1869,52 @@
     // WHY: add chapter list and shortcuts if data is already known. HOW: applyLive is below.
     applyLive(d);
   }
+  /* ROUND 61 - THE PICTURE WATCHDOG FOR PAGE 2 (automatic "Fix automatically").
+     WHY (owner report, arenascan chapter 15): some pictures of a site page stayed "pending" (the host answered slowly / not at all) and only after pressing Settings > Troubleshoot > Fix
+            automatically did they load. Nobody wants to press that on every chapter. The old retry ran only for pictures that had already FAILED (error event), never for pictures that just hang.
+     HOW: kickImg() restarts ONE picture through the next route: level 1 = your own proxy with the chapter page as Referer, level 2 = the other proxies, level 3 = the same address with a
+          tiny changing word added (breaks a stuck cache entry). frameWatch() looks at the page at 4, 9, 16, 28, 45 and 70 seconds after it appeared: failed pictures are kicked at once, hanging
+          ones after 9 seconds (at most 6 per look so the phone is not flooded), and from the 2nd look on it also runs the quiet site-view repair when the scan finds placeholder / missing pictures
+          or a stuck loading note. It stops by itself when the person goes elsewhere or when nothing is left. IMPROVE: make the look times a setting. */
+  function kickImg(img) {
+    try {
+      const orig = img.dataset.mfOrig || img.getAttribute('src') || ''; if (!orig || /^(data:|blob:)/.test(orig)) return false;
+      const tries = parseInt(img.dataset.mfTry || '0', 10); if (tries >= 3) return false;
+      img.dataset.mfOrig = orig; img.dataset.mfTry = String(tries + 1); img.dataset.mfRetried = '1';
+      const tpls = proxyList(false).slice().sort((a, b) => (DEFAULT_PROXIES.includes(a) ? 1 : 0) - (DEFAULT_PROXIES.includes(b) ? 1 : 0));
+      const ref = cur && cur.url ? '&ref=' + encodeURIComponent(cur.url) : '';
+      let next;
+      if (tries === 0 && tpls[0]) next = tpls[0].replace('{url}', encodeURIComponent(orig)) + (tpls[0].includes('workers.dev') ? ref : '');
+      else if (tries === 1 && tpls[1]) next = tpls[1].replace('{url}', encodeURIComponent(orig));
+      else next = orig + (orig.includes('?') ? '&' : '?') + 'mfr=' + Date.now().toString(36);
+      if (!next || next === img.getAttribute('src')) return false;
+      img.setAttribute('src', next); return true;
+    } catch { return false; }
+  }
+  function frameWatch(page) {
+    const at = [4, 9, 16, 28, 45, 70]; let n = 0;
+    page.watch = { looks: 0, kicked: 0, repairs: 0, left: -1 };
+    const look = async () => {
+      if (cur !== page) return;
+      n++; page.watch.looks = n;
+      try {
+        const d = frame.contentDocument;
+        if (d && !frame.hidden && reader.hidden && !page.isSearch) {
+          let budget = 6, left = 0;
+          Array.from(d.images || []).forEach(i => {
+            const src = i.getAttribute('src'); if (!src || /^data:/.test(src)) return;
+            const bad = i.complete && !i.naturalWidth, hang = !i.complete && n >= 2;
+            if (bad || hang) { left++; if (budget > 0 && kickImg(i)) { budget--; page.watch.kicked++; } }
+          });
+          if (n >= 2 && n <= 4 && !page.isSearch) { const sc = await siteViewScan(false); if (sc.problems.some(p => /PLACEHOLDER$|MISSING|STUCK/.test(p.code))) { page.watch.repairs++; await siteViewRepair(); } }
+          page.watch.left = left;
+          if (!left && n >= 3) return;                                   // everything is loaded: stop watching
+        }
+      } catch { /* the watchdog must never break the page */ }
+      if (n < at.length) setTimeout(look, (at[n] - at[n - 1]) * 1000);
+    };
+    setTimeout(look, at[0] * 1000);
+  }
   // ROUND 51 — retry ONE broken picture of the site view through the proxy, with the page address as Referer (see the long note where the 'error' listener is attached).
   function retryFrameImg(img) {
     if (!img || !img.src || /^(data:|blob:)/.test(img.src) || img.dataset.mfRetried) return;
@@ -2373,6 +2419,7 @@
       // WHY: mark success. HOW: ok = true.
       ok = true;
       // WHY: if the person typed this link, maybe jump into reading mode. HOW: tryAutoRead runs in the background (no await).
+      if (!isSearch) { page.shownAt = Date.now(); frameWatch(page); }   // ROUND 61: automatic picture watchdog (no need to press Fix automatically)
       if (opts.user) tryAutoRead(page);                // not awaited: the page is already on screen
     // WHY: handle load errors. HOW: the catch gets the error e.
     } catch (e) {
@@ -7148,6 +7195,7 @@
       if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
       else if ((c.placeholder || 0) > 0) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
       if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
+      if ((c.pending || 0) > 0 && cur.shownAt && Date.now() - cur.shownAt > 12000) r.problems.push({ code: 'P2-STALLED', text: (c.pending) + ' picture(s) are still loading after 12 seconds (slow or silent host).', fix: true });
       if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
       // loading signs that never end
       const barOn = $('#loadbar').classList.contains('on'), busyOn = !$('#busy').hidden;
@@ -7175,7 +7223,7 @@
       const res = placePictures(d, base, r0.pics);
       out.push('Site view: filled ' + res.filled + ' empty slot(s) and added ' + res.added + ' missing picture(s) from the reader finder.');
     }
-    if (codes.includes('P2-FAILED')) { try { sweepFrameImgs(d); out.push('Site view: retried the failed pictures through the proxies.'); } catch { /* ignore */ } }
+    if (codes.includes('P2-FAILED') || codes.includes('P2-STALLED')) { let k = 0; try { Array.from(d.images).forEach(i => { if (i.getAttribute('src') && ((i.complete && !i.naturalWidth) || !i.complete) && kickImg(i)) k++; }); out.push('Site view: restarted ' + k + ' failed/hanging picture(s) through other routes.'); } catch { /* ignore */ } }
     if (codes.includes('P2-STUCK-LOADING')) { setLoading(false); setBusy(''); out.push('Site view: switched off a loading bar that never ended.'); }
     let listFail = false;
     if (r0.counts.needList) {
@@ -7187,7 +7235,7 @@
     }
     if (codes.includes('P2-STUCK-LOADING')) { setLoading(false); setBusy(''); }       // the list loading above may switch the note on again: switch it off once more
     await new Promise(x => setTimeout(x, 2500));            // give the new pictures a moment to load, then look again
-    const r1 = await siteViewScan(false), left = r1.problems.filter(p => !(p.code === 'P2-FAILED' && (r1.counts.failed || 0) === 0));
+    const r1 = await siteViewScan(false), left = r1.problems.filter(p => !((p.code === 'P2-FAILED' || p.code === 'P2-STALLED') && !(r1.counts.failed || 0) && !(r1.counts.pending || 0)));
     if (listFail) left.push({ code: 'P2-NOLIST', text: 'Chapter page without a findable chapter list.', fix: false });
     out.push(left.length ? 'Site view: ' + left.length + ' problem(s) remain: ' + left.map(p => p.code).join(', ') : 'Site view: all problems repaired.');
     SVD.fixed = r0.problems.filter(p => !left.some(l => l.code === p.code)).map(p => p.code); SVD.failed = left.map(p => p.code);
@@ -7197,7 +7245,7 @@
   //   proxy answers, the problem log. It is plain text so it can be pasted into any AI. IMPROVE: add a screenshot hint.
   async function siteViewFull() {
     const r = SVD.last || await siteViewScan(true), L = [];
-    L.push('=== SITE VIEW (Page 2) DETAIL ===', 'Page: ' + (cur ? cur.url : '-'), 'Scan: ' + JSON.stringify(r.counts), 'Reader finder: ' + JSON.stringify(r.finder));
+    L.push('=== SITE VIEW (Page 2) DETAIL ===', 'Page: ' + (cur ? cur.url : '-'), 'Scan: ' + JSON.stringify(r.counts), 'Reader finder: ' + JSON.stringify(r.finder), 'Picture watchdog: ' + JSON.stringify(cur && cur.watch || null));
     L.push('Problems found: ' + (r.problems.map(p => p.code + ' - ' + p.text).join(' | ') || 'none'), 'Repaired: ' + (SVD.fixed.join(', ') || 'none') + ' · Not repaired: ' + (SVD.failed.join(', ') || 'none'));
     try {
       const d = frame.contentDocument;
@@ -7296,7 +7344,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 60)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 61)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),

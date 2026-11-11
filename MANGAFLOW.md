@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 60 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 61 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -245,6 +245,20 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 4. Background detection (`tryAutoRead`) now backs off when the person has touched/clicked the page (`cur.touched`, set by pointerdown in the frame and in `onFrameClick`), so it cannot pull them into reading mode while they use the site.
 
 **IMPROVE:** a visible "Stop detecting" button on the pill; a setting to turn the quiet detection off for one site.
+
+
+## 4q. Round 61 — Automatic picture watchdog for Page 2 + the Options Guide files (app.js, `?v=61`)
+
+**Report (arenascan chapter 15):** pictures stayed "loading" (11 of 28 pending) until Settings > Troubleshoot > Fix automatically was pressed; then they loaded. The owner does not want to press it on every chapter.
+
+**Root cause:** the old retry ran only for pictures that had already FAILED (error event) and only once. A picture that just HANGS (slow or silent host, big 690x8000 images, many at once) never fires an error, so nothing ever restarted it. The troubleshooter's "Fix automatically" restarted them by hand.
+
+**Fix:** `kickImg(img)` restarts one picture through the next route (level 1 own proxy + `&ref=` page address, level 2 other proxies, level 3 same address + changing word). `frameWatch(page)` (started in `navigate()` after the page appears) looks at 4, 9, 16, 28, 45, 70 s: failed pictures are kicked at once, hanging ones from 9 s (max 6 per look), and from the 2nd look it runs the quiet Site-View Doctor when the scan finds placeholder/missing/stuck problems. New scan code `P2-STALLED` (pictures still pending after 12 s) is repaired with the same kicks. The watchdog stops when everything loaded or the person leaves the page, never runs on search lists or in reading mode, and its counters appear in the full report ("Picture watchdog").
+**Test:** mock chapter where 8 pictures never answer directly: the old code never finished loading; the new code restarts them through the proxy and all 20 load.
+
+**New core files:** `MANGAFLOW_GUIDE.md` and `MANGAFLOW_GUIDE.txt` list every button, shortcut, setting, server option, troubleshoot option and algorithm, with "FIX NOTE (Round N)" lines. Rule: update them with every change; never put private server names, profile names, passwords or keys in them. `MANGAFLOW_FULL_SITE.md` now contains the guide too, so the whole site (all code + guide + history) can be rebuilt from that one file with `node split.js`.
+
+**IMPROVE:** make the look times a setting; show a small "retrying pictures" hint.
 
 ## How to Deploy / Set Up
 
