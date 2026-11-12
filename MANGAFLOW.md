@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 66 — 2026-11-12 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 67 — 2026-11-13 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -327,6 +327,17 @@ Also: a service that never answers (the built-in browser translator can hang whi
 - `siteViewScan()`: the "can a person see the pictures" check only runs when Page 2 is really on screen (not in reading mode); a leftover placeholder slot is ignored when all known pictures are shown.
 - Troubleshoot: new symptom `deadupload`.
 **Tests (mock, `kings1.js`, `mgeko1.js`):** kingofshojo-like site (list 1.2…9.2 with cdn pictures, 10…22; gaps 1…9 with 404 wp-content pictures): before the fix every second chapter showed 8 red boxes; after, only the 5 loaded chapters remain, no pop-up. mgeko-like site: Previous of chapter 1 → toast, address back on chapter 1, no pop-up.
+
+## 4w. Round 67 — "chapter-3-2" is chapter 3; the AutoPilot (`?v=67`)
+
+**Report (build 66):** after "Fix automatically" only the chapter on the screen was repaired; the chapters after it still showed the red "Page N could not be loaded" boxes; the list showed extra "3.2 / 4.2" chapters next to the main "3 / 4"; the owner asked (again) for an algorithm that repairs everything by itself in the background.
+**Root cause:** kingofshojo calls the re-uploaded copy of a chapter `chapter-3-2`. The address reader turned "3-2" into the decimal 3.2, so the list showed "Chapter 3.2" and the gap finder (round 55) believed chapter 3 was missing and GUESSED `chapter-3` — the OLD upload whose pictures were deleted. Round 66's doctor removed such dead copies only slowly (it waited for two retries of each picture, and only chapters that were loaded), and the manual fix only touched the visible chapter.
+**Fixes:**
+- `fixReuploadNumbers()` (called first inside `fillChapterGaps`): an address number ending in `-2` / `_2` whose whole number is NOT in the list is a re-upload → its number is the whole number (3, not 3.2), the "Chapter 3.2" title text is dropped, no gap is guessed, no dead copy is created. If both `chapter-3` and `chapter-3-2` are listed they stay (true twins); real decimals (3.5, 3.1) are never touched. Menu/boxes now read "Chapter 3".
+- Dead-upload doctor is faster: a GUESSED chapter is judged as soon as its pictures failed once (all routes tried); a listed chapter whose twin loads fine after one retry; "Fix automatically" starts the pictures of the next chapters first (so dead ones show up), waits 7 s and judges at once.
+- The "Several pictures … not loading" pop-up waits 30 s and appears only if the pictures are still failing (and the chapter was not skipped).
+- **AutoPilot** (`pilotTick`, every 10 s, never throws, one check at a time). Reading mode: dead-upload doctor; boxes with a message anywhere in the stream are flagged for a refill; long waits of failed pictures are shortened (except in a chapter marked "pictures gone"); if over 30 % of the next 3 chapters' pictures failed the proxies are tested (max every 90 s) and the keeper is poked; a chapter loader "loading" for over 60 s is released. Site view (Page 2, no 70 s limit): failed pictures restarted, and when a scan finds a named problem the repair runs (max every 45 s). Counters appear in the diagnostic as `AutoPilot (round 67): checks N, repairs done M, last: …`, and "Run checks" has a row for ALL loaded chapters.
+**Tests (mock `kings1.js`, three modes):** `reup` (list has only `-2` copies 1..9 + 10..22): no gap guessed, 10 boxes without a failed picture, menu 22; `twin` (both `chapter-N` and `chapter-N-2` listed, old pictures 404): old copies skipped; `gap` (chapters 3, 5, 7 not listed but their pages exist with dead pictures): the three are removed, others load; `mgeko1.js` unchanged.
 
 ## How to Deploy / Set Up
 

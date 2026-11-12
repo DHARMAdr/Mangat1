@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 66)',
+      'MangaFlow error report (build round 67)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -4302,10 +4302,32 @@
     const at = m.index + m[0].length - m[1].length, width = m[1].length, pad = m[1].startsWith('0') && width > 1;
     return n => u.origin + u.pathname.slice(0, at) + (pad ? String(n).padStart(width, '0') : String(n)) + u.pathname.slice(at + width) + u.search;
   }
+  /* ROUND 67 - "chapter-3-2" IS CHAPTER 3, NOT CHAPTER 3.2 (reported: "it created a special new chapter like 2.2 or 3.2 under the main chapter 3, and the main chapter shows the error").
+     WHY: kingofshojo (and some other WordPress sites) re-uploaded chapters and called the new copy "chapter-3-2". The address reader turned "3-2" into the decimal 3.2, so (a) the list showed
+          "Chapter 3.2", and (b) the gap finder (round 55) saw "3" missing and GUESSED chapter-3, which is the OLD upload with deleted pictures: red boxes in the middle of the story.
+     HOW: an address number with a "-2" / "_2" ending whose whole number is NOT in the list (no real chapter 3) is a re-upload: it gets the number 3 (flag reup) and its "Chapter 3.2" title
+          text is dropped. When both "chapter-3" and "chapter-3-2" ARE in the list they stay as they are (the dead-upload doctor decides which one loads).
+          A decimal that is really a decimal (3.5, 3.1) is never touched: only the digit 2 after - or _ counts. IMPROVE: also accept -3 / -v2 style endings if a site uses them. */
+  function fixReuploadNumbers(chapters) {
+    try {
+      const nums = chapters.map(c => c.reup ? c.num : chapterNumInUrl(c.url));
+      const whole = new Set(nums.filter(n => n != null && Number.isInteger(n)));
+      chapters.forEach((c, i) => {
+        const n = nums[i]; if (c.reup || n == null || Number.isInteger(n) || n < 1) return;
+        let sep = ''; try { const m = CH_RE.exec(decodeURIComponent(new URL(c.url).pathname)); sep = m ? m[1] : ''; } catch { /* none */ }
+        if (!/^\d+[-_]2$/.test(sep)) return;                                  // only "N-2" / "N_2"
+        const base = Math.floor(n); if (whole.has(base)) return;               // a real chapter N exists: leave both (true twins)
+        c.num = base; c.reup = true; c.was = n;
+        if (c.title && /^(?:chapter|chap|ch|episode|ep)(?![a-z])[\s:._#-]*\d+(?:[.-]\d+)?$/i.test(c.title.trim())) c.title = '';
+      });
+    } catch { /* never break the chapter list */ }
+    return chapters;
+  }
   function fillChapterGaps(chapters, startIdx) {
+    chapters = fixReuploadNumbers(chapters);                                   // ROUND 67 (see above)
     const audit = { expected: 0, listed: chapters.length, gaps: [], dead: [], unsure: [], notDetected: [], verified: 0, done: false };
     try {
-      const nums = chapters.map(c => chapterNumInUrl(c.url));
+      const nums = chapters.map(c => c.reup ? c.num : chapterNumInUrl(c.url));
       const known = nums.filter(n => n != null);
       if (chapters.length < 2 || known.length < Math.max(2, chapters.length * 0.6)) { audit.skipped = 'chapter numbers cannot be read from the addresses'; auditHold = audit; return chapters; }
       const whole = new Set(known.filter(n => Number.isInteger(n)));
@@ -4845,7 +4867,7 @@
     secs.forEach(x => {
       const idx = +x.dataset.index, ch = R.chapters[idx]; if (!ch || ch.dead || x.dataset.verify || !x.isConnected) return;
       const ps = $$('img.page', x); if (ps.length < 4) return;
-      const gone = ps.filter(i => i._failed && i._healN >= (force ? 1 : 2)).length;
+      const gone = ps.filter(i => i._failed && (ch.guess || i._healN >= (force ? 0 : 1))).length;      // ROUND 67: a GUESSED chapter is judged as soon as its pictures have failed once (all routes tried)
       if (gone < 4 || gone < ps.length * 0.7 || !goodElsewhere(x)) return;
       let twin = -1, twinOk = false;
       if (ch.num != null) twin = R.chapters.findIndex((c, j) => j !== idx && !c.dead && c.num != null && Math.floor(c.num) === Math.floor(ch.num));
@@ -4913,6 +4935,71 @@
   }
   // WHY: after the internet returns or the tab comes back, do not wait for the old (long) waiting times. HOW: forget them and run a tick now. IMPROVE: none needed.
   function keeperPoke() { try { $$('#stream img.page').forEach(i => { if (i._failed) i._healAt = 0; }); $$('#stream .chapter').forEach(x => { x._healAt = 0; }); } catch { /* ignore */ } keeperTick(); }
+  /* =====================================================================================================================
+     ROUND 67 - THE AUTOPILOT (the owner asked twice: "the fix-automatically algorithm must run by itself in the back end, for ALL chapters, even if I never press the button").
+     WHY: the manual "Fix automatically" only touched what was on the screen, and the old watchdogs stopped after 70 s (Page 2) or looked at one thing each. Problems in chapters AHEAD of the one
+          being read (red boxes, dead uploads, a proxy that stopped answering, a site view that went blank later) were only found when the person got there.
+     HOW: one supervisor tick every 10 s. It never throws and never runs two checks at once. It is quiet: it only does something when a check finds a problem, and counts what it did (shown in the
+          diagnostic as "AutoPilot (round 67)").
+       READING MODE (Page 3):
+         1. dead-upload doctor (also in the keeper, every 3 s)         2. chapter boxes anywhere in the stream that show a message or are empty are flagged for the keeper to refill (nearest first)
+         3. failed pictures of ALL loaded chapters get their waiting time shortened when the connection is fine (the keeper retries 3 at a time)
+         4. if more than 30 % of the pictures of the next 3 chapters failed, the proxies are tested (and the keeper is poked) - at most every 90 s
+         5. a chapter loader that has been "loading" for over 60 s is released so the next boxes can start
+       SITE VIEW (Page 2, no limit of 70 s): hanging / failed pictures are kicked, a hidden reader is shown, and when a scan finds a named problem the repair runs (at most every 45 s).
+     IMPROVE: let the person switch it off in Settings; save the counters between visits. */
+  const pilot = { ticks: 0, fixes: 0, last: 'not run yet', proxyAt: 0, siteAt: 0, busy: false, log: [] };
+  function pilotNote(t) { pilot.fixes++; pilot.last = t; pilot.log.push(new Date().toLocaleTimeString() + ' ' + t); if (pilot.log.length > 8) pilot.log.shift(); }
+  function pilotText() { return 'checks ' + pilot.ticks + ', repairs done ' + pilot.fixes + ', last: ' + pilot.last + (pilot.log.length ? ' | ' + pilot.log.slice(-4).join(' ; ') : ''); }
+  // one line about every loaded chapter (used by "Run checks")
+  function chapterAheadReport() {
+    const secs = $$('#stream .chapter'); let bad = 0; const names = [];
+    secs.forEach(x => {
+      const ps = $$('img.page', x), failed = ps.filter(i => i._failed).length, msg = x.querySelector('.ch-msg') || x.dataset.failed === '1';
+      if ((ps.length && failed >= Math.max(3, ps.length * 0.3)) || msg) { bad++; if (names.length < 8) { const c = R.chapters[+x.dataset.index]; names.push(c && c.num != null ? fmtNum(c.num) : '?'); } }
+    });
+    return { bad, text: bad ? bad + ' of ' + secs.length + ' loaded chapters have failed pictures or a message (' + names.join(', ') + '). The AutoPilot is repairing them; dead old uploads are skipped.' : 'All ' + secs.length + ' loaded chapters look fine (dead uploads skipped: ' + keeper.dropped + ').' };
+  }
+  async function pilotTick() {
+    if (pilot.busy) return; pilot.busy = true; pilot.ticks++;
+    try {
+      const now = Date.now();
+      if (!reader.hidden && R && R.chapters && R.chapters.length) {
+        const secs = $$('#stream .chapter'), imgs = secs.flatMap(x => $$('img.page', x));
+        deadUploadDoctor(secs, imgs, now);
+        // 2. boxes that show a message / are empty: flag them (the keeper's step B refills the nearest first)
+        let flagged = 0;
+        secs.forEach(x => { if (x.dataset.failed !== '1' && !x.dataset.verify && !x._fillStart && x.querySelector('.ch-msg') && !x.querySelector('img.page')) { x.dataset.failed = '1'; x._healAt = 0; flagged++; } });
+        if (flagged) pilotNote('flagged ' + flagged + ' chapter box(es) with a message for a new try');
+        // 3. shorten long waits of failed pictures while the connection is fine
+        let short = 0; if (navigator.onLine !== false) imgs.forEach(i => { const sx = i.closest('.chapter'); if (i._failed && !(sx && sx._goneNote) && (i._healAt || 0) - now > 20000) { i._healAt = now + 8000; short++; } });
+        if (short) pilotNote('shortened the waiting time of ' + short + ' failed picture(s)');
+        // 4. proxy health when many pictures near the reading place fail
+        const near = secs.filter(x => { const k = +x.dataset.index; return k >= R.cur && k <= R.cur + 3; }).flatMap(x => $$('img.page', x));
+        const nf = near.filter(i => i._failed).length;
+        if (near.length >= 8 && nf > near.length * 0.3 && now - pilot.proxyAt > 90000) {
+          pilot.proxyAt = now; try { const t = await FIX.testProxies.run(); pilotNote('many pictures failed (' + nf + '/' + near.length + '): tested the proxies - ' + t.slice(0, 90)); } catch { /* ignore */ }
+          keeperPoke();
+        }
+        // 5. a loader stuck in "loading"
+        if (R.loading) { if (!R._loadSince) R._loadSince = now; else if (now - R._loadSince > 60000) { R.loading = false; R._loadSince = 0; pilotNote('released a chapter loader that waited over 60 s'); } } else R._loadSince = 0;
+      } else if (cur && !cur.isSearch && !frame.hidden && reader.hidden && cur.doc) {
+        // SITE VIEW: no 70 s limit
+        const d = frame.contentDocument;
+        if (d) {
+          let kicked = 0; Array.from(d.images || []).forEach(i => { const src = i.getAttribute('src'); if (!src || /^data:/.test(src) || kicked >= 6) return; if ((i.complete && !i.naturalWidth) && kickImg(i)) kicked++; });
+          if (kicked) pilotNote('site view: restarted ' + kicked + ' failed picture(s)');
+          if (now - pilot.siteAt > 45000 && !busyEl_visible()) {
+            pilot.siteAt = now; const sc = await siteViewScan(false);
+            if (sc.problems.length) { await siteViewRepair(); pilotNote('site view: repaired ' + sc.problems.map(p => p.code).join(', ')); }
+          }
+        }
+      }
+    } catch { /* the autopilot must never break the site */ }
+    finally { pilot.busy = false; }
+  }
+  const busyEl_visible = () => { const b = document.getElementById('busy'); return !!(b && !b.hidden && b.textContent.trim()); };
+  setInterval(pilotTick, 10000);
   setInterval(keeperTick, 800);                                       // ROUND 63: was 1500 ms - the next pictures are started sooner
   window.addEventListener('online', keeperPoke);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) keeperPoke(); });
@@ -7147,10 +7234,11 @@
     // WHY: keep the failure memory small. HOW: over 80 entries the oldest is deleted.
     if (picFails.size > 80) picFails.delete(picFails.keys().next().value);
     let guessed = false; try { guessed = !!(R && R.chapters && R.chapters.some(ch => ch.guess && ch.url === ref)); } catch { /* ignore */ }   // ROUND 66: a guessed chapter is looked after by the dead-upload doctor (no pop-up)
-    if (c === 3 && !guessed) showError('Several pictures of ' + key + ' are not loading', { title: '\u{1F5BC} Pictures are not loading',
+    // ROUND 67: the pop-up now waits 30 s. In that time the AutoPilot / dead-upload doctor either skips a dead old copy of the chapter or the pictures load; the pop-up only appears when the problem is still there.
+    if (c === 3 && !guessed) setTimeout(() => { try { const ch = R.chapters.find(x => x.url === ref); if (ch && ch.dead) return; if (ch) { const sec = stream.querySelector('.chapter[data-index="' + R.chapters.indexOf(ch) + '"]'); if (!sec || $$('img.page', sec).filter(i => i._failed).length < 3) return; } } catch { /* show it */ } showError('Several pictures of ' + key + ' are not loading', { title: '\u{1F5BC} Pictures are not loading',
       hint: 'Three pictures of this chapter failed. Usually the picture host refuses outside readers or the proxies are blocked. Try "Fix automatically" in Settings > Troubleshoot, or use your own proxy (worker.js sends the right referer).',
       // WHY: details for the picture-failed report. HOW: the picture address, page number and chapter address as text lines.
-      details: 'Latest picture address: ' + src + '\nPage number: ' + (k + 1) + '\nChapter address: ' + (ref || '-') + '\nRoutes: ' + routeStatText() });
+      details: 'Latest picture address: ' + src + '\nPage number: ' + (k + 1) + '\nChapter address: ' + (ref || '-') + '\nRoutes: ' + routeStatText() }); }, 30000);
   }
   // WHY: Build the text for the 'no next chapter' report. HOW: collects lines in an array (chapter, list size, series
   // page, links found on the page, last 3 chapters) and joins them with new lines; try/catch protects from errors.
@@ -7513,6 +7601,9 @@
     } catch { /* the check must never break the checks */ }
     // ROUND 59: the site-view doctor - named problems with their codes (a green tick means "nothing found")
     try { const sv = await siteViewScan(true); if (sv.on) { if (!sv.problems.length) row(true, 'Site view looks right: ' + (sv.counts.ok || 0) + ' pictures shown, reader finder knows ' + sv.finder.best + '.'); sv.problems.forEach(p => row(false, '[' + p.code + '] ' + p.text + (p.fix ? ' — "Fix automatically" can repair this.' : ' — needs a report.'))); } } catch (e) { row(false, 'Site view check failed: ' + (e && e.message)); }
+    // ROUND 67: reading mode - look at ALL loaded chapters, not only the visible one
+    try { if (!reader.hidden && R.chapters.length) { const a = chapterAheadReport(); row(a.bad === 0 ? true : false, a.text); } } catch { /* ignore */ }
+    row(null, 'AutoPilot (round 67): ' + pilotText());
     row(null, 'Chapter boxes (round 52): ' + chapterHealthText());
     row(null, 'Chapter audit (round 55): ' + chapterAuditText());
     row(null, 'Site view chapter list (round 57): ' + pageListText());
@@ -7536,6 +7627,8 @@
     const pr = await FIX.testProxies.run(); say(pr);
     if (!reader.hidden) {
       // WHY: run the 'retry pictures' fix and show what it did. HOW: say() prints the result text.
+      // ROUND 67: the manual fix now looks at EVERY loaded chapter (not only the one on the screen): the pictures of the next chapters are started now, so dead ones show up and are judged.
+      try { $$('#stream .chapter').forEach(x => { const k = +x.dataset.index; if (k > R.cur && k <= R.cur + keeperAhead()) $$('img.page', x).slice(0, 8).forEach(i => { if (i.loading === 'lazy' && !i._done) { i.loading = 'eager'; i._eagerAt = Date.now(); } }); }); keeperPoke(); await new Promise(r => setTimeout(r, 7000)); } catch { /* extra step */ }
       { const before = keeper.dropped; try { deadUploadDoctor($$('.chapter', stream), $$('#stream img.page'), Date.now(), true); } catch { /* extra step */ } if (keeper.dropped > before) say('Skipped ' + (keeper.dropped - before) + ' old chapter upload(s) whose pictures no longer exist on the site (the site\'s own list has another copy).'); }
       say(await FIX.retryPictures.run());
       const bad = $$('.chapter', stream).filter(sec => sec.querySelector('.ch-msg'));
@@ -7562,7 +7655,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 66)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 67)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -7571,6 +7664,7 @@
       // WHY: tell Claude which add-ons are linked. HOW: true or false for the slider and the wheel.
       'Add-ons: slider ' + !!window.MangaFlowSlider + ', wheel ' + !!window.MangaFlowWheel + ', edge ' + !!window.MangaFlowEdge + ', translate ' + !!window.MangaFlowTranslate + ', profiles ' + !!PF,
       window.MangaFlowTranslate ? window.MangaFlowTranslate.report() : 'Translate add-on: not linked',
+      'AutoPilot (round 67): ' + pilotText(),
       'Keeper (round 29d): ' + (keeper.last || 'not run yet') + ', setting ' + settings.preloadAhead + ', base wait ' + healBase() + ' ms',
       // ROUND 29e: which sites asked for the "verify you are human" check (empty = none). WHY: it tells at once whether a "chapters do not load" report is a check page. HOW: the keys of humanHosts.
       'Human check (round 29e): ' + (humanHosts.size ? [...humanHosts.keys()].join(', ') + ' waiting' : 'no site waiting'),

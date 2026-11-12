@@ -1,7 +1,7 @@
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 66 — 2026-11-12*
+*Last updated: Round 67 — 2026-11-13*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -137,6 +137,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 64:** the warning "1 style sheet could not be loaded, so the page may look plain" appeared even when the browser loaded that file fine or the site itself had no such file → such cases are no longer warned; a real failure now lists why each proxy failed.
 - **Round 65:** translated words were often wrong or meaningless because the picture text was read from the raw picture (for example the word "I" read as "|") and answers were never checked → the reader now prepares the picture (grey, contrast, white-on-black turned round, small pages enlarged, second black/white reading), repairs typical reading mistakes, ignores noise, puts bubbles in story order (right-to-left for Japanese), translates the whole page in one request in context, refuses bad answers (empty / untranslated / wrong writing) and asks the next service, then tidies the text. A translator that hangs is given up after 20–40 s.
 - **Round 66:** some chapters showed dozens of red "Page N could not be loaded" boxes because the site's old upload of the chapter has deleted pictures (the site's own list shows a newer copy) -> the dead-upload doctor now runs by itself while you read and skips such old copies quietly; pressing the site's own "Previous" on chapter 1 (a page that does not exist) now only shows a small note; the "pictures hidden" check no longer raises a false alarm while reading, and a spare placeholder slot is no longer reported.
+
+- **Round 67: the site's re-uploaded chapters (chapter-3-2) were read as "chapter 3.2" and the reader then guessed a "missing" chapter 3 whose pictures are dead -> "-2" copies are now chapter 3 (no guessed dead copy); a background AutoPilot (every 10 s) now repairs ALL loaded chapters by itself (dead uploads, boxes with messages, long waits, proxies, stuck loaders, Page 2 pictures) and "Fix automatically" now also looks at the chapters ahead.
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
