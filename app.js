@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 63)',
+      'MangaFlow error report (build round 64)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -1710,7 +1710,10 @@
     const list = proxyList(false); if (!list.length) throw new Error('no proxy');
     // WHY: one attempt through ONE proxy. HOW: an async arrow function; Promise.any below runs it for every proxy at the
     // same time.
-    const one = async tpl => {
+    // ROUND 64 (drakecomic: one style sheet failed with the useless text "All promises were rejected"). WHY: the report could not say WHY. HOW: every proxy's own reason is collected
+    //   (HTTP number, timeout, "not a style sheet", network error) and thrown as one readable sentence: "proxy 1: HTTP 403 | proxy 2: timeout ...". IMPROVE: none needed.
+    const why = [];
+    const one = async (tpl, k) => {
       const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 12000);
       try {
         const res = await fetch(tpl.replace('{url}', encodeURIComponent(url)), { signal: ctrl.signal });
@@ -1718,9 +1721,12 @@
         const t = await res.text();
         if (!t || /^\s*<(!doctype|html)/i.test(t)) throw new Error('not a style sheet');
         return t.slice(0, 900000);
-      } finally { clearTimeout(timer); }
+      } catch (e) { why[k] = 'proxy ' + (k + 1) + ': ' + (ctrl.signal.aborted ? 'timeout' : (e && e.message) || 'failed'); throw e; }
+      finally { clearTimeout(timer); }
     };
-    const t = await Promise.any(list.map(one));
+    let t;
+    try { t = await Promise.any(list.map((tpl, k) => one(tpl, k))); }
+    catch (e) { const err = new Error(why.filter(Boolean).join(' | ') || 'all proxies failed'); err.reasons = why.filter(Boolean); throw err; }
     rawCache.set(url, t); if (rawCache.size > 60) rawCache.delete(rawCache.keys().next().value);
     return t;
   }
@@ -1783,7 +1789,17 @@
         catch (e1) {
           await wait(1200);
           try { if (liveDoc(token)) await fixSheet(l); }
-          catch (e2) { stat.stillFailed++; stat.notes.push('style sheet ' + l.href + ' : ' + (e2 && e2.message ? e2.message : 'failed') + ' (asked twice)'); }
+          catch (e2) {
+            // ROUND 64: not every failure is OUR problem. (1) the site itself answers 404/410 for the file (an old file name in its page): the original page lacks it too -> not an error.
+            //   (2) the proxies cannot fetch it but the BROWSER can load the file by itself (the page's own <link> still sits there): then the page is fine, we only cannot read the rules.
+            //   Only when both fail is the sheet counted as failed. IMPROVE: tell which proxy was best.
+            const msg = (e2 && e2.message) || 'failed', reasons = (e2 && e2.reasons) || [];
+            if (reasons.length && reasons.every(r => /HTTP (404|410)/.test(r))) { stat.notes.push('style sheet ' + l.href + ' : the site itself answers "not found" (' + msg + ') - not our fault, the original page lacks it too'); return; }
+            let native = false;
+            try { const c = new AbortController(), tm = setTimeout(() => c.abort(), 8000); await fetch(l.href, { mode: 'no-cors', signal: c.signal, credentials: 'omit' }); clearTimeout(tm); native = true; } catch { /* not reachable by the browser either */ }
+            if (native) { stat.notes.push('style sheet ' + l.href + ' : the proxies could not read it (' + msg + ') but the browser loads it directly - kept as it is'); return; }
+            stat.stillFailed++; stat.notes.push('style sheet ' + l.href + ' : ' + msg + ' (asked twice; the browser could not load it directly either)');
+          }
         }
       }));
       if (!liveDoc(token)) return;
@@ -7498,7 +7514,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 63)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 64)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),

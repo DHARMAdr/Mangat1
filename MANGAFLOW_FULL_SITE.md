@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 63 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 64 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -352,6 +352,16 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 4. **Speed (reading mode):** first 3 pictures of the current and next chapter start eager when the box is filled; keeper preload window 4/6 pictures at once (was 3/4; +2 on 4g, 2 on 2g); keeper tick 0.8 s (was 1.5 s); the keeper runs at once when the chapter changes.
 **Test (`drake1.js`, mock of a Next.js reader):** before = pictures hidden and cover shown; after = all visible within ~2.5 s, title "They Offered Their Loyalty", reading mode OK.
 **IMPROVE:** a visible "Hide strip" button; measure real load times per host and choose routes from them.
+
+
+## 4t. Round 64 — Style-sheet warning that was not a real problem; readable reasons (app.js, `?v=64`)
+
+**Report (drakecomic, build 63):** "This page may look incomplete: 1 style sheet(s) could not be loaded" with the useless line "All promises were rejected (asked twice)" for `/_next/static/css/ef46...css`; 16 of 17 sheets were repaired.
+
+**Why it was misleading:** the page's own `<link>` for that file is still in the page and the browser may load it by itself fine - MangaFlow only re-fetches sheets through the proxies so it can read them and fix font files. A refusal by the proxies (a 403/timeout, or the site answering 404 for an old file name) was reported as "page may look plain".
+**Fix:** `fetchRaw()` now collects every proxy's own reason ("proxy 1: HTTP 403 | proxy 2: timeout | ..."). In `repairStyles()` a failing sheet is (1) ignored when every proxy says 404/410 (the site itself lacks it) and (2) ignored when the browser can fetch it directly (`fetch(..., {mode:'no-cors'})`); both are only noted in the report. Only a sheet that fails BOTH ways triggers the warning, now with the reasons.
+**Test (`drake2.js native|404|dead`):** old code warned in the native case; new code: no warning for native and 404, a warning with reasons for a really dead sheet.
+**Still open:** the owner has not yet said what looks wrong on Page 2 for drakecomic besides this warning (the chapter pages found are 3 tall strips; the site text says "30 pages"). If pictures are missing, a report showing the real site's picture count is needed.
 
 ## How to Deploy / Set Up
 
@@ -795,17 +805,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=63" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=64" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=63" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=64" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=63">
+  <link rel="stylesheet" href="style.css?v=64">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=63"></script>
+  <script src="boot.js?v=64"></script>
 </head>
 <body data-side="right">
 
@@ -1378,24 +1388,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=63"></script>
+  <script src="pdfmaker.js?v=64"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=63"></script>
-  <script src="app.js?v=63"></script>
+  <script src="troubleshoot-data.js?v=64"></script>
+  <script src="app.js?v=64"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=63"></script>
+  <script src="chapter-slider.js?v=64"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=63"></script>
+  <script src="reload-wheel.js?v=64"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=63"></script>
+  <script src="edge-slider.js?v=64"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=63"></script>
+  <script src="translate.js?v=64"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=63"></script>
+  <script src="profiles.js?v=64"></script>
 </body>
 </html>
 ~~~~~~
@@ -3679,7 +3689,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8210 lines)
+### File: `app.js`  (8226 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4574,7 +4584,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 63)',
+      'MangaFlow error report (build round 64)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -5397,7 +5407,10 @@ window.MF_FIX = {
     const list = proxyList(false); if (!list.length) throw new Error('no proxy');
     // WHY: one attempt through ONE proxy. HOW: an async arrow function; Promise.any below runs it for every proxy at the
     // same time.
-    const one = async tpl => {
+    // ROUND 64 (drakecomic: one style sheet failed with the useless text "All promises were rejected"). WHY: the report could not say WHY. HOW: every proxy's own reason is collected
+    //   (HTTP number, timeout, "not a style sheet", network error) and thrown as one readable sentence: "proxy 1: HTTP 403 | proxy 2: timeout ...". IMPROVE: none needed.
+    const why = [];
+    const one = async (tpl, k) => {
       const ctrl = new AbortController(), timer = setTimeout(() => ctrl.abort(), 12000);
       try {
         const res = await fetch(tpl.replace('{url}', encodeURIComponent(url)), { signal: ctrl.signal });
@@ -5405,9 +5418,12 @@ window.MF_FIX = {
         const t = await res.text();
         if (!t || /^\s*<(!doctype|html)/i.test(t)) throw new Error('not a style sheet');
         return t.slice(0, 900000);
-      } finally { clearTimeout(timer); }
+      } catch (e) { why[k] = 'proxy ' + (k + 1) + ': ' + (ctrl.signal.aborted ? 'timeout' : (e && e.message) || 'failed'); throw e; }
+      finally { clearTimeout(timer); }
     };
-    const t = await Promise.any(list.map(one));
+    let t;
+    try { t = await Promise.any(list.map((tpl, k) => one(tpl, k))); }
+    catch (e) { const err = new Error(why.filter(Boolean).join(' | ') || 'all proxies failed'); err.reasons = why.filter(Boolean); throw err; }
     rawCache.set(url, t); if (rawCache.size > 60) rawCache.delete(rawCache.keys().next().value);
     return t;
   }
@@ -5470,7 +5486,17 @@ window.MF_FIX = {
         catch (e1) {
           await wait(1200);
           try { if (liveDoc(token)) await fixSheet(l); }
-          catch (e2) { stat.stillFailed++; stat.notes.push('style sheet ' + l.href + ' : ' + (e2 && e2.message ? e2.message : 'failed') + ' (asked twice)'); }
+          catch (e2) {
+            // ROUND 64: not every failure is OUR problem. (1) the site itself answers 404/410 for the file (an old file name in its page): the original page lacks it too -> not an error.
+            //   (2) the proxies cannot fetch it but the BROWSER can load the file by itself (the page's own <link> still sits there): then the page is fine, we only cannot read the rules.
+            //   Only when both fail is the sheet counted as failed. IMPROVE: tell which proxy was best.
+            const msg = (e2 && e2.message) || 'failed', reasons = (e2 && e2.reasons) || [];
+            if (reasons.length && reasons.every(r => /HTTP (404|410)/.test(r))) { stat.notes.push('style sheet ' + l.href + ' : the site itself answers "not found" (' + msg + ') - not our fault, the original page lacks it too'); return; }
+            let native = false;
+            try { const c = new AbortController(), tm = setTimeout(() => c.abort(), 8000); await fetch(l.href, { mode: 'no-cors', signal: c.signal, credentials: 'omit' }); clearTimeout(tm); native = true; } catch { /* not reachable by the browser either */ }
+            if (native) { stat.notes.push('style sheet ' + l.href + ' : the proxies could not read it (' + msg + ') but the browser loads it directly - kept as it is'); return; }
+            stat.stillFailed++; stat.notes.push('style sheet ' + l.href + ' : ' + msg + ' (asked twice; the browser could not load it directly either)');
+          }
         }
       }));
       if (!liveDoc(token)) return;
@@ -11185,7 +11211,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 63)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 64)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -14824,7 +14850,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (140 lines)
+### File: `MANGAFLOW_GUIDE.md`  (141 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -14833,7 +14859,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 63 — 2026-11-11*
+*Last updated: Round 64 — 2026-11-11*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -14964,6 +14990,7 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 61:** some Page 2 pictures hung until "Fix automatically" was pressed → picture watchdog does it automatically; this guide added.
 - **Round 62:** a "Related Series" box (links to OTHER manga labelled "Chapter 74") was read as the chapter list, so reading mode showed 8 empty "chapters" and the pop-up named chapters that never existed → such series-page links are now ignored, the real series page is found (also for names ending in -2 or -chapter-14), and chapters written in two address styles are joined into one list. Profile → Reports got a Copy button.
 - **Round 63:** script-built sites (Next.js, e.g. drakecomic) keep the reader hidden until their own script runs, so Page 2 showed a blank page / "JavaScript Required" cover although the pictures were loaded → MangaFlow now makes them visible (and removes the cover) by itself, or draws the chapter in a plain strip; the reader name "JavaScript Required" fixed; style sheets repaired up to 24 (was 8) with a second try; pictures start sooner in reading mode.
+- **Round 64:** the warning "1 style sheet could not be loaded, so the page may look plain" appeared even when the browser loaded that file fine or the site itself had no such file → such cases are no longer warned; a real failure now lists why each proxy failed.
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

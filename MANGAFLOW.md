@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 63 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 64 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -286,6 +286,16 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 4. **Speed (reading mode):** first 3 pictures of the current and next chapter start eager when the box is filled; keeper preload window 4/6 pictures at once (was 3/4; +2 on 4g, 2 on 2g); keeper tick 0.8 s (was 1.5 s); the keeper runs at once when the chapter changes.
 **Test (`drake1.js`, mock of a Next.js reader):** before = pictures hidden and cover shown; after = all visible within ~2.5 s, title "They Offered Their Loyalty", reading mode OK.
 **IMPROVE:** a visible "Hide strip" button; measure real load times per host and choose routes from them.
+
+
+## 4t. Round 64 — Style-sheet warning that was not a real problem; readable reasons (app.js, `?v=64`)
+
+**Report (drakecomic, build 63):** "This page may look incomplete: 1 style sheet(s) could not be loaded" with the useless line "All promises were rejected (asked twice)" for `/_next/static/css/ef46...css`; 16 of 17 sheets were repaired.
+
+**Why it was misleading:** the page's own `<link>` for that file is still in the page and the browser may load it by itself fine - MangaFlow only re-fetches sheets through the proxies so it can read them and fix font files. A refusal by the proxies (a 403/timeout, or the site answering 404 for an old file name) was reported as "page may look plain".
+**Fix:** `fetchRaw()` now collects every proxy's own reason ("proxy 1: HTTP 403 | proxy 2: timeout | ..."). In `repairStyles()` a failing sheet is (1) ignored when every proxy says 404/410 (the site itself lacks it) and (2) ignored when the browser can fetch it directly (`fetch(..., {mode:'no-cors'})`); both are only noted in the report. Only a sheet that fails BOTH ways triggers the warning, now with the reasons.
+**Test (`drake2.js native|404|dead`):** old code warned in the native case; new code: no warning for native and 404, a warning with reasons for a really dead sheet.
+**Still open:** the owner has not yet said what looks wrong on Page 2 for drakecomic besides this warning (the chapter pages found are 3 tall strips; the site text says "30 pages"). If pictures are missing, a report showing the real site's picture count is needed.
 
 ## How to Deploy / Set Up
 
