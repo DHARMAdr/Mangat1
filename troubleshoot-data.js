@@ -19,6 +19,10 @@
 window.MF_FIX = {
   SYMPTOMS: [
     // ROUND 63: script-built sites (Next.js etc.) hide their reader until their own script runs.
+    // ROUND 66: some chapters show many red "Page N could not be loaded" boxes / "Several pictures are not loading", other chapters are fine.
+    { id: 'deadupload', title: 'Some chapters show many red "Page N could not be loaded" boxes (other chapters are fine)',
+      why: 'Some sites keep two copies of a chapter: the new upload (shown in their own list, for example chapter-3-2) and an old upload (chapter-3) whose pictures were deleted. MangaFlow guesses missing chapter numbers and can land on the old copy. The dead-upload doctor runs by itself while you read: it skips such a copy quietly when the pictures stay dead after two automatic retries and the other chapters load fine. A real chapter with no other copy is kept and retried only every 2 minutes.',
+      fix: ['clearCaches'], ask: 'noimages' },
     { id: 'p2hidden', title: 'The site page (Page 2) looks blank or says "JavaScript Required" although reading mode works',
       why: 'Some sites hide their reader (and show a cover) until their own script runs. MangaFlow never runs site scripts, so it makes the pictures visible itself, or draws the chapter in a plain strip.',
       fix: ['siteView'], ask: 'noimages' },

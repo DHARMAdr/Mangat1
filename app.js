@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 65)',
+      'MangaFlow error report (build round 66)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -2457,6 +2457,9 @@
       if (stale()) return false;                      // round 18: an old, replaced request must not open an error pop-up
       // ROUND 29e: a check for humans gets the VERIFY box (with the way to pass it and the automatic retry), everything else the red pop-up as before.
       if (isHumanCheck(e.message)) humanCheckBox(url, () => navigate(input, push, opts));
+      // ROUND 66: a link INSIDE the page you are on (for example the site's own "previous chapter" button of chapter 1, which points at the non-existing chapter 0) that the site answers with
+      //   "not found" is not a MangaFlow error: say so in one line and stay on the page you were reading. WHY: it opened a red "Could not load the page" pop-up and left the address bar on the dead address.
+      else if (cur && !cur.isSearch && cur.url !== url && /HTTP 404|HTTP 410|NOT FOUND/i.test(String(e.message))) { setAddress(cur.url); toast('That page does not exist on the site' + (/chapter[-_ /]*0*(0|1)\b/i.test(url) ? ' (there is no earlier chapter)' : '') + ' - you are still on the page you were reading'); }
       else showError('Could not load the page: ' + e.message, { details: 'Address: ' + url + '\nProxies: ' + settings.proxies.map(proxyName).join(', ') + '\nPress Retry by opening the link again, or see MANGAFLOW.md section 11.' });
       // WHY: with no proxy at all, failure is certain, so open Settings once per visit to point the user at the fix.
       // WHY: with no proxy the load will always fail, so guide the user to Settings. HOW: open Settings after 0.9 seconds,
@@ -4826,7 +4829,42 @@
     try { const c = navigator.connection; if (c && c.saveData) n = Math.min(n, 1); if (navigator.deviceMemory && navigator.deviceMemory <= 2) n = Math.min(n, 3); } catch { /* the browser does not tell: keep the setting */ }
     return n;
   }
-  const keeper = { healedPics: 0, healedCh: 0, busyCh: 0, last: '' };
+  const keeper = { healedPics: 0, healedCh: 0, busyCh: 0, last: '', dropped: 0, droppedList: [], deadAt: 0 };
+  /* ROUND 66 - THE DEAD-UPLOAD DOCTOR (reported: kingofshojo chapters 3-9 showed 41 red "Page N could not be loaded" boxes and "Several pictures are not loading").
+     WHY: some sites keep TWO copies of a chapter: the site's own list shows the NEW upload (chapter-3-2, pictures on a new server) while the OLD upload (chapter-3) still answers as a page
+          but its pictures were deleted (HTTP 404). MangaFlow guesses missing chapter numbers from the list (round 55 "gaps"), found the old page and showed its dead pictures; the keeper then
+          retried those pictures for ever (939 retries in one report) which also uses up the daily limit of a free proxy.
+     HOW: every 3 s, for each chapter on the page: if at least 4 of its pictures (and 70 % of them) failed AFTER two automatic retries, AND other chapters load fine (so it is not the internet),
+          then this upload is dead. A GUESSED chapter, or a listed chapter whose twin (same whole number, e.g. 3 and 3.2) loads fine, is taken off quietly (menu, bar and page). The chapter
+          you are reading is never pulled away without a place to go: the page scrolls to the twin first. A listed chapter with no twin stays, gets one clear note, and its retries slow down
+          (every 2 minutes) instead of every few seconds. IMPROVE: try the same file names on the twin's picture server before giving up; offer an "Open on the site" link. */
+  function deadUploadDoctor(secs, imgs, now, force) {
+    if (navigator.onLine === false || (!force && now - keeper.deadAt < 3000)) return;       // force = the person pressed "Fix automatically": do not wait for the second retry
+    keeper.deadAt = now;
+    const goodElsewhere = sec => imgs.filter(i => i._done && i.closest('.chapter') !== sec).length >= 3;
+    secs.forEach(x => {
+      const idx = +x.dataset.index, ch = R.chapters[idx]; if (!ch || ch.dead || x.dataset.verify || !x.isConnected) return;
+      const ps = $$('img.page', x); if (ps.length < 4) return;
+      const gone = ps.filter(i => i._failed && i._healN >= (force ? 1 : 2)).length;
+      if (gone < 4 || gone < ps.length * 0.7 || !goodElsewhere(x)) return;
+      let twin = -1, twinOk = false;
+      if (ch.num != null) twin = R.chapters.findIndex((c, j) => j !== idx && !c.dead && c.num != null && Math.floor(c.num) === Math.floor(ch.num));
+      if (twin >= 0) { const ts = stream.querySelector('.chapter[data-index="' + twin + '"]'); if (ts) { const tp = $$('img.page', ts); twinOk = tp.length >= 4 && tp.filter(i => i._done).length >= tp.length * 0.5; } }
+      if (!(ch.guess || twinOk)) {                                          // a real chapter with no good twin: keep it, say so once, stop hammering
+        if (!x._goneNote) {
+          x._goneNote = 1; const n = document.createElement('p'); n.className = 'muted small ch-gone'; n.textContent = 'The pictures of this upload no longer load on the site itself. MangaFlow tries again only every 2 minutes. If the site has another copy of this chapter, it is shown in the list.';
+          x.insertBefore(n, x.firstChild);
+        }
+        ps.forEach(i => { if (i._failed) i._healAt = Math.max(i._healAt || 0, now + 120000); });
+        return;
+      }
+      if (idx === R.cur) { const ts = twin >= 0 && stream.querySelector('.chapter[data-index="' + twin + '"]'); if (ts) ts.scrollIntoView(); else return; }
+      ch.dead = true; ch.deadWhy = 'pictures of this upload are gone';
+      removeSection(x); buildChapterMenu(); updateDlBar();
+      keeper.dropped++; keeper.droppedList.push(fmtNum(ch.num != null ? ch.num : idx + 1));
+      if (!R.deadToast2) { R.deadToast2 = true; toast('Some old uploads whose pictures no longer exist on the site were skipped'); }
+    });
+  }
   // WHY: the keeper only works while reading, in a visible tab, with a network. HOW: four plain checks. IMPROVE: none needed.
   const keeperOn = () => document.body.classList.contains('reading') && !reader.hidden && !document.hidden && navigator.onLine !== false && !R.paused;
   function keeperTick() {
@@ -4868,7 +4906,9 @@
           $$('img.page', x).forEach(i => { if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return; i.loading = 'eager'; i._eagerAt = now; pending++; });
         });
       }
-      keeper.last = 'ahead ' + ahead + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
+      // E. ROUND 66: the dead-upload doctor (see deadUploadDoctor below). Runs by itself every few seconds while you read.
+      deadUploadDoctor(secs, imgs, now);
+      keeper.last = 'ahead ' + ahead + ', dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
     } catch { /* the keeper must never break reading */ }
   }
   // WHY: after the internet returns or the tab comes back, do not wait for the old (long) waiting times. HOW: forget them and run a tick now. IMPROVE: none needed.
@@ -7106,7 +7146,8 @@
     const key = ref || 'unknown chapter', c = (picFails.get(key) || 0) + 1; picFails.set(key, c);
     // WHY: keep the failure memory small. HOW: over 80 entries the oldest is deleted.
     if (picFails.size > 80) picFails.delete(picFails.keys().next().value);
-    if (c === 3) showError('Several pictures of ' + key + ' are not loading', { title: '\u{1F5BC} Pictures are not loading',
+    let guessed = false; try { guessed = !!(R && R.chapters && R.chapters.some(ch => ch.guess && ch.url === ref)); } catch { /* ignore */ }   // ROUND 66: a guessed chapter is looked after by the dead-upload doctor (no pop-up)
+    if (c === 3 && !guessed) showError('Several pictures of ' + key + ' are not loading', { title: '\u{1F5BC} Pictures are not loading',
       hint: 'Three pictures of this chapter failed. Usually the picture host refuses outside readers or the proxies are blocked. Try "Fix automatically" in Settings > Troubleshoot, or use your own proxy (worker.js sends the right referer).',
       // WHY: details for the picture-failed report. HOW: the picture address, page number and chapter address as text lines.
       details: 'Latest picture address: ' + src + '\nPage number: ' + (k + 1) + '\nChapter address: ' + (ref || '-') + '\nRoutes: ' + routeStatText() });
@@ -7337,13 +7378,19 @@
       if (deep && cur.doc) { try { const f = await Promise.race([chapterPictures(cur.doc, base, cur.url), new Promise(x => setTimeout(() => x(null), 8000))]); if (f && f.list && f.list.length > best.length) best = f.list; r.finder.how = f && f.how; } catch (e) { r.notes.push('chapterPictures failed: ' + (e && e.message)); } }
       r.finder.scripts = js.length; r.finder.reader = sc.list.length; r.finder.readerHow = sc.how; r.finder.best = best.length; r.pics = best;
       const shown = (c.ok || 0) + (c.pending || 0);
-      if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
-      else if ((c.placeholder || 0) > 0) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
+      // ROUND 66: a LEFTOVER placeholder (the theme's spare slot) is not a problem when every picture the finder knows is already on the page (the report showed 84 of 85 shown, 1 spare slot, "not repaired").
+      const leftover = (c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1 && shown >= best.length;
+      if (leftover) r.notes.push('a spare placeholder slot was ignored: all ' + best.length + ' pictures the finder knows are already shown');
+      else if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
+      else if ((c.placeholder || 0) > 0 && best.length < 1) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
       if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
       if ((c.pending || 0) > 0 && cur.shownAt && Date.now() - cur.shownAt > 12000) r.problems.push({ code: 'P2-STALLED', text: (c.pending) + ' picture(s) are still loading after 12 seconds (slow or silent host).', fix: true });
       if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
       // ROUND 63: can a person SEE the pictures? (and covers on top of the page)
       try {
+        // ROUND 66: only judge "can a person see the pictures" while Page 2 is really on screen. In reading mode (Page 3) the frame sits behind the reader, every picture measures 0x0 and the old check
+        //   reported "82 of 82 pictures hidden" (a false alarm that also made the repair run for nothing).
+        if (!(frame.offsetWidth > 0 && frame.offsetHeight > 0) || document.body.classList.contains('reading') || !document.getElementById('reader').hidden) throw new Error('frame not on screen');
         const look = frameLook(d, best); c.seeChecked = look.checked; c.hiddenPics = look.hidden.length; c.covers = look.covers.length;
         r.vis = { hidden: look.hidden.map(h => h.reason + ' <- ' + h.src), covers: look.covers.map(x => x.tag + ' ' + x.why) };
         if (look.hidden.length) r.problems.push({ code: 'P2-HIDDEN', text: look.hidden.length + ' of ' + look.checked + ' chapter picture(s) are loaded but NOT visible (' + look.hidden[0].reason + '). The site keeps its reader hidden until its own script runs.', fix: true });
@@ -7489,6 +7536,7 @@
     const pr = await FIX.testProxies.run(); say(pr);
     if (!reader.hidden) {
       // WHY: run the 'retry pictures' fix and show what it did. HOW: say() prints the result text.
+      { const before = keeper.dropped; try { deadUploadDoctor($$('.chapter', stream), $$('#stream img.page'), Date.now(), true); } catch { /* extra step */ } if (keeper.dropped > before) say('Skipped ' + (keeper.dropped - before) + ' old chapter upload(s) whose pictures no longer exist on the site (the site\'s own list has another copy).'); }
       say(await FIX.retryPictures.run());
       const bad = $$('.chapter', stream).filter(sec => sec.querySelector('.ch-msg'));
       if (bad.length) { say('Reloading ' + bad.length + ' chapter box' + (bad.length === 1 ? '' : 'es') + ' that showed a message.'); reloadSections(bad); }
@@ -7514,7 +7562,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 65)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 66)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),

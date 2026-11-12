@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 65 — 2026-11-12 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 66 — 2026-11-12 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -316,6 +316,17 @@ Also: a service that never answers (the built-in browser translator can hang whi
 
 **Tests (mock):** unit tests of every helper; a real Tesseract run on a generated page with three bubbles (one white-on-black) → 3 boxes, one batched request in story order, sentence case; a batch whose answer lost a line was cut in two and still gave all 4 bubbles.
 **Honest limit:** hand-lettered fonts and sound effects can still be misread; tap a box to see the original, use "Translate again" to read once more.
+
+## 4v. Round 66 — Dead old uploads, a harmless "previous chapter" 404, two false alarms (`?v=66`)
+
+**Reports (build 65):** (1) mgeko: pressing the site's own "Previous" of chapter 1 opened `…chapter-0…` → red "Could not load the page … 404". (2) kingofshojo: chapters 3-9 showed 41 red "Page N could not be loaded" boxes and the pop-up "Several pictures … are not loading"; the diagnostic said 939 pictures retried, 283 waiting. (3) the diagnostic said "P2-HIDDEN: 82 of 82 pictures NOT visible" while reading, and "P2-PLACEHOLDER … not repaired" although 84 of 85 pictures were shown.
+**Root causes:** (1) a followed link that the site answers with 404 was treated as a MangaFlow failure. (2) the site's own list holds only the NEW uploads (`chapter-3-2` … pictures on a new server); the reader guessed the missing whole numbers (round 55 "gaps", pages 3-9 still answer) and those OLD uploads have deleted pictures (HTTP 404) → the keeper retried every dead picture for ever (this also eats a free proxy's daily limit). (3) the visibility check ran while Page 2 was hidden behind the reader (everything measures 0x0); a spare placeholder slot was counted as a problem although every known picture was shown.
+**Fixes (always on, no button needed):**
+- `deadUploadDoctor()` (inside the keeper tick, every 3 s while reading): a chapter with ≥4 failed pictures (≥70 %) AFTER two automatic retries, while other chapters load fine, is a dead upload. A guessed chapter — or a listed one whose twin (same whole number) loads — is removed quietly (page, menu, bar) with one small toast; the chapter being read scrolls to the twin first. A real chapter without a twin stays with one note and retries only every 2 minutes. "Fix automatically" runs the doctor at once (after one retry). The "Several pictures … not loading" pop-up is no longer shown for guessed chapters. The diagnostic's Keeper line shows `dead uploads skipped N [numbers]`.
+- `navigate()`: a followed link answered with 404/410/"not found" gives a one-line toast ("there is no earlier chapter" when it looks like chapter 0/1) and the address bar returns to the page you are on.
+- `siteViewScan()`: the "can a person see the pictures" check only runs when Page 2 is really on screen (not in reading mode); a leftover placeholder slot is ignored when all known pictures are shown.
+- Troubleshoot: new symptom `deadupload`.
+**Tests (mock, `kings1.js`, `mgeko1.js`):** kingofshojo-like site (list 1.2…9.2 with cdn pictures, 10…22; gaps 1…9 with 404 wp-content pictures): before the fix every second chapter showed 8 red boxes; after, only the 5 loaded chapters remain, no pop-up. mgeko-like site: Previous of chapter 1 → toast, address back on chapter 1, no pop-up.
 
 ## How to Deploy / Set Up
 

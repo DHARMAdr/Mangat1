@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 65 — 2026-11-12 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 66 — 2026-11-12 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -382,6 +382,17 @@ Also: a service that never answers (the built-in browser translator can hang whi
 
 **Tests (mock):** unit tests of every helper; a real Tesseract run on a generated page with three bubbles (one white-on-black) → 3 boxes, one batched request in story order, sentence case; a batch whose answer lost a line was cut in two and still gave all 4 bubbles.
 **Honest limit:** hand-lettered fonts and sound effects can still be misread; tap a box to see the original, use "Translate again" to read once more.
+
+## 4v. Round 66 — Dead old uploads, a harmless "previous chapter" 404, two false alarms (`?v=66`)
+
+**Reports (build 65):** (1) mgeko: pressing the site's own "Previous" of chapter 1 opened `…chapter-0…` → red "Could not load the page … 404". (2) kingofshojo: chapters 3-9 showed 41 red "Page N could not be loaded" boxes and the pop-up "Several pictures … are not loading"; the diagnostic said 939 pictures retried, 283 waiting. (3) the diagnostic said "P2-HIDDEN: 82 of 82 pictures NOT visible" while reading, and "P2-PLACEHOLDER … not repaired" although 84 of 85 pictures were shown.
+**Root causes:** (1) a followed link that the site answers with 404 was treated as a MangaFlow failure. (2) the site's own list holds only the NEW uploads (`chapter-3-2` … pictures on a new server); the reader guessed the missing whole numbers (round 55 "gaps", pages 3-9 still answer) and those OLD uploads have deleted pictures (HTTP 404) → the keeper retried every dead picture for ever (this also eats a free proxy's daily limit). (3) the visibility check ran while Page 2 was hidden behind the reader (everything measures 0x0); a spare placeholder slot was counted as a problem although every known picture was shown.
+**Fixes (always on, no button needed):**
+- `deadUploadDoctor()` (inside the keeper tick, every 3 s while reading): a chapter with ≥4 failed pictures (≥70 %) AFTER two automatic retries, while other chapters load fine, is a dead upload. A guessed chapter — or a listed one whose twin (same whole number) loads — is removed quietly (page, menu, bar) with one small toast; the chapter being read scrolls to the twin first. A real chapter without a twin stays with one note and retries only every 2 minutes. "Fix automatically" runs the doctor at once (after one retry). The "Several pictures … not loading" pop-up is no longer shown for guessed chapters. The diagnostic's Keeper line shows `dead uploads skipped N [numbers]`.
+- `navigate()`: a followed link answered with 404/410/"not found" gives a one-line toast ("there is no earlier chapter" when it looks like chapter 0/1) and the address bar returns to the page you are on.
+- `siteViewScan()`: the "can a person see the pictures" check only runs when Page 2 is really on screen (not in reading mode); a leftover placeholder slot is ignored when all known pictures are shown.
+- Troubleshoot: new symptom `deadupload`.
+**Tests (mock, `kings1.js`, `mgeko1.js`):** kingofshojo-like site (list 1.2…9.2 with cdn pictures, 10…22; gaps 1…9 with 404 wp-content pictures): before the fix every second chapter showed 8 red boxes; after, only the 5 loaded chapters remain, no pop-up. mgeko-like site: Previous of chapter 1 → toast, address back on chapter 1, no pop-up.
 
 ## How to Deploy / Set Up
 
@@ -825,17 +836,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=65" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=66" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=65" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=66" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=65">
+  <link rel="stylesheet" href="style.css?v=66">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=65"></script>
+  <script src="boot.js?v=66"></script>
 </head>
 <body data-side="right">
 
@@ -1408,24 +1419,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=65"></script>
+  <script src="pdfmaker.js?v=66"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=65"></script>
-  <script src="app.js?v=65"></script>
+  <script src="troubleshoot-data.js?v=66"></script>
+  <script src="app.js?v=66"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=65"></script>
+  <script src="chapter-slider.js?v=66"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=65"></script>
+  <script src="reload-wheel.js?v=66"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=65"></script>
+  <script src="edge-slider.js?v=66"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=65"></script>
+  <script src="translate.js?v=66"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=65"></script>
+  <script src="profiles.js?v=66"></script>
 </body>
 </html>
 ~~~~~~
@@ -3525,7 +3536,7 @@ body.fs.fs-small #p2NavBar { display: none !important; }
 <!-- END FILE -->
 
 
-### File: `troubleshoot-data.js`  (175 lines)
+### File: `troubleshoot-data.js`  (179 lines)
 
 **Why this file exists / what it does:** Text data for Settings > Troubleshoot > Symptoms & answers (symptoms, causes, fixes, ready-made questions).
 
@@ -3552,6 +3563,10 @@ body.fs.fs-small #p2NavBar { display: none !important; }
 window.MF_FIX = {
   SYMPTOMS: [
     // ROUND 63: script-built sites (Next.js etc.) hide their reader until their own script runs.
+    // ROUND 66: some chapters show many red "Page N could not be loaded" boxes / "Several pictures are not loading", other chapters are fine.
+    { id: 'deadupload', title: 'Some chapters show many red "Page N could not be loaded" boxes (other chapters are fine)',
+      why: 'Some sites keep two copies of a chapter: the new upload (shown in their own list, for example chapter-3-2) and an old upload (chapter-3) whose pictures were deleted. MangaFlow guesses missing chapter numbers and can land on the old copy. The dead-upload doctor runs by itself while you read: it skips such a copy quietly when the pictures stay dead after two automatic retries and the other chapters load fine. A real chapter with no other copy is kept and retried only every 2 minutes.',
+      fix: ['clearCaches'], ask: 'noimages' },
     { id: 'p2hidden', title: 'The site page (Page 2) looks blank or says "JavaScript Required" although reading mode works',
       why: 'Some sites hide their reader (and show a cover) until their own script runs. MangaFlow never runs site scripts, so it makes the pictures visible itself, or draws the chapter in a plain strip.',
       fix: ['siteView'], ask: 'noimages' },
@@ -3709,7 +3724,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8226 lines)
+### File: `app.js`  (8274 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4604,7 +4619,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 65)',
+      'MangaFlow error report (build round 66)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -6174,6 +6189,9 @@ window.MF_FIX = {
       if (stale()) return false;                      // round 18: an old, replaced request must not open an error pop-up
       // ROUND 29e: a check for humans gets the VERIFY box (with the way to pass it and the automatic retry), everything else the red pop-up as before.
       if (isHumanCheck(e.message)) humanCheckBox(url, () => navigate(input, push, opts));
+      // ROUND 66: a link INSIDE the page you are on (for example the site's own "previous chapter" button of chapter 1, which points at the non-existing chapter 0) that the site answers with
+      //   "not found" is not a MangaFlow error: say so in one line and stay on the page you were reading. WHY: it opened a red "Could not load the page" pop-up and left the address bar on the dead address.
+      else if (cur && !cur.isSearch && cur.url !== url && /HTTP 404|HTTP 410|NOT FOUND/i.test(String(e.message))) { setAddress(cur.url); toast('That page does not exist on the site' + (/chapter[-_ /]*0*(0|1)\b/i.test(url) ? ' (there is no earlier chapter)' : '') + ' - you are still on the page you were reading'); }
       else showError('Could not load the page: ' + e.message, { details: 'Address: ' + url + '\nProxies: ' + settings.proxies.map(proxyName).join(', ') + '\nPress Retry by opening the link again, or see MANGAFLOW.md section 11.' });
       // WHY: with no proxy at all, failure is certain, so open Settings once per visit to point the user at the fix.
       // WHY: with no proxy the load will always fail, so guide the user to Settings. HOW: open Settings after 0.9 seconds,
@@ -8543,7 +8561,42 @@ window.MF_FIX = {
     try { const c = navigator.connection; if (c && c.saveData) n = Math.min(n, 1); if (navigator.deviceMemory && navigator.deviceMemory <= 2) n = Math.min(n, 3); } catch { /* the browser does not tell: keep the setting */ }
     return n;
   }
-  const keeper = { healedPics: 0, healedCh: 0, busyCh: 0, last: '' };
+  const keeper = { healedPics: 0, healedCh: 0, busyCh: 0, last: '', dropped: 0, droppedList: [], deadAt: 0 };
+  /* ROUND 66 - THE DEAD-UPLOAD DOCTOR (reported: kingofshojo chapters 3-9 showed 41 red "Page N could not be loaded" boxes and "Several pictures are not loading").
+     WHY: some sites keep TWO copies of a chapter: the site's own list shows the NEW upload (chapter-3-2, pictures on a new server) while the OLD upload (chapter-3) still answers as a page
+          but its pictures were deleted (HTTP 404). MangaFlow guesses missing chapter numbers from the list (round 55 "gaps"), found the old page and showed its dead pictures; the keeper then
+          retried those pictures for ever (939 retries in one report) which also uses up the daily limit of a free proxy.
+     HOW: every 3 s, for each chapter on the page: if at least 4 of its pictures (and 70 % of them) failed AFTER two automatic retries, AND other chapters load fine (so it is not the internet),
+          then this upload is dead. A GUESSED chapter, or a listed chapter whose twin (same whole number, e.g. 3 and 3.2) loads fine, is taken off quietly (menu, bar and page). The chapter
+          you are reading is never pulled away without a place to go: the page scrolls to the twin first. A listed chapter with no twin stays, gets one clear note, and its retries slow down
+          (every 2 minutes) instead of every few seconds. IMPROVE: try the same file names on the twin's picture server before giving up; offer an "Open on the site" link. */
+  function deadUploadDoctor(secs, imgs, now, force) {
+    if (navigator.onLine === false || (!force && now - keeper.deadAt < 3000)) return;       // force = the person pressed "Fix automatically": do not wait for the second retry
+    keeper.deadAt = now;
+    const goodElsewhere = sec => imgs.filter(i => i._done && i.closest('.chapter') !== sec).length >= 3;
+    secs.forEach(x => {
+      const idx = +x.dataset.index, ch = R.chapters[idx]; if (!ch || ch.dead || x.dataset.verify || !x.isConnected) return;
+      const ps = $$('img.page', x); if (ps.length < 4) return;
+      const gone = ps.filter(i => i._failed && i._healN >= (force ? 1 : 2)).length;
+      if (gone < 4 || gone < ps.length * 0.7 || !goodElsewhere(x)) return;
+      let twin = -1, twinOk = false;
+      if (ch.num != null) twin = R.chapters.findIndex((c, j) => j !== idx && !c.dead && c.num != null && Math.floor(c.num) === Math.floor(ch.num));
+      if (twin >= 0) { const ts = stream.querySelector('.chapter[data-index="' + twin + '"]'); if (ts) { const tp = $$('img.page', ts); twinOk = tp.length >= 4 && tp.filter(i => i._done).length >= tp.length * 0.5; } }
+      if (!(ch.guess || twinOk)) {                                          // a real chapter with no good twin: keep it, say so once, stop hammering
+        if (!x._goneNote) {
+          x._goneNote = 1; const n = document.createElement('p'); n.className = 'muted small ch-gone'; n.textContent = 'The pictures of this upload no longer load on the site itself. MangaFlow tries again only every 2 minutes. If the site has another copy of this chapter, it is shown in the list.';
+          x.insertBefore(n, x.firstChild);
+        }
+        ps.forEach(i => { if (i._failed) i._healAt = Math.max(i._healAt || 0, now + 120000); });
+        return;
+      }
+      if (idx === R.cur) { const ts = twin >= 0 && stream.querySelector('.chapter[data-index="' + twin + '"]'); if (ts) ts.scrollIntoView(); else return; }
+      ch.dead = true; ch.deadWhy = 'pictures of this upload are gone';
+      removeSection(x); buildChapterMenu(); updateDlBar();
+      keeper.dropped++; keeper.droppedList.push(fmtNum(ch.num != null ? ch.num : idx + 1));
+      if (!R.deadToast2) { R.deadToast2 = true; toast('Some old uploads whose pictures no longer exist on the site were skipped'); }
+    });
+  }
   // WHY: the keeper only works while reading, in a visible tab, with a network. HOW: four plain checks. IMPROVE: none needed.
   const keeperOn = () => document.body.classList.contains('reading') && !reader.hidden && !document.hidden && navigator.onLine !== false && !R.paused;
   function keeperTick() {
@@ -8585,7 +8638,9 @@ window.MF_FIX = {
           $$('img.page', x).forEach(i => { if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return; i.loading = 'eager'; i._eagerAt = now; pending++; });
         });
       }
-      keeper.last = 'ahead ' + ahead + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
+      // E. ROUND 66: the dead-upload doctor (see deadUploadDoctor below). Runs by itself every few seconds while you read.
+      deadUploadDoctor(secs, imgs, now);
+      keeper.last = 'ahead ' + ahead + ', dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
     } catch { /* the keeper must never break reading */ }
   }
   // WHY: after the internet returns or the tab comes back, do not wait for the old (long) waiting times. HOW: forget them and run a tick now. IMPROVE: none needed.
@@ -10823,7 +10878,8 @@ window.MF_FIX = {
     const key = ref || 'unknown chapter', c = (picFails.get(key) || 0) + 1; picFails.set(key, c);
     // WHY: keep the failure memory small. HOW: over 80 entries the oldest is deleted.
     if (picFails.size > 80) picFails.delete(picFails.keys().next().value);
-    if (c === 3) showError('Several pictures of ' + key + ' are not loading', { title: '\u{1F5BC} Pictures are not loading',
+    let guessed = false; try { guessed = !!(R && R.chapters && R.chapters.some(ch => ch.guess && ch.url === ref)); } catch { /* ignore */ }   // ROUND 66: a guessed chapter is looked after by the dead-upload doctor (no pop-up)
+    if (c === 3 && !guessed) showError('Several pictures of ' + key + ' are not loading', { title: '\u{1F5BC} Pictures are not loading',
       hint: 'Three pictures of this chapter failed. Usually the picture host refuses outside readers or the proxies are blocked. Try "Fix automatically" in Settings > Troubleshoot, or use your own proxy (worker.js sends the right referer).',
       // WHY: details for the picture-failed report. HOW: the picture address, page number and chapter address as text lines.
       details: 'Latest picture address: ' + src + '\nPage number: ' + (k + 1) + '\nChapter address: ' + (ref || '-') + '\nRoutes: ' + routeStatText() });
@@ -11054,13 +11110,19 @@ window.MF_FIX = {
       if (deep && cur.doc) { try { const f = await Promise.race([chapterPictures(cur.doc, base, cur.url), new Promise(x => setTimeout(() => x(null), 8000))]); if (f && f.list && f.list.length > best.length) best = f.list; r.finder.how = f && f.how; } catch (e) { r.notes.push('chapterPictures failed: ' + (e && e.message)); } }
       r.finder.scripts = js.length; r.finder.reader = sc.list.length; r.finder.readerHow = sc.how; r.finder.best = best.length; r.pics = best;
       const shown = (c.ok || 0) + (c.pending || 0);
-      if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
-      else if ((c.placeholder || 0) > 0) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
+      // ROUND 66: a LEFTOVER placeholder (the theme's spare slot) is not a problem when every picture the finder knows is already on the page (the report showed 84 of 85 shown, 1 spare slot, "not repaired").
+      const leftover = (c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1 && shown >= best.length;
+      if (leftover) r.notes.push('a spare placeholder slot was ignored: all ' + best.length + ' pictures the finder knows are already shown');
+      else if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
+      else if ((c.placeholder || 0) > 0 && best.length < 1) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
       if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
       if ((c.pending || 0) > 0 && cur.shownAt && Date.now() - cur.shownAt > 12000) r.problems.push({ code: 'P2-STALLED', text: (c.pending) + ' picture(s) are still loading after 12 seconds (slow or silent host).', fix: true });
       if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
       // ROUND 63: can a person SEE the pictures? (and covers on top of the page)
       try {
+        // ROUND 66: only judge "can a person see the pictures" while Page 2 is really on screen. In reading mode (Page 3) the frame sits behind the reader, every picture measures 0x0 and the old check
+        //   reported "82 of 82 pictures hidden" (a false alarm that also made the repair run for nothing).
+        if (!(frame.offsetWidth > 0 && frame.offsetHeight > 0) || document.body.classList.contains('reading') || !document.getElementById('reader').hidden) throw new Error('frame not on screen');
         const look = frameLook(d, best); c.seeChecked = look.checked; c.hiddenPics = look.hidden.length; c.covers = look.covers.length;
         r.vis = { hidden: look.hidden.map(h => h.reason + ' <- ' + h.src), covers: look.covers.map(x => x.tag + ' ' + x.why) };
         if (look.hidden.length) r.problems.push({ code: 'P2-HIDDEN', text: look.hidden.length + ' of ' + look.checked + ' chapter picture(s) are loaded but NOT visible (' + look.hidden[0].reason + '). The site keeps its reader hidden until its own script runs.', fix: true });
@@ -11206,6 +11268,7 @@ window.MF_FIX = {
     const pr = await FIX.testProxies.run(); say(pr);
     if (!reader.hidden) {
       // WHY: run the 'retry pictures' fix and show what it did. HOW: say() prints the result text.
+      { const before = keeper.dropped; try { deadUploadDoctor($$('.chapter', stream), $$('#stream img.page'), Date.now(), true); } catch { /* extra step */ } if (keeper.dropped > before) say('Skipped ' + (keeper.dropped - before) + ' old chapter upload(s) whose pictures no longer exist on the site (the site\'s own list has another copy).'); }
       say(await FIX.retryPictures.run());
       const bad = $$('.chapter', stream).filter(sec => sec.querySelector('.ch-msg'));
       if (bad.length) { say('Reloading ' + bad.length + ' chapter box' + (bad.length === 1 ? '' : 'es') + ' that showed a message.'); reloadSections(bad); }
@@ -11231,7 +11294,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 65)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 66)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -15025,7 +15088,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (144 lines)
+### File: `MANGAFLOW_GUIDE.md`  (145 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15034,7 +15097,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 65 — 2026-11-12*
+*Last updated: Round 66 — 2026-11-12*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15169,6 +15232,7 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 63:** script-built sites (Next.js, e.g. drakecomic) keep the reader hidden until their own script runs, so Page 2 showed a blank page / "JavaScript Required" cover although the pictures were loaded → MangaFlow now makes them visible (and removes the cover) by itself, or draws the chapter in a plain strip; the reader name "JavaScript Required" fixed; style sheets repaired up to 24 (was 8) with a second try; pictures start sooner in reading mode.
 - **Round 64:** the warning "1 style sheet could not be loaded, so the page may look plain" appeared even when the browser loaded that file fine or the site itself had no such file → such cases are no longer warned; a real failure now lists why each proxy failed.
 - **Round 65:** translated words were often wrong or meaningless because the picture text was read from the raw picture (for example the word "I" read as "|") and answers were never checked → the reader now prepares the picture (grey, contrast, white-on-black turned round, small pages enlarged, second black/white reading), repairs typical reading mistakes, ignores noise, puts bubbles in story order (right-to-left for Japanese), translates the whole page in one request in context, refuses bad answers (empty / untranslated / wrong writing) and asks the next service, then tidies the text. A translator that hangs is given up after 20–40 s.
+- **Round 66:** some chapters showed dozens of red "Page N could not be loaded" boxes because the site's old upload of the chapter has deleted pictures (the site's own list shows a newer copy) -> the dead-upload doctor now runs by itself while you read and skips such old copies quietly; pressing the site's own "Previous" on chapter 1 (a page that does not exist) now only shows a small note; the "pictures hidden" check no longer raises a false alarm while reading, and a spare placeholder slot is no longer reported.
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
