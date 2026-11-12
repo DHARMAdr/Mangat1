@@ -50,6 +50,14 @@
      - PIPELINE OCR+TRANSLATE: processPage() now starts translating the bubbles OCR has already found while OCR is still
        running on remaining tiles of the same page. The first few bubbles appear on screen sooner, reducing the gap between
        scrolling and seeing translations.
+   ROUND 65 improvements (the translation was "not perfect and not meaningful"; see the big ROUND 65 comment above "const SVC"):
+     - BETTER READING: the picture is made grey with stretched contrast (white-on-black bubbles are turned round), small pages are enlarged 2x, an empty
+       slice is read again as pure black/white, words the reader is unsure about are dropped, typical mistakes are repaired (|->I, 0->O, broken hyphens,
+       SHOUTING capitals -> sentences, stray marks in Japanese), noise like "Ee i' rl" is not translated.
+     - BETTER MEANING: bubbles are put in story order (right-to-left for Japanese) and the whole page is translated in ONE request, one bubble per line;
+       a wrong line count cuts the group in two (still in context). Every answer is checked (empty / error text / still in the old language / wrong writing
+       system = refused, next service, Google again with "detect language"), then polished (HTML codes, spaces, capital letter, "i" -> "I").
+     - A service that never answers (the browser's own translator can hang) is given up after 20-40 seconds.
    ===================================================================== */
 (() => {                                                   // WHY: an IIFE keeps every name private (no clash with app.js)
   'use strict';                                            // WHY: strict mode turns silent mistakes into real errors
@@ -373,7 +381,8 @@
     if (P.w < MIN_PAGE || P.h < MIN_PAGE) return { lang: fromKey, bubbles: [] };
     let key = fromKey === 'auto' ? autoLang : fromKey, probe = false;
     if (!key) { key = 'auto'; probe = true; }
-    let s = Math.min(1, MAX_W / P.w); if (P.w * P.h * s * s > MAX_AREA) s = Math.sqrt(MAX_AREA / (P.w * P.h));
+    let s = Math.min(1, MAX_W / P.w); if (P.w < 900) s = Math.min(2, 1100 / P.w);     // ROUND 65: small pages are ENLARGED (up to 2x) so the letters are big enough for the reader
+    if (P.w * P.h * s * s > MAX_AREA) s = Math.sqrt(MAX_AREA / (P.w * P.h));
     const tileNat = Math.round(TILE_H / s), bubbles = [];
     // WHY: the probe pass reads ALL available scripts at once so we can detect which script is on the page.
     //   ROUND 33: only include language codes whose .traineddata.gz file actually exists on the server (checked via HEAD request,
@@ -394,13 +403,24 @@
         const hNat = end - y, c = document.createElement('canvas'); c.width = Math.max(1, Math.round(P.w * s)); c.height = Math.max(1, Math.round(hNat * s));
         const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(P.src, 0, y, P.w, hNat, 0, 0, c.width, c.height);
         setStatus('Reading the words' + (passes.length > 1 ? ' (' + (pi + 1) + '/' + passes.length + ')' : '') + '…');
-        const w = await getWorker(passes[pi]); const r = await w.recognize(c, {}, { blocks: true });
-        (r.data.lines || []).forEach(l => {
-          const t = tidy(l.text); if (!t) return;
+        const w = await getWorker(passes[pi]);
+        // ROUND 65: read the PREPARED copy (grey, stretched contrast). A slice with no words is read a second time as pure black/white, in "sparse text" mode.
+        const spaced = !probe && (key === 'eng' || key === 'hin' || key === 'kor');
+        const found = [];
+        const take = (r, tag) => (r.data.lines || []).forEach(l => {
+          const t = tidy(spaced ? keepWords(l, Math.max(20, minConf * .5)) : l.text); if (!t) return;
+          if (logLines.length < 400) note('line read (' + Math.round(l.confidence || 0) + '%): ' + String(l.text).slice(0, 60) + (t !== tidy(l.text) ? '  ->  ' + t.slice(0, 60) : ''));   // ROUND 65: the diary shows what the reader saw (helps the owner and me find reading mistakes)
           const item = { text: t, conf: l.confidence || 0, x0: l.bbox.x0 / s, y0: y + l.bbox.y0 / s, x1: l.bbox.x1 / s, y1: y + l.bbox.y1 / s };
           if (!usable(item, minConf)) return;
-          const bg = bubbleColour(x, l.bbox.x0, l.bbox.y0, l.bbox.x1, l.bbox.y1, c.width, c.height); item.bg = bg; lines.push(item);
+          item.bg = bubbleColour(x, l.bbox.x0, l.bbox.y0, l.bbox.x1, l.bbox.y1, c.width, c.height); found.push(item);
         });
+        take(await w.recognize(prepTile(c, false), {}, { blocks: true }));
+        if (!found.length) {
+          try { await w.setParameters({ tessedit_pageseg_mode: '11' }); take(await w.recognize(prepTile(c, true), {}, { blocks: true })); if (found.length) note('second reading (black/white) found ' + found.length + ' line(s) the first one missed'); }
+          catch (e) { note('second reading failed: ' + (e && e.message)); }
+          finally { try { await w.setParameters({ tessedit_pageseg_mode: '12' }); } catch { /* the next getWorker() sets it again */ } }
+        }
+        lines.push(...found);
         y = end;
       }
       bubbles.push(...lines);
@@ -414,7 +434,7 @@
     const groups = groupLines(dedupe(bubbles)), bgOf = g => { const hit = bubbles.find(l => l.x0 >= g.x0 - 2 && l.x1 <= g.x1 + 2 && l.y0 >= g.y0 - 2 && l.y1 <= g.y1 + 2); return hit ? hit.bg : [255, 255, 255]; };
     return {
       lang: key, w: P.w, h: P.h,
-      bubbles: groups.map(g => { const p = Math.max(3, g.size * .3); return { text: g.text, bg: bgOf(g), x0: Math.max(0, g.x0 - p) / P.w, y0: Math.max(0, g.y0 - p) / P.h, x1: Math.min(P.w, g.x1 + p) / P.w, y1: Math.min(P.h, g.y1 + p) / P.h }; })
+      bubbles: groups.map(g => ({ ...g, text: fixOcr(g.text, key) })).filter(g => g.text.replace(/[^\p{L}\p{N}]/gu, '').length >= 2 && !isGarbage(g.text, key)).map(g => { const p = Math.max(3, g.size * .3); return { text: g.text, bg: bgOf(g), x0: Math.max(0, g.x0 - p) / P.w, y0: Math.max(0, g.y0 - p) / P.h, x1: Math.min(P.w, g.x1 + p) / P.w, y1: Math.min(P.h, g.y1 + p) / P.h }; })
     };
   }
 
@@ -453,6 +473,137 @@
     // collapse whitespace and return
     return lines.join('\n').replace(/[ \t]+/g, ' ').trim();
   }
+
+  /* =================================================================
+     ROUND 65: BETTER WORD DETECTION + MORE MEANINGFUL TRANSLATION
+     -----------------------------------------------------------------
+     WHY: the owner said the translated words were "still not perfect and not meaningful". There were two root causes:
+       (A) the text reader (OCR) got the pictures raw: coloured, grey, low contrast, small letters, white-on-black bubbles. A wrongly read
+           letter becomes a wrong word, and a wrong word becomes a nonsense translation.
+       (B) whatever the reader found was sent to the translator without any check, so a nonsense, an untranslated or a broken answer
+           was drawn on the page just the same.
+     HOW (the new algorithm, in the order it runs for one page):
+       1. PREPARE the picture   prepTile()     grey + stretch the contrast; turn white-on-black upside down; small pages are enlarged 2x.
+       2. READ, and READ AGAIN  readPage()     if a slice gives no words, it is read a second time as a pure black/white picture (Otsu).
+       3. DROP BAD WORDS        keepWords()    single words the reader is unsure about (below ~25% sure) are removed from a line.
+       4. REPAIR the text       fixOcr()       typical reading mistakes: "|" for I, 0 for O, broken hyphens, SHOUTING capitals, stray marks in Japanese.
+       5. DROP GARBAGE          isGarbage()    "Ee i' rl" style noise is not translated at all (the picture is left alone there).
+       6. PUT IN READING ORDER  readingOrder() rows top to bottom; inside a row right-to-left for Japanese / Chinese, left-to-right otherwise,
+                                so the story is told in the right order (the translator uses the earlier bubbles to understand the later ones).
+       7. TRANSLATE IN CONTEXT  translateAll() all bubbles of a page go in ONE request, one bubble per line (a line break is kept by every service,
+                                much better than the old " ||| " mark). If the answer has a different number of lines the group is cut in two and
+                                tried again (still in context) before single bubbles are tried.
+       8. CHECK THE ANSWER      badAnswer()     empty, an error text, still in the old language, or in the wrong writing system = rejected;
+                                the next service is asked (and Google once more with "detect the language by yourself").
+       9. POLISH                polish()        spaces before commas, "..." marks, HTML codes like &#39;, capital letter at the start, "i" -> "I".
+     HONEST LIMIT: OCR + free translation can still be wrong on hand-lettered fonts. Tap a box to see the original, "Translate again" in the panel
+       reads the page once more. IMPROVE: a manga-specific glossary (names), or an AI translation service that can read the whole story.
+     ================================================================= */
+  const ENTITY_BOX = document.createElement('textarea');                  // WHY: the browser itself decodes &amp; &#39; etc. (a textarea never runs scripts)
+  function decodeEntities(t) { t = String(t || ''); if (!/&(#\d+|#x[0-9a-f]+|[a-z]+);/i.test(t)) return t; ENTITY_BOX.innerHTML = t.replace(/</g, '&lt;'); return ENTITY_BOX.value; }
+
+  // STEP 1. Make a copy of a slice that is easier to read: grey, stretched contrast, dark text on a light ground. binarize = pure black/white (Otsu).
+  function prepTile(src, binarize) {
+    const c = document.createElement('canvas'); c.width = src.width; c.height = src.height;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0);
+    const im = x.getImageData(0, 0, c.width, c.height), d = im.data, n = c.width * c.height, hist = new Uint32Array(256); let sum = 0;
+    for (let i = 0; i < n; i++) { const o = i * 4, l = (d[o] * .3 + d[o + 1] * .59 + d[o + 2] * .11) | 0; d[o] = l; hist[l]++; sum += l; }
+    let lo = 0, hi = 255, acc = 0; const cut = n * .02;
+    for (lo = 0; lo < 255; lo++) { acc += hist[lo]; if (acc > cut) break; }       // the darkest 2% are "black"
+    acc = 0; for (hi = 255; hi > 0; hi--) { acc += hist[hi]; if (acc > cut) break; } // the lightest 2% are "white"
+    if (hi - lo < 40) { lo = 0; hi = 255; }                                       // a flat picture: do not stretch (it would only make noise)
+    const flip = sum / n < 105;                                                    // mostly dark picture = light letters on dark: turn it round
+    let thr = 128;
+    if (binarize) {                                                               // Otsu: the grey level that best separates letters from ground
+      let tot = 0, sumAll = 0; for (let k = 0; k < 256; k++) { tot += hist[k]; sumAll += k * hist[k]; }
+      let wB = 0, sB = 0, best = -1; for (let k = 0; k < 256; k++) { wB += hist[k]; if (!wB) continue; const wF = tot - wB; if (!wF) break; sB += k * hist[k]; const mB = sB / wB, mF = (sumAll - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF); if (v > best) { best = v; thr = k; } }
+    }
+    for (let i = 0; i < n; i++) {
+      const o = i * 4; let v = Math.max(0, Math.min(255, ((d[o] - lo) * 255) / (hi - lo)));
+      if (binarize) v = v > (thr - lo) * 255 / (hi - lo) ? 255 : 0;
+      if (flip) v = 255 - v; d[o] = d[o + 1] = d[o + 2] = v; d[o + 3] = 255;
+    }
+    x.putImageData(im, 0, 0); return c;
+  }
+  // STEP 3. Remove single words the reader is not sure about (a line "HELLO ~ t' WORLD" becomes "HELLO WORLD"). Only for spaced scripts (not Japanese / Chinese).
+  function keepWords(l, minWord) {
+    const w = l.words; if (!w || w.length < 2) return l.text;
+    const good = w.filter(x => x && x.text && (x.confidence == null || x.confidence >= minWord || /^[?!.…,'"]+$/.test(x.text) || /^[IiAa|l]$/.test(x.text)) && (x.text === '|' || !/^[^\p{L}\p{N}?!.…]{1,2}$/u.test(x.text)));
+    return good.length && good.length >= w.length * .5 ? good.map(x => x.text).join(' ') : l.text;
+  }
+  // STEP 4. Repair typical reading mistakes. lang = the reader language of the page ('eng', 'jpn', 'kor', 'hin', ...).
+  const KANA_C = '[぀-ヿ]', CJK_C = '[぀-ヿ㐀-鿿豈-﫿]';
+  function fixOcr(text, lang) {
+    let t = String(text || '').replace(/\s+/g, ' ').trim(); if (!t) return t;
+    if (lang === 'jpn' || lang === 'chi_sim' || lang === 'chi_tra') {
+      t = t.normalize('NFKC');                                                  // half-width ｱｲｳ -> アイウ, full-width ？！ -> ?!
+      t = t.replace(new RegExp('(' + CJK_C + ')\\s*[|_~^`´\'"\\\\/]+\\s*(?=' + CJK_C + ')', 'g'), '$1');   // stray marks between letters
+      if (lang === 'jpn') t = t.replace(new RegExp('(' + KANA_C + ')[Il|1](?=' + KANA_C + ')', 'g'), '$1ー');   // a long-vowel mark read as the letter I / l
+      t = t.replace(/(?:\.{2,}|・{2,}|…)+/g, '…').replace(/([!?！？]){3,}/g, '$1$1').replace(/\s+/g, ' ').trim();
+      return t;
+    }
+    if (lang === 'eng') {
+      t = t.replace(/[“”„]/g, '"').replace(/[‘’‚`´]/g, "'");
+      t = t.replace(/([A-Za-z])-\s+([a-z])/g, '$1$2');                          // "exam- ple" (word cut at the end of a line)
+      t = t.replace(/(^|\s)[l|](?=\s|'|$)/g, '$1I');                             // a lone  l  or  |  is the word "I"
+      t = t.replace(/\|/g, 'I');
+      t = t.replace(/\b(?=[A-Z0-9']*[A-Z])[A-Z0-9']{3,}\b/g, w => w.replace(/0/g, 'O').replace(/1/g, 'I'));   // G00D -> GOOD, 1T -> IT (only inside capital words)
+      const letters = t.replace(/[^A-Za-z]/g, '');
+      if (letters.length >= 6 && letters.replace(/[^A-Z]/g, '').length / letters.length >= .85) {                  // SHOUTING comic capitals -> normal sentences (names stay readable, services translate normal text better)
+        t = t.toLowerCase().replace(/(^|[.!?…]\s+)([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\bi\b/g, 'I').replace(/\bi'(m|ll|d|ve)\b/g, "I'$1");
+      }
+    }
+    t = t.replace(/\.{3,}/g, '…').replace(/!{3,}/g, '!!').replace(/\?{3,}/g, '??').replace(/^[^\p{L}\p{N}"'¿¡(]+/u, '').replace(/[~_^*\\<>]+$/g, '').replace(/\s+/g, ' ').trim();
+    return t;
+  }
+  // STEP 5. True when a text is only reading noise. Real words have vowels and are not a heap of 1-2 letter bits.
+  const SHORT_OK = new Set(['i', 'a', 'oh', 'ah', 'no', 'so', 'we', 'he', 'me', 'my', 'go', 'do', 'to', 'of', 'in', 'on', 'is', 'it', 'at', 'be', 'by', 'up', 'us', 'ok', 'hm', 'eh', 'uh', 'um', 'ha', 'hi', 'yo', 'if', 'or', 'as', 'an', 'am', 'oi', 'ow', 'ya']);
+  const NOVOWEL_OK = new Set(['hmm', 'shh', 'brr', 'psst', 'tsk', 'grr', 'zzz', 'mmm', 'nnn', 'sh', 'ssh', 'pfft', 'tch', 'cry', 'why', 'try', 'my', 'shy', 'sky', 'fly', 'spy', 'gym', 'myth', 'hmph', 'argh', 'pff', 'brrr', 'nngh', 'ngh']);
+  function isGarbage(text, lang) {
+    if (lang !== 'eng') return false;
+    const tok = (String(text).match(/[A-Za-z']+/g) || []).map(w => w.toLowerCase().replace(/'/g, ''));
+    if (!tok.length) return true;
+    const letters = tok.join('').length;
+    if (tok.length >= 2 && letters < 16 && tok.filter(w => w.length <= 2 && !SHORT_OK.has(w)).length / tok.length > .6) return true;
+    const long = tok.filter(w => w.length >= 3);
+    if (long.length && long.every(w => !/[aeiouy]/.test(w) && !NOVOWEL_OK.has(w)) && letters < 24) return true;
+    return false;
+  }
+  // STEP 6. Order bubbles like a reader would: rows from the top; inside one row right-to-left for Japanese / Chinese, else left-to-right.
+  function readingOrder(list, rtlSource) {
+    const rows = [];
+    list.slice().sort((a, b) => a.y0 - b.y0).forEach(b => {
+      const cy = (b.y0 + b.y1) / 2, row = rows.find(r => cy > r.y0 && cy < r.y1 && Math.min(b.y1, r.y1) - Math.max(b.y0, r.y0) > .35 * Math.min(b.y1 - b.y0, r.y1 - r.y0));
+      if (row) { row.items.push(b); row.y0 = Math.min(row.y0, b.y0); row.y1 = Math.max(row.y1, b.y1); } else rows.push({ y0: b.y0, y1: b.y1, items: [b] });
+    });
+    rows.sort((a, b) => a.y0 - b.y0);
+    return rows.flatMap(r => r.items.sort(rtlSource ? (a, b) => b.x1 - a.x1 : (a, b) => a.x0 - b.x0));
+  }
+  // STEP 8. Is the answer good? Returns '' when it is fine, else the reason it was refused.
+  const SCRIPT_OF = { hi: /[ऀ-ॿ]/g, mr: /[ऀ-ॿ]/g, ta: /[஀-௿]/g, te: /[ఀ-౿]/g, ml: /[ഀ-ൿ]/g, kn: /[ಀ-೿]/g, bn: /[ঀ-৿]/g, gu: /[઀-૿]/g,
+    pa: /[਀-੿]/g, ur: /[؀-ۿ]/g, ar: /[؀-ۿ]/g, ru: /[Ѐ-ӿ]/g, th: /[฀-๿]/g };
+  const CJK_ANY = /[぀-ヿ㐀-鿿가-힯]/g;
+  function badAnswer(src, out, from, to) {
+    out = String(out || '').trim(); if (!out) return 'empty answer';
+    if (/MYMEMORY WARNING|QUERY LENGTH LIMIT|INVALID LANGUAGE PAIR|<html|<!doctype|"error"\s*:/i.test(out)) return 'the service sent an error text';
+    const lets = t => (String(t).match(/\p{L}/gu) || []).length, srcN = lets(src);
+    if (srcN < 2) return '';                                                    // too short to judge
+    const srcCjk = (src.match(CJK_ANY) || []).length, outCjk = (out.match(CJK_ANY) || []).length, targetCjk = /^(ja|ko|zh)/.test(to);
+    if (from !== to && !targetCjk && srcCjk >= 2 && outCjk > lets(out) * .4) return 'still in the original language';
+    const want = SCRIPT_OF[to.split('-')[0]];
+    if (want && srcN >= 4 && from !== to) { const got = (out.match(want) || []).length; if (got < lets(out) * .3) return 'not in the wanted writing system'; }
+    if (out.length > src.length * 12 + 80) return 'answer far too long';
+    return '';
+  }
+  // STEP 9. Make the final words tidy.
+  function polish(text, to) {
+    let t = decodeEntities(text).replace(/\s+/g, ' ').trim();
+    t = t.replace(/^[\-–—•]+\s*/, '').replace(/\s+([,.!?;:…)\]”])/g, '$1').replace(/([(\[“])\s+/g, '$1');
+    t = t.replace(/\.{3,}/g, '…').replace(/…{2,}/g, '…').replace(/([!?]){3,}/g, '$1$1');
+    if ((to || '').split('-')[0] === 'en') t = t.replace(/\bi\b(?!\.)/g, 'I');
+    if (/^[a-zà-ÿ]/.test(t)) t = t[0].toUpperCase() + t.slice(1);
+    return t;
+  }
   const SVC = {
     // WHY: dt=t gives the plain text translation; dt=bd gives the "best dictionary" match.
     //   Using both makes Google pick the most accurate word meaning for ambiguous CJK words (common in manga).
@@ -484,15 +635,12 @@
       // WHY: strip the translated prefix from the result if we added one.
       //   The prefix translates to similar punctuation in most languages ("— " or "- " etc.); remove leading dashes and spaces.
       if (usePrefix) dtT = dtT.replace(/^[\-–—\s]+/, '').trim();
-      try {
-        if (wordCount <= 3 && j[5] && j[5][0] && j[5][0][1] && j[5][0][1].length) {
-          // WHY: for 1-3 word phrases the dictionary entry is more accurate (picks the right meaning by part-of-speech).
-          return j[5][0][1][0] || dtT;
-        }
-      } catch { /* no dictionary entry for this phrase — use the normal result */ }
+      // ROUND 65: the old "j[5] dictionary" shortcut was removed. Google puts the dictionary in j[1] (not j[5]), and its first entry is only the most common
+      //   meaning, which is often the wrong one in a story. The sentence result dtT is always used.
       return dtT;
     },
     mymemory: async (text, from, to) => {
+      if (text.length > 480) { const e = new Error('text is longer than MyMemory accepts (480)'); e.soft = true; throw e; }   // ROUND 65: not a real failure, just not for long batches
       const j = await getJson('https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text.slice(0, 480)) + '&langpair=' + from + '|' + to);
       const t = j && j.responseData && j.responseData.translatedText; if (!t || /MYMEMORY WARNING|QUERY LENGTH LIMIT|PLEASE SELECT TWO DISTINCT LANGUAGES|INVALID LANGUAGE PAIR/i.test(t) || (j.responseStatus != null && Number(j.responseStatus) !== 200)) throw new Error(t || 'empty answer'); return t;   // ROUND 43: error texts (and non-200 answers) were shown as if they were translations
     },
@@ -528,13 +676,25 @@
   async function translateOne(text, from, to) {
     const k = from + '|' + to + '|' + text; if (cache.has(k)) return cache.get(k);
     // NOTE: we do NOT skip when from === to; even translating English to English can fix OCR errors via the service (e.g. run-on words).
-    let last = null;
+    // ROUND 65: every answer is CHECKED (badAnswer). A refused answer is not a service failure; the next service is asked. If Google's answer is
+    //   "still in the original language" it is asked once more with sl=auto (the language of the page may have been guessed wrong).
+    //   When no service gives a good answer, the best refused one is used (better than nothing).
+    let last = null, spare = null;
     for (const e of order()) {
-      try { const t = String(await SVC[e](text, from, to) || '').trim(); if (!t) throw new Error('empty answer'); cache.set(k, t); usedBy[e] = (usedBy[e] || 0) + 1; lastEngine = e; fails[e] = 0; return t; }
+      try {
+        let t = decodeEntities(String(await withTimeout(SVC[e](text, from, to), e === 'chrome' ? 20000 : 40000, 'The ' + e + ' translator') || '')).trim(); if (!t) throw new Error('empty answer');   // ROUND 65: a service that never answers (the built-in one can hang while it prepares) no longer freezes the page
+        let why = badAnswer(text, t, from, to);
+        if (why === 'still in the original language' && e === 'google' && from !== 'auto') {
+          try { const t2 = decodeEntities(String(await SVC.google(text, 'auto', to) || '')).trim(); if (t2 && !badAnswer(text, t2, 'auto', to)) { t = t2; why = ''; } } catch { /* keep the first answer */ }
+        }
+        if (why) { note(e + ' answer refused: ' + why); if (!spare) spare = { t, e }; continue; }
+        cache.set(k, t); usedBy[e] = (usedBy[e] || 0) + 1; lastEngine = e; fails[e] = 0; return t;
+      }
       // WHY: if Chrome's translator is still downloading its language pack, that is a temporary hold, not a real failure; we skip it silently
       //   and try again on the next call (when the pack finishes installing). HOW: the isDownloading flag is set by the chrome service above.
-      catch (er) { last = er; note(e + ' failed: ' + (er && er.message)); if (!er.isDownloading && ++fails[e] >= 2) { rest[e] = Date.now() + 60000; fails[e] = 0; } }
+      catch (er) { last = er; note(e + ' failed: ' + (er && er.message)); if (!er.isDownloading && !er.soft && ++fails[e] >= 2) { rest[e] = Date.now() + 60000; fails[e] = 0; } }
     }
+    if (spare) { usedBy[spare.e] = (usedBy[spare.e] || 0) + 1; lastEngine = spare.e; return spare.t; }
     throw new Error('No translation service answered' + (last ? ' (' + last.message + ')' : '') + '. Check your internet, or pick another service.');
   }
   // WHY: translate all bubbles of a page as BATCHES for better quality, then fall back to one-by-one if needed.
@@ -555,39 +715,38 @@
     }
     return null;
   }
-  async function translateAll(texts, from, to) {
+  // ROUND 65: one bubble per LINE (a line break survives every service; " ||| " often did not). Chunks are cut by the size of the web address too (CJK
+  //   letters are 9 characters each once encoded), at most BATCH_MAX bubbles. IMPROVE: use POST for larger chunks.
+  const BATCH_LINES = 12, BATCH_BYTES = 3000;
+  function makeChunks(texts) {
+    const chunks = []; let cur = [], len = 0;
+    texts.forEach((t, i) => { const n = encodeURIComponent(t).length + 3; if (cur.length && (cur.length >= BATCH_LINES || len + n > BATCH_BYTES)) { chunks.push(cur); cur = []; len = 0; } cur.push(i); len += n; });
+    if (cur.length) chunks.push(cur); return chunks;
+  }
+  // translate a list of texts in context: all lines in one request; when the answer has the wrong number of lines, cut the list in two (still in context) and try again.
+  async function translateGroup(list, from, to) {
+    if (list.length === 1) return [await translateOne(list[0], from, to)];
+    try {
+      const answer = await translateOne(list.join('\n'), from, to);
+      const parts = answer.split(/\s*\n+\s*/).map(p => p.trim()).filter(Boolean);
+      if (parts.length === list.length) return parts;
+      const alt = splitBatch(answer, list.length); if (alt) return alt;                      // an old-style separator that came back
+      note('batch of ' + list.length + ' came back as ' + parts.length + ' lines: cutting it in two');
+    } catch (e) { if (/No translation service/.test(e.message)) throw e; }
+    const mid = list.length >> 1;
+    return (await translateGroup(list.slice(0, mid), from, to)).concat(await translateGroup(list.slice(mid), from, to));
+  }
+  // onChunk(startIndex, resultsSoFar) is called after every chunk so the caller can draw the first bubbles early.
+  async function translateAll(texts, from, to, onChunk) {
     if (!texts.length) return [];
-    const out = new Array(texts.length);
-    // WHY: process in chunks; each chunk is sent as one big request (batch). If the batch works, great.
-    //   If not, fall back to individual requests for that chunk.
-    for (let base = 0; base < texts.length; base += BATCH_MAX) {
-      const chunk = texts.slice(base, base + BATCH_MAX);
-      let batchOk = false;
-      try {
-        const joined = chunk.join(BATCH_SEP);
-        const translated = await translateOne(joined, from, to);
-        // ROUND 36: use splitBatch() which tries several separator variants (Google sometimes shifts spacing around the |||).
-        const parts = splitBatch(translated, chunk.length);
-        // WHY: only use the batch result when the number of pieces matches exactly — otherwise a separator was lost.
-        if (parts) {
-          chunk.forEach((_, i) => { out[base + i] = parts[i]; });
-          batchOk = true;
-        }
-      } catch { /* batch failed — will retry one-by-one below */ }
-      if (!batchOk) {
-        // WHY: fall back: translate bubbles four at a time (parallel). An error on one bubble does NOT stop the others.
-        let chunkErr = null;
-        const chunkOut = new Array(chunk.length);
-        await Promise.all([0, 1, 2, 3].map(async slot => {
-          for (let i = slot; i < chunk.length; i += 4) {
-            try { chunkOut[i] = await translateOne(chunk[i], from, to); }
-            catch (e) { chunkErr = e; chunkOut[i] = chunk[i]; /* keep original on error */ }
-          }
-        }));
-        chunk.forEach((_, i) => { out[base + i] = chunkOut[i] !== undefined ? chunkOut[i] : chunk[i]; });
-        if (chunkErr) throw chunkErr;
-      }
+    const out = new Array(texts.length); let firstErr = null;
+    for (const idx of makeChunks(texts)) {
+      const list = idx.map(i => texts[i]);
+      try { const parts = await translateGroup(list, from, to); idx.forEach((i, n) => { out[i] = polish(parts[n], to); }); }
+      catch (e) { firstErr = firstErr || e; idx.forEach(i => { out[i] = texts[i]; }); }       // keep the original words of a chunk that failed
+      if (onChunk) onChunk(idx[0], out);
     }
+    if (firstErr) throw firstErr;
     return out;
   }
 
@@ -744,6 +903,8 @@
       st.ocr = await readPage(img, cfg.from);
       // ROUND 36: clean OCR noise from each bubble before translating — removes symbol-only lines and short sound effects.
       st.ocr.bubbles = st.ocr.bubbles.map(bb => ({ ...bb, text: cleanOcr(bb.text) })).filter(bb => bb.text.length >= 2);
+      // ROUND 65: story order (rows top to bottom; right-to-left in Japanese / Chinese) so the translator gets the sentences in the right order.
+      st.ocr.bubbles = readingOrder(st.ocr.bubbles, /^(jpn|chi_sim|chi_tra)$/.test(st.ocr.lang));
     }
     if (st.tr !== trKey()) {
       const lang = st.ocr.lang === 'auto' ? 'eng' : st.ocr.lang, from = (OCR_LANGS[lang] || OCR_LANGS.eng).tr;
@@ -754,15 +915,9 @@
         //   HOW: slice the bubbles list into chunks, translate each chunk, call render() after each one.
         const texts = st.ocr.bubbles.map(b => b.text);
         st.texts = new Array(texts.length).fill('');
-        const CHUNK = BATCH_MAX;   // reuse the existing batch size constant (8)
-        for (let base = 0; base < texts.length; base += CHUNK) {
-          const slice = texts.slice(base, base + CHUNK);
-          const trs = await translateAll(slice, from, cfg.to);
-          trs.forEach((t, i) => { st.texts[base + i] = t; });
-          // WHY: re-render after each chunk so the user sees partial results right away (speed improvement).
-          //   Only render when we have at least the first full chunk OR it is the last chunk.
-          if (base === 0 || base + CHUNK >= texts.length) render(img, st);
-        }
+        let shown = false;
+        // ROUND 65: the whole page is translated in context (translateAll); the first chunk is drawn as soon as it is back.
+        st.texts = await translateAll(texts, from, cfg.to, (i0, partial) => { if (!shown) { shown = true; st.texts = partial.map(t => t || ''); render(img, st); } });
       } else {
         st.texts = [];
       }
@@ -858,7 +1013,7 @@
   }
   document.addEventListener('click', e => { if (e.target && e.target.id === 'setTrTest') selfTest(); });
   function report() {
-    return ['Translate add-on (round 32)', 'button on: ' + on + ' | into: ' + cfg.to + ' | pages written in: ' + cfg.from + (autoLang ? ' (detected ' + autoLang + ')' : '') + ' | service setting: ' + cfg.engine + ' | last service used: ' + (lastEngine || '-'),
+    return ['Translate add-on (round 65)', 'button on: ' + on + ' | into: ' + cfg.to + ' | pages written in: ' + cfg.from + (autoLang ? ' (detected ' + autoLang + ')' : '') + ' | service setting: ' + cfg.engine + ' | last service used: ' + (lastEngine || '-'),
       'pages: ' + pages.size + ' known, ' + done + ' done, ' + queue.size + ' waiting | service answers: ' + (JSON.stringify(usedBy)) + ' | reader started: ' + !!worker + ' (' + (workerLang || '-') + ') | built-in translator: ' + ('Translator' in self),
       '--- diary ---'].concat(logLines.slice(-25)).join('\n');
   }
@@ -876,7 +1031,7 @@
   }
   window.MangaFlowTranslate = { version: 1, el: btn, report, getPageData, info: () => ({ on, done, queue: queue.size, cfg: { ...cfg, proxies: cfg.proxies.length }, autoLang }), langs: { LANG_TO, OCR_LANGS },
     // used by the tests: run the pure parts without a browser page
-    _test: { groupLines, dedupe, usable, tidy, guessLang } };
+    _test: { groupLines, dedupe, usable, tidy, guessLang, fixOcr, isGarbage, readingOrder, badAnswer, polish, splitBatch, makeChunks, translateAll, keepWords } };
   scan();
   if (cfg.auto) { const t = setInterval(() => { if (document.body.classList.contains('reading')) { clearInterval(t); setOn(true); } }, 800); setTimeout(() => clearInterval(t), 20000); }   // "start translating as soon as I open reading mode"
 })();

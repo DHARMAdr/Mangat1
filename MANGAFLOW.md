@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 64 — 2026-11-11 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 65 — 2026-11-12 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -296,6 +296,26 @@ NOT reproduced: "reading shows chapter 1 then 20" and empty chapter boxes (mock 
 **Fix:** `fetchRaw()` now collects every proxy's own reason ("proxy 1: HTTP 403 | proxy 2: timeout | ..."). In `repairStyles()` a failing sheet is (1) ignored when every proxy says 404/410 (the site itself lacks it) and (2) ignored when the browser can fetch it directly (`fetch(..., {mode:'no-cors'})`); both are only noted in the report. Only a sheet that fails BOTH ways triggers the warning, now with the reasons.
 **Test (`drake2.js native|404|dead`):** old code warned in the native case; new code: no warning for native and 404, a warning with reasons for a really dead sheet.
 **Still open:** the owner has not yet said what looks wrong on Page 2 for drakecomic besides this warning (the chapter pages found are 3 tall strips; the site text says "30 pages"). If pictures are missing, a report showing the real site's picture count is needed.
+
+## 4u. Round 65 — Better word detection and more meaningful translation (translate.js, `?v=65`)
+
+**Problem reported:** after pressing the Translate button the result "is still not perfect and not meaningful".
+**Root causes found:** (A) the text reader (OCR) was given the raw picture, so low-contrast, coloured, small or white-on-black letters were read wrongly (for example the word "I" came back as `|`), and a wrong word makes a nonsense translation; (B) whatever came back was drawn on the page without any check, even an empty, an error or an untranslated answer; (C) bubbles were glued with ` ||| ` which services often change, and they were sent in picture order, not story order.
+
+**The new algorithm (all inside `translate.js`, in this order for every page):**
+1. `prepTile()` — grey picture, contrast stretched between the darkest and lightest 2 %, a mostly dark slice is turned round (light letters on dark ground), pages narrower than 900 px are enlarged up to 2x.
+2. `readPage()` — reads the prepared slice; if no word was found, reads it again as a pure black/white picture (Otsu threshold) in "sparse text" mode.
+3. `keepWords()` — removes single words the reader is not sure about (spaced scripts only: English, Hindi, Korean); a lone `|`, `l`, `I`, `A` is kept.
+4. `fixOcr()` — repairs typical reading mistakes. English: `|`→`I`, `G00D`→`GOOD`, `exam- ple`→`example`, SHOUTING capitals → normal sentences, `...`→`…`. Japanese/Chinese: half-width → full-width (NFKC), stray `|_~^` between letters removed, a long-vowel mark read as `l`/`I` repaired.
+5. `isGarbage()` — English noise such as `Ee i' rl` or `xzq tbr` is not translated (the picture is left alone there).
+6. `readingOrder()` — rows from the top, inside a row right-to-left for Japanese/Chinese, left-to-right otherwise.
+7. `translateAll()` / `translateGroup()` — one request per page (max 12 bubbles / 3000 encoded characters per request), one bubble per line. If the answer has a different line count the group is cut in two (still in context), down to single bubbles.
+8. `badAnswer()` — refuses an empty answer, an error text, an answer that is still in the old language, or one not in the wanted writing system (for example Hindi expected, Latin letters came back). The next service is asked; Google is asked once more with "detect the language" when it returned the old language. If nobody gives a good answer the best refused one is used.
+9. `polish()` — HTML codes (`&#39;`), spaces before commas, `...`, leading dash, capital first letter, `i`→`I` (English).
+Also: a service that never answers (the built-in browser translator can hang while preparing) is given up after 20 s (built-in) / 40 s (others); the old Google "dictionary j[5]" shortcut was removed because it never returned data and the dictionary's first meaning is often wrong in a story; MyMemory is skipped (not counted as failed) for batches longer than its 480-character limit; the diary (Troubleshoot report) now lists what the reader saw per line.
+
+**Tests (mock):** unit tests of every helper; a real Tesseract run on a generated page with three bubbles (one white-on-black) → 3 boxes, one batched request in story order, sentence case; a batch whose answer lost a line was cut in two and still gave all 4 bubbles.
+**Honest limit:** hand-lettered fonts and sound effects can still be misread; tap a box to see the original, use "Translate again" to read once more.
 
 ## How to Deploy / Set Up
 

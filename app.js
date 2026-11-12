@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 64)',
+      'MangaFlow error report (build round 65)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -7514,7 +7514,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 64)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 65)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
