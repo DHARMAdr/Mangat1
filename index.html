@@ -61,17 +61,17 @@
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=67" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=68" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=67" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=68" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=67">
+  <link rel="stylesheet" href="style.css?v=68">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=67"></script>
+  <script src="boot.js?v=68"></script>
 </head>
 <body data-side="right">
 
@@ -644,23 +644,23 @@
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=67"></script>
+  <script src="pdfmaker.js?v=68"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=67"></script>
-  <script src="app.js?v=67"></script>
+  <script src="troubleshoot-data.js?v=68"></script>
+  <script src="app.js?v=68"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=67"></script>
+  <script src="chapter-slider.js?v=68"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=67"></script>
+  <script src="reload-wheel.js?v=68"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=67"></script>
+  <script src="edge-slider.js?v=68"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=67"></script>
+  <script src="translate.js?v=68"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=67"></script>
+  <script src="profiles.js?v=68"></script>
 </body>
 </html>

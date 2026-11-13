@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 67 — 2026-11-13 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 68 — 2026-11-13 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -338,6 +338,14 @@ Also: a service that never answers (the built-in browser translator can hang whi
 - The "Several pictures … not loading" pop-up waits 30 s and appears only if the pictures are still failing (and the chapter was not skipped).
 - **AutoPilot** (`pilotTick`, every 10 s, never throws, one check at a time). Reading mode: dead-upload doctor; boxes with a message anywhere in the stream are flagged for a refill; long waits of failed pictures are shortened (except in a chapter marked "pictures gone"); if over 30 % of the next 3 chapters' pictures failed the proxies are tested (max every 90 s) and the keeper is poked; a chapter loader "loading" for over 60 s is released. Site view (Page 2, no 70 s limit): failed pictures restarted, and when a scan finds a named problem the repair runs (max every 45 s). Counters appear in the diagnostic as `AutoPilot (round 67): checks N, repairs done M, last: …`, and "Run checks" has a row for ALL loaded chapters.
 **Tests (mock `kings1.js`, three modes):** `reup` (list has only `-2` copies 1..9 + 10..22): no gap guessed, 10 boxes without a failed picture, menu 22; `twin` (both `chapter-N` and `chapter-N-2` listed, old pictures 404): old copies skipped; `gap` (chapters 3, 5, 7 not listed but their pages exist with dead pictures): the three are removed, others load; `mgeko1.js` unchanged.
+
+## 4x. Round 68 — "The site seems slower now": the AutoPilot made gentle (`?v=68`)
+
+**Report (build 67):** "overall is okay but the site seems slower now".
+**How it was investigated (measured, not guessed):** a profiler mock (`perf2.js`, `perf3.js` in the test kit) runs the same kingofshojo-like site on the old build (round 64, kept in a second folder) and the new one, on a slowed-down connection with 850 KB pictures. *Reading mode with healthy pictures:* identical (first 3 pictures after ~0.6 s, 36 pictures in 40 s, script time 0.15 s vs 0.19 s). *Site view (Page 2) of a chapter whose pictures are dead:* the new build asked the network 4x more (22 → 90 requests in 75 s, 3x the CPU). Switching the AutoPilot off brought it back to 22, so the AutoPilot was the cause.
+**Root cause:** the Round 67 AutoPilot's site-view part ran in parallel with the page's own watchdog (frameWatch, first 70 s): both restarted the same dead pictures, and the scan + full repair (which retries every picture through the proxies) could run again and again. Dead pictures cannot be repaired, so all of it was wasted traffic that competes with the pictures you actually want.
+**Fixes:** the site-view autopilot now (1) starts only after frameWatch is finished (75 s after the page was shown), (2) restarts a picture at most 2 times and at most 4 per tick, (3) runs the scan only when the picture situation CHANGED (signature of failed/pending/empty counts), (4) repairs at most 3 times per page (now, +2 min, +5 min). Reading mode: failed pictures get their waiting time shortened only while ≤12 pictures are failing and only for their first 3 retries (a retry storm helps nobody). Result on the same dead-picture test: 22 → 34 requests in 90 s (one gentle repair) instead of 90.
+**Rule for future rounds:** every background helper must be measured with `perf3.js` (requests and script time) before it ships; background work must be bounded (count, interval, "only when something changed").
 
 ## How to Deploy / Set Up
 

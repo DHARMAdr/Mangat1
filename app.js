@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 67)',
+      'MangaFlow error report (build round 68)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -4972,7 +4972,8 @@
         secs.forEach(x => { if (x.dataset.failed !== '1' && !x.dataset.verify && !x._fillStart && x.querySelector('.ch-msg') && !x.querySelector('img.page')) { x.dataset.failed = '1'; x._healAt = 0; flagged++; } });
         if (flagged) pilotNote('flagged ' + flagged + ' chapter box(es) with a message for a new try');
         // 3. shorten long waits of failed pictures while the connection is fine
-        let short = 0; if (navigator.onLine !== false) imgs.forEach(i => { const sx = i.closest('.chapter'); if (i._failed && !(sx && sx._goneNote) && (i._healAt || 0) - now > 20000) { i._healAt = now + 8000; short++; } });
+        let short = 0; const failedNow = imgs.filter(i => i._failed).length;   // ROUND 68: only while few pictures fail (a retry storm made the site slower) and only the first 3 retries of a picture
+        if (navigator.onLine !== false && failedNow <= 12) imgs.forEach(i => { const sx = i.closest('.chapter'); if (i._failed && (i._healN || 0) < 3 && !(sx && sx._goneNote) && (i._healAt || 0) - now > 20000) { i._healAt = now + 8000; short++; } });
         if (short) pilotNote('shortened the waiting time of ' + short + ' failed picture(s)');
         // 4. proxy health when many pictures near the reading place fail
         const near = secs.filter(x => { const k = +x.dataset.index; return k >= R.cur && k <= R.cur + 3; }).flatMap(x => $$('img.page', x));
@@ -4983,15 +4984,29 @@
         }
         // 5. a loader stuck in "loading"
         if (R.loading) { if (!R._loadSince) R._loadSince = now; else if (now - R._loadSince > 60000) { R.loading = false; R._loadSince = 0; pilotNote('released a chapter loader that waited over 60 s'); } } else R._loadSince = 0;
-      } else if (cur && !cur.isSearch && !frame.hidden && reader.hidden && cur.doc) {
-        // SITE VIEW: no 70 s limit
+      } else if (cur && !cur.isSearch && !frame.hidden && reader.hidden && cur.doc && cur.shownAt && now - cur.shownAt > 75000) {   // ROUND 68: only AFTER the page's own watchdog (frameWatch, first 70 s) is finished - two watchers at once doubled the requests
+        // SITE VIEW: no 70 s limit. ROUND 68 (owner: "the site seems slower now"): the first version of this part asked the network 4x more than build 64 on a page with dead pictures
+        //   (measured: 22 -> 90 requests in 75 s) because it restarted the same failed pictures every 10 s and ran the repair again and again. Now it is GENTLE:
+        //   * a picture is restarted by the autopilot at most 2 times (then it is left alone),
+        //   * the (costly) scan only runs when the picture situation CHANGED since the last scan (a "signature" of failed / pending / empty counts),
+        //   * at most 3 automatic repairs per page, waiting 45 s, 2 min, 5 min between them; then the autopilot stays quiet (the person can still press Fix automatically).
         const d = frame.contentDocument;
         if (d) {
-          let kicked = 0; Array.from(d.images || []).forEach(i => { const src = i.getAttribute('src'); if (!src || /^data:/.test(src) || kicked >= 6) return; if ((i.complete && !i.naturalWidth) && kickImg(i)) kicked++; });
+          let kicked = 0, nf = 0, np = 0, ne = 0;
+          Array.from(d.images || []).forEach(i => {
+            const src = i.getAttribute('src'); if (!src || /^data:/.test(src)) { ne++; return; }
+            if (!i.complete) np++;
+            else if (!i.naturalWidth) { nf++; if (kicked < 4 && (i._pilotKicks || 0) < 2 && kickImg(i)) { kicked++; i._pilotKicks = (i._pilotKicks || 0) + 1; } }
+          });
           if (kicked) pilotNote('site view: restarted ' + kicked + ' failed picture(s)');
-          if (now - pilot.siteAt > 45000 && !busyEl_visible()) {
-            pilot.siteAt = now; const sc = await siteViewScan(false);
-            if (sc.problems.length) { await siteViewRepair(); pilotNote('site view: repaired ' + sc.problems.map(p => p.code).join(', ')); }
+          const sig = nf + '/' + np + '/' + ne + '/' + (d.images ? d.images.length : 0);
+          cur._pilot = cur._pilot || { sig: '', repairs: 0, at: 0 };
+          const P = cur._pilot, gaps = [0, 120000, 300000];
+          const problemSeen = nf + np + ne > 0;
+          if (problemSeen && sig !== P.sig && P.repairs < 3 && now - P.at > gaps[P.repairs] && !busyEl_visible()) {
+            P.sig = sig; P.at = now;
+            const sc = await siteViewScan(false);
+            if (sc.problems.length) { P.repairs++; await siteViewRepair(); pilotNote('site view: repaired ' + sc.problems.map(p => p.code).join(', ')); }
           }
         }
       }
@@ -7655,7 +7670,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 67)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 68)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),

@@ -1,7 +1,7 @@
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 67 — 2026-11-13*
+*Last updated: Round 68 — 2026-11-13*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -139,6 +139,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 66:** some chapters showed dozens of red "Page N could not be loaded" boxes because the site's old upload of the chapter has deleted pictures (the site's own list shows a newer copy) -> the dead-upload doctor now runs by itself while you read and skips such old copies quietly; pressing the site's own "Previous" on chapter 1 (a page that does not exist) now only shows a small note; the "pictures hidden" check no longer raises a false alarm while reading, and a spare placeholder slot is no longer reported.
 
 - **Round 67: the site's re-uploaded chapters (chapter-3-2) were read as "chapter 3.2" and the reader then guessed a "missing" chapter 3 whose pictures are dead -> "-2" copies are now chapter 3 (no guessed dead copy); a background AutoPilot (every 10 s) now repairs ALL loaded chapters by itself (dead uploads, boxes with messages, long waits, proxies, stuck loaders, Page 2 pictures) and "Fix automatically" now also looks at the chapters ahead.
+
+- **Round 68: the site felt slower because the new background AutoPilot asked the network up to 4x more on pages with dead pictures (measured with a profiler mock) -> it now waits for the page's own watchdog, restarts each picture at most twice, only scans when the picture situation changed and repairs at most 3 times per page.
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

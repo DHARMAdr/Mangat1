@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 67 — 2026-11-13 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 68 — 2026-11-13 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -404,6 +404,14 @@ Also: a service that never answers (the built-in browser translator can hang whi
 - The "Several pictures … not loading" pop-up waits 30 s and appears only if the pictures are still failing (and the chapter was not skipped).
 - **AutoPilot** (`pilotTick`, every 10 s, never throws, one check at a time). Reading mode: dead-upload doctor; boxes with a message anywhere in the stream are flagged for a refill; long waits of failed pictures are shortened (except in a chapter marked "pictures gone"); if over 30 % of the next 3 chapters' pictures failed the proxies are tested (max every 90 s) and the keeper is poked; a chapter loader "loading" for over 60 s is released. Site view (Page 2, no 70 s limit): failed pictures restarted, and when a scan finds a named problem the repair runs (max every 45 s). Counters appear in the diagnostic as `AutoPilot (round 67): checks N, repairs done M, last: …`, and "Run checks" has a row for ALL loaded chapters.
 **Tests (mock `kings1.js`, three modes):** `reup` (list has only `-2` copies 1..9 + 10..22): no gap guessed, 10 boxes without a failed picture, menu 22; `twin` (both `chapter-N` and `chapter-N-2` listed, old pictures 404): old copies skipped; `gap` (chapters 3, 5, 7 not listed but their pages exist with dead pictures): the three are removed, others load; `mgeko1.js` unchanged.
+
+## 4x. Round 68 — "The site seems slower now": the AutoPilot made gentle (`?v=68`)
+
+**Report (build 67):** "overall is okay but the site seems slower now".
+**How it was investigated (measured, not guessed):** a profiler mock (`perf2.js`, `perf3.js` in the test kit) runs the same kingofshojo-like site on the old build (round 64, kept in a second folder) and the new one, on a slowed-down connection with 850 KB pictures. *Reading mode with healthy pictures:* identical (first 3 pictures after ~0.6 s, 36 pictures in 40 s, script time 0.15 s vs 0.19 s). *Site view (Page 2) of a chapter whose pictures are dead:* the new build asked the network 4x more (22 → 90 requests in 75 s, 3x the CPU). Switching the AutoPilot off brought it back to 22, so the AutoPilot was the cause.
+**Root cause:** the Round 67 AutoPilot's site-view part ran in parallel with the page's own watchdog (frameWatch, first 70 s): both restarted the same dead pictures, and the scan + full repair (which retries every picture through the proxies) could run again and again. Dead pictures cannot be repaired, so all of it was wasted traffic that competes with the pictures you actually want.
+**Fixes:** the site-view autopilot now (1) starts only after frameWatch is finished (75 s after the page was shown), (2) restarts a picture at most 2 times and at most 4 per tick, (3) runs the scan only when the picture situation CHANGED (signature of failed/pending/empty counts), (4) repairs at most 3 times per page (now, +2 min, +5 min). Reading mode: failed pictures get their waiting time shortened only while ≤12 pictures are failing and only for their first 3 retries (a retry storm helps nobody). Result on the same dead-picture test: 22 → 34 requests in 90 s (one gentle repair) instead of 90.
+**Rule for future rounds:** every background helper must be measured with `perf3.js` (requests and script time) before it ships; background work must be bounded (count, interval, "only when something changed").
 
 ## How to Deploy / Set Up
 
@@ -847,17 +855,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=67" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=68" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=67" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=68" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=67">
+  <link rel="stylesheet" href="style.css?v=68">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=67"></script>
+  <script src="boot.js?v=68"></script>
 </head>
 <body data-side="right">
 
@@ -1430,24 +1438,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=67"></script>
+  <script src="pdfmaker.js?v=68"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=67"></script>
-  <script src="app.js?v=67"></script>
+  <script src="troubleshoot-data.js?v=68"></script>
+  <script src="app.js?v=68"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=67"></script>
+  <script src="chapter-slider.js?v=68"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=67"></script>
+  <script src="reload-wheel.js?v=68"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=67"></script>
+  <script src="edge-slider.js?v=68"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=67"></script>
+  <script src="translate.js?v=68"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=67"></script>
+  <script src="profiles.js?v=68"></script>
 </body>
 </html>
 ~~~~~~
@@ -3735,7 +3743,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8368 lines)
+### File: `app.js`  (8383 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4630,7 +4638,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 67)',
+      'MangaFlow error report (build round 68)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -8715,7 +8723,8 @@ window.MF_FIX = {
         secs.forEach(x => { if (x.dataset.failed !== '1' && !x.dataset.verify && !x._fillStart && x.querySelector('.ch-msg') && !x.querySelector('img.page')) { x.dataset.failed = '1'; x._healAt = 0; flagged++; } });
         if (flagged) pilotNote('flagged ' + flagged + ' chapter box(es) with a message for a new try');
         // 3. shorten long waits of failed pictures while the connection is fine
-        let short = 0; if (navigator.onLine !== false) imgs.forEach(i => { const sx = i.closest('.chapter'); if (i._failed && !(sx && sx._goneNote) && (i._healAt || 0) - now > 20000) { i._healAt = now + 8000; short++; } });
+        let short = 0; const failedNow = imgs.filter(i => i._failed).length;   // ROUND 68: only while few pictures fail (a retry storm made the site slower) and only the first 3 retries of a picture
+        if (navigator.onLine !== false && failedNow <= 12) imgs.forEach(i => { const sx = i.closest('.chapter'); if (i._failed && (i._healN || 0) < 3 && !(sx && sx._goneNote) && (i._healAt || 0) - now > 20000) { i._healAt = now + 8000; short++; } });
         if (short) pilotNote('shortened the waiting time of ' + short + ' failed picture(s)');
         // 4. proxy health when many pictures near the reading place fail
         const near = secs.filter(x => { const k = +x.dataset.index; return k >= R.cur && k <= R.cur + 3; }).flatMap(x => $$('img.page', x));
@@ -8726,15 +8735,29 @@ window.MF_FIX = {
         }
         // 5. a loader stuck in "loading"
         if (R.loading) { if (!R._loadSince) R._loadSince = now; else if (now - R._loadSince > 60000) { R.loading = false; R._loadSince = 0; pilotNote('released a chapter loader that waited over 60 s'); } } else R._loadSince = 0;
-      } else if (cur && !cur.isSearch && !frame.hidden && reader.hidden && cur.doc) {
-        // SITE VIEW: no 70 s limit
+      } else if (cur && !cur.isSearch && !frame.hidden && reader.hidden && cur.doc && cur.shownAt && now - cur.shownAt > 75000) {   // ROUND 68: only AFTER the page's own watchdog (frameWatch, first 70 s) is finished - two watchers at once doubled the requests
+        // SITE VIEW: no 70 s limit. ROUND 68 (owner: "the site seems slower now"): the first version of this part asked the network 4x more than build 64 on a page with dead pictures
+        //   (measured: 22 -> 90 requests in 75 s) because it restarted the same failed pictures every 10 s and ran the repair again and again. Now it is GENTLE:
+        //   * a picture is restarted by the autopilot at most 2 times (then it is left alone),
+        //   * the (costly) scan only runs when the picture situation CHANGED since the last scan (a "signature" of failed / pending / empty counts),
+        //   * at most 3 automatic repairs per page, waiting 45 s, 2 min, 5 min between them; then the autopilot stays quiet (the person can still press Fix automatically).
         const d = frame.contentDocument;
         if (d) {
-          let kicked = 0; Array.from(d.images || []).forEach(i => { const src = i.getAttribute('src'); if (!src || /^data:/.test(src) || kicked >= 6) return; if ((i.complete && !i.naturalWidth) && kickImg(i)) kicked++; });
+          let kicked = 0, nf = 0, np = 0, ne = 0;
+          Array.from(d.images || []).forEach(i => {
+            const src = i.getAttribute('src'); if (!src || /^data:/.test(src)) { ne++; return; }
+            if (!i.complete) np++;
+            else if (!i.naturalWidth) { nf++; if (kicked < 4 && (i._pilotKicks || 0) < 2 && kickImg(i)) { kicked++; i._pilotKicks = (i._pilotKicks || 0) + 1; } }
+          });
           if (kicked) pilotNote('site view: restarted ' + kicked + ' failed picture(s)');
-          if (now - pilot.siteAt > 45000 && !busyEl_visible()) {
-            pilot.siteAt = now; const sc = await siteViewScan(false);
-            if (sc.problems.length) { await siteViewRepair(); pilotNote('site view: repaired ' + sc.problems.map(p => p.code).join(', ')); }
+          const sig = nf + '/' + np + '/' + ne + '/' + (d.images ? d.images.length : 0);
+          cur._pilot = cur._pilot || { sig: '', repairs: 0, at: 0 };
+          const P = cur._pilot, gaps = [0, 120000, 300000];
+          const problemSeen = nf + np + ne > 0;
+          if (problemSeen && sig !== P.sig && P.repairs < 3 && now - P.at > gaps[P.repairs] && !busyEl_visible()) {
+            P.sig = sig; P.at = now;
+            const sc = await siteViewScan(false);
+            if (sc.problems.length) { P.repairs++; await siteViewRepair(); pilotNote('site view: repaired ' + sc.problems.map(p => p.code).join(', ')); }
           }
         }
       }
@@ -11398,7 +11421,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 67)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 68)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -15193,7 +15216,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (147 lines)
+### File: `MANGAFLOW_GUIDE.md`  (149 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15202,7 +15225,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 67 — 2026-11-13*
+*Last updated: Round 68 — 2026-11-13*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15340,6 +15363,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 66:** some chapters showed dozens of red "Page N could not be loaded" boxes because the site's old upload of the chapter has deleted pictures (the site's own list shows a newer copy) -> the dead-upload doctor now runs by itself while you read and skips such old copies quietly; pressing the site's own "Previous" on chapter 1 (a page that does not exist) now only shows a small note; the "pictures hidden" check no longer raises a false alarm while reading, and a spare placeholder slot is no longer reported.
 
 - **Round 67: the site's re-uploaded chapters (chapter-3-2) were read as "chapter 3.2" and the reader then guessed a "missing" chapter 3 whose pictures are dead -> "-2" copies are now chapter 3 (no guessed dead copy); a background AutoPilot (every 10 s) now repairs ALL loaded chapters by itself (dead uploads, boxes with messages, long waits, proxies, stuck loaders, Page 2 pictures) and "Fix automatically" now also looks at the chapters ahead.
+
+- **Round 68: the site felt slower because the new background AutoPilot asked the network up to 4x more on pages with dead pictures (measured with a profiler mock) -> it now waits for the page's own watchdog, restarts each picture at most twice, only scans when the picture situation changed and repairs at most 3 times per page.
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
