@@ -128,6 +128,7 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 
 - Round 68: the site felt slower because the new background AutoPilot asked the network up to 4x more on pages with dead pictures (measured with a profiler mock) -> it now waits for the page's own watchdog, restarts each picture at most twice, only scans when the picture situation changed and repairs at most 3 times per page.
 - Round 69: preloaded chapters were still slow (hanging pictures used up the download slots; refill only every 0.8 s; each batch waited for its slowest chapter) -> a new preload engine marks stalled pictures, restarts them by another route, refills at once and adapts the number of parallel downloads. Translation: new optional Smart AI translator (Gemini / Claude / OpenAI key typed in the Translate panel, kept only in your browser) translates a whole page in one request with context and fixes OCR typos; the normal services stay as fallback.
+- Round 69b: kingofshojo showed 'Could not load Chapter 6/37/48' because a sidebar of OTHER manga (links to their main pages) was taken as the chapter list -> a series fence removes any link to another manga's main page from every chapter list; a chapter address answered with an unrelated page now gets an honest message.
 
 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

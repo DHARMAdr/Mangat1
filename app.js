@@ -2647,10 +2647,42 @@
     // WHY: no pattern fits. HOW: return null.
     return null;
   }
+  /* ROUND 69 - THE SERIES FENCE (kingofshojo.com: "Could not load Chapter 6 / 37 / 48 / 66 / 74 / 97 / 121 ... no images found", the page title was ANOTHER manga).
+     ROOT CAUSE (reproduced with soft404.js): the chapter page carried a sidebar box (popular / latest manga) whose links point to OTHER series' main pages ("/manga/other-title/", text
+          "Chapter 6"). Those links have no chapter pattern, so seriesKey() gave them all the empty key ''; pickSeries() saw ONE group, and the old "different manga" test skipped the empty
+          key, so the foreign group was accepted as the chapter list. Each "chapter" then opened a different manga's main page = "no images found" (and 7 red boxes).
+     WHY a fence: whatever way a list was built (page box, series page, ajax, saved list), a link to the MAIN PAGE of a different manga can never be a chapter of this manga.
+     HOW: ownSlug() = the manga name part of the opened address ("ministry-of-strategy-and-finance"). An entry is FOREIGN when its address is a series-page address (<folder>/<name>/),
+          has no chapter number in it, has a word-like name and that name does not contain ownSlug. Foreign entries are removed. If nothing is left the caller simply does not have a list yet
+          and uses its other ways (series page, guesses). Sites that use number-only addresses never match "word-like name", so they are untouched.
+     IMPROVE: also compare the titles of the links with the title of the page. */
+  function ownSlug(url) {
+    try {
+      const k = seriesKey(url); let seg = k ? k.split('/').pop() : decodeURIComponent(new URL(url).pathname).replace(/\/+$/, '').split('/').pop();
+      seg = (seg || '').toLowerCase().replace(/[-_.](?:chapter|chap|ch|episode|ep)(?![a-z]).*$/i, '');
+      return seg.length >= 4 ? seg : '';
+    } catch { return ''; }
+  }
+  function isForeignLink(cUrl, slug) {
+    try {
+      const pth = decodeURIComponent(new URL(cUrl).pathname).toLowerCase();
+      if (!SERIES_PAGE_PATH.test(pth) || chapterNumInUrl(cUrl) != null) return false;
+      const last = pth.replace(/\/+$/, '').split('/').pop();
+      if (!/[a-z]{3,}/.test(last) || !/[-_]/.test(last)) return false;            // not a word-like name (ids, short names): leave alone
+      return !!slug && !last.includes(slug) && !slug.includes(last);
+    } catch { return false; }
+  }
+  function fenceSeries(list, url) {
+    if (!list || !list.length) return list || [];
+    const slug = ownSlug(url); if (!slug) return list;
+    const ok = list.filter(c => !isForeignLink(c.url, slug));
+    return ok.length === list.length ? list : ok;
+  }
   /* Keep only the chapters of the manga being read. `url` = the chapter page (asChapter) or the series page. */
   // WHY: keep only chapters of the manga being read. HOW: group links by seriesKey, then choose the right group. IMPROVE:
   // add a short comment for each branch.
-  function pickSeries(list, url, asChapter) {
+  function pickSeries(list, url, asChapter) { return fenceSeries(pickSeries0(list, url, asChapter), url); }   // ROUND 69: every list now passes the series fence
+  function pickSeries0(list, url, asChapter) {
     // WHY: collect links by series. HOW: a Map is a list of key/value pairs; here key is the series key, value is an array
     // of chapters.
     const groups = new Map();
@@ -4225,7 +4257,10 @@
     // WHY: Nothing to read. HOW: if no chapters, build an error.
     if (!chapters.length) {
       // WHY: Tell the user what to open. HOW: create the Error.
-      const err = new Error('No chapters or chapter images found on this page. Open a manga series page or a chapter page.');
+      // ROUND 69: an address WITH a chapter number that the site answers with some other page (home / another manga) usually means that chapter does not exist on the site.
+      const err = new Error(chapterNumInUrl(url) != null && ownSlug(url)
+        ? 'The site answered this chapter address with a page that has no pictures and no chapters of "' + ownSlug(url).replace(/-/g, ' ') + '". That chapter probably does not exist on the site (or the address is old). Open the manga page and pick a chapter from its list.'
+        : 'No chapters or chapter images found on this page. Open a manga series page or a chapter page.');
       err.details = diagnose(doc, base);                                  // round 8: what the page contained (goes into the report)
       // WHY: Stop here with the error. HOW: throw it; the caller shows it.
       throw err;
@@ -4464,7 +4499,9 @@
     { const keepU = info.chapters[info.start] && info.chapters[info.start].url;
       info.chapters = fillChapterGaps(info.chapters, info.start);   // ROUND 55: add chapters the site's own list skipped (see fillChapterGaps)
       if (keepU) { const k = info.chapters.findIndex(c => c.url === keepU); if (k >= 0) info.start = k; } }
-    R = { gen: R.gen + 1, title: info.title, chapters: info.chapters, first: info.start, next: info.start, cur: info.start, loading: false, paused: false, seriesUrl: info.seriesUrl };
+    { const keepU2 = info.chapters[info.start] && info.chapters[info.start].url; const slug0 = ownSlug(cur.url);   // ROUND 69: last fence, for lists that came from history / background readers
+      if (slug0) { const kept = info.chapters.filter(c => !isForeignLink(c.url, slug0)); if (kept.length && kept.length < info.chapters.length) { info.chapters = kept; const k2 = keepU2 ? kept.findIndex(c => c.url === keepU2) : -1; info.start = k2 >= 0 ? k2 : 0; } } }
+    R = { slug: ownSlug(cur.url), gen: R.gen + 1, title: info.title, chapters: info.chapters, first: info.start, next: info.start, cur: info.start, loading: false, paused: false, seriesUrl: info.seriesUrl };
     // WHY: Fill the chapter menu. HOW: buildChapterMenu().
     buildChapterMenu();
     // WHY: Clear old content. HOW: empty the stream, hide the end message, update the download bar.
@@ -4678,7 +4715,7 @@
       if (/bot check|HTTP 40[13]|HTTP 429|HTTP 503/i.test(e.message)) reportBlocked(ch.url, e.message);   // round 8: one big pop-up per site
       // ROUND 9: a chapter we only GUESSED (chapter-3 from chapter-5) that does not exist is not an error: drop it quietly.
       // WHY: A guessed chapter missing is normal. HOW: if guess and not found.
-      if (ch.guess && /HTTP 404|HTTP 410|no images found|not found/i.test(e.message)) {
+      if ((ch.guess || isForeignLink(ch.url, R.slug)) && /HTTP 404|HTTP 410|no images found|not found|DIFFERENT page|MAIN PAGE/i.test(e.message)) {   // ROUND 69: a foreign manga page that slipped into the list is dropped like a guess
         // WHY: Remove it quietly. HOW: mark dead, remove, rebuild menu and bar.
         ch.dead = true; removeSection(sec); buildChapterMenu(); updateDlBar();
         // WHY: Tell once. HOW: flag and toast.

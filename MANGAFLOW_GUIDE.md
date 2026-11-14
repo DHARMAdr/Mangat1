@@ -144,6 +144,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 
 - **Round 69: preloaded chapters were still slow (hanging pictures used up the download slots; refill only every 0.8 s; each batch waited for its slowest chapter) -> a new preload engine marks stalled pictures, restarts them by another route, refills at once and adapts the number of parallel downloads. Translation: new optional "Smart AI translator" (Gemini / Claude / OpenAI key typed in the Translate panel, kept only in your browser) translates a whole page in one request with context and fixes OCR typos; the normal services stay as fallback.**
 
+- **Round 69b: kingofshojo showed 'Could not load Chapter 6/37/48/…' because a sidebar of OTHER manga (links to their main pages, with the text 'Chapter 6') was taken as the chapter list -> a series fence removes any link to another manga's main page from every chapter list (and quietly drops one if it ever slips through); a chapter address the site answers with an unrelated page now gets an honest message.**
+
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
 - Fill the proxy's `ALLOWED` list if you want to restrict it.

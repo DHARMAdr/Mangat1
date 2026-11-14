@@ -420,6 +420,14 @@ Also: a service that never answers (the built-in browser translator can hang whi
 **Part B — translation.** *Root cause of "wrong meaning":* Google / MyMemory translate each line alone and the OCR text has typos, so slang, pronouns and names go wrong. *Fix (new, optional):* **Smart AI translator** (`translate.js`, section "ROUND 69"). In the Translate panel choose Off / Google Gemini (free key) / Anthropic Claude / OpenAI-compatible, paste your own key (kept only in this browser, `localStorage` key `mf_ai`, sent only to the chosen provider) and press *Test key*. The whole page (up to 40 bubbles, in reading order, with the last lines of the previous page) goes in ONE request; the model repairs OCR typos and answers a JSON list with exactly one text per bubble. A bad answer (wrong count, empty, not JSON) is retried once and then the normal services take over, so nothing is lost; HTTP 400/401/403/429 pauses the AI for 2 minutes, 3 other failures pause it for 1 minute. It is used only when the service setting is *Automatic*. One request per page is also faster than many small ones. Tested with fake Gemini/Claude/OpenAI endpoints (`r69ai.js`): good answer, ```json fences, wrong count -> Google fallback, HTTP 429 -> fallback + rest, panel UI, Test key.
 *How to improve:* overlap OCR of the next page with the translation of this one; DeepL needs a small route in `worker.js` (its key must never be in the browser).
 
+## 4z. Round 69b — kingofshojo "Could not load Chapter 6 / 37 / 48 / 66 / 74 / 97 / 121: no images found" (the series fence)
+
+**Reports:** the chapter list held 8 entries; the "chapters" 6, 37, 48 ... were really the MAIN PAGES of other manga ("Read Magical Girl 78 Years Old…", "I Became the Villainess's Favorite…"), so every one of them said "no images found".
+**Root cause (reproduced exactly with the mock `soft404.js`):** the chapter page has a sidebar box (popular / latest manga) whose links go to `/manga/<other-title>/` with the text "Chapter 6" etc. Those links have no chapter pattern, so `seriesKey()` gave them all the empty key. `pickSeries()` then saw ONE group and its old "is this another manga?" test skipped the empty key, so the foreign group became the chapter list. Nothing later checked it again.
+**Fix (three layers):** (1) `fenceSeries()` / `ownSlug()` / `isForeignLink()` in `app.js`: every list that leaves `pickSeries` passes the fence, which removes entries that are main-page addresses (`<folder>/<name>/`, no chapter number, word-like name) whose name does not contain this manga's name. Number-only / id addresses are never touched. (2) `startReading` fences the list once more (history / background lists) and keeps the chapter being read. (3) `fillChapter` drops a foreign entry quietly (like a guessed chapter) if one ever gets through, with no red box and no pop-up. Also: a chapter address that the site answers with an unrelated page now says "that chapter probably does not exist on the site" instead of the misleading "built with JavaScript" text.
+**Test:** `soft404.js` (before: 8 boxes with 7 red "Could not load" boxes; after: only the real chapter, no pop-up).
+**Improve:** compare link titles with the page title; per-site rules.
+
 ## How to Deploy / Set Up
 
 ### 1. GitHub Pages
@@ -3750,7 +3758,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8435 lines)
+### File: `app.js`  (8472 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -6405,10 +6413,42 @@ window.MF_FIX = {
     // WHY: no pattern fits. HOW: return null.
     return null;
   }
+  /* ROUND 69 - THE SERIES FENCE (kingofshojo.com: "Could not load Chapter 6 / 37 / 48 / 66 / 74 / 97 / 121 ... no images found", the page title was ANOTHER manga).
+     ROOT CAUSE (reproduced with soft404.js): the chapter page carried a sidebar box (popular / latest manga) whose links point to OTHER series' main pages ("/manga/other-title/", text
+          "Chapter 6"). Those links have no chapter pattern, so seriesKey() gave them all the empty key ''; pickSeries() saw ONE group, and the old "different manga" test skipped the empty
+          key, so the foreign group was accepted as the chapter list. Each "chapter" then opened a different manga's main page = "no images found" (and 7 red boxes).
+     WHY a fence: whatever way a list was built (page box, series page, ajax, saved list), a link to the MAIN PAGE of a different manga can never be a chapter of this manga.
+     HOW: ownSlug() = the manga name part of the opened address ("ministry-of-strategy-and-finance"). An entry is FOREIGN when its address is a series-page address (<folder>/<name>/),
+          has no chapter number in it, has a word-like name and that name does not contain ownSlug. Foreign entries are removed. If nothing is left the caller simply does not have a list yet
+          and uses its other ways (series page, guesses). Sites that use number-only addresses never match "word-like name", so they are untouched.
+     IMPROVE: also compare the titles of the links with the title of the page. */
+  function ownSlug(url) {
+    try {
+      const k = seriesKey(url); let seg = k ? k.split('/').pop() : decodeURIComponent(new URL(url).pathname).replace(/\/+$/, '').split('/').pop();
+      seg = (seg || '').toLowerCase().replace(/[-_.](?:chapter|chap|ch|episode|ep)(?![a-z]).*$/i, '');
+      return seg.length >= 4 ? seg : '';
+    } catch { return ''; }
+  }
+  function isForeignLink(cUrl, slug) {
+    try {
+      const pth = decodeURIComponent(new URL(cUrl).pathname).toLowerCase();
+      if (!SERIES_PAGE_PATH.test(pth) || chapterNumInUrl(cUrl) != null) return false;
+      const last = pth.replace(/\/+$/, '').split('/').pop();
+      if (!/[a-z]{3,}/.test(last) || !/[-_]/.test(last)) return false;            // not a word-like name (ids, short names): leave alone
+      return !!slug && !last.includes(slug) && !slug.includes(last);
+    } catch { return false; }
+  }
+  function fenceSeries(list, url) {
+    if (!list || !list.length) return list || [];
+    const slug = ownSlug(url); if (!slug) return list;
+    const ok = list.filter(c => !isForeignLink(c.url, slug));
+    return ok.length === list.length ? list : ok;
+  }
   /* Keep only the chapters of the manga being read. `url` = the chapter page (asChapter) or the series page. */
   // WHY: keep only chapters of the manga being read. HOW: group links by seriesKey, then choose the right group. IMPROVE:
   // add a short comment for each branch.
-  function pickSeries(list, url, asChapter) {
+  function pickSeries(list, url, asChapter) { return fenceSeries(pickSeries0(list, url, asChapter), url); }   // ROUND 69: every list now passes the series fence
+  function pickSeries0(list, url, asChapter) {
     // WHY: collect links by series. HOW: a Map is a list of key/value pairs; here key is the series key, value is an array
     // of chapters.
     const groups = new Map();
@@ -7983,7 +8023,10 @@ window.MF_FIX = {
     // WHY: Nothing to read. HOW: if no chapters, build an error.
     if (!chapters.length) {
       // WHY: Tell the user what to open. HOW: create the Error.
-      const err = new Error('No chapters or chapter images found on this page. Open a manga series page or a chapter page.');
+      // ROUND 69: an address WITH a chapter number that the site answers with some other page (home / another manga) usually means that chapter does not exist on the site.
+      const err = new Error(chapterNumInUrl(url) != null && ownSlug(url)
+        ? 'The site answered this chapter address with a page that has no pictures and no chapters of "' + ownSlug(url).replace(/-/g, ' ') + '". That chapter probably does not exist on the site (or the address is old). Open the manga page and pick a chapter from its list.'
+        : 'No chapters or chapter images found on this page. Open a manga series page or a chapter page.');
       err.details = diagnose(doc, base);                                  // round 8: what the page contained (goes into the report)
       // WHY: Stop here with the error. HOW: throw it; the caller shows it.
       throw err;
@@ -8222,7 +8265,9 @@ window.MF_FIX = {
     { const keepU = info.chapters[info.start] && info.chapters[info.start].url;
       info.chapters = fillChapterGaps(info.chapters, info.start);   // ROUND 55: add chapters the site's own list skipped (see fillChapterGaps)
       if (keepU) { const k = info.chapters.findIndex(c => c.url === keepU); if (k >= 0) info.start = k; } }
-    R = { gen: R.gen + 1, title: info.title, chapters: info.chapters, first: info.start, next: info.start, cur: info.start, loading: false, paused: false, seriesUrl: info.seriesUrl };
+    { const keepU2 = info.chapters[info.start] && info.chapters[info.start].url; const slug0 = ownSlug(cur.url);   // ROUND 69: last fence, for lists that came from history / background readers
+      if (slug0) { const kept = info.chapters.filter(c => !isForeignLink(c.url, slug0)); if (kept.length && kept.length < info.chapters.length) { info.chapters = kept; const k2 = keepU2 ? kept.findIndex(c => c.url === keepU2) : -1; info.start = k2 >= 0 ? k2 : 0; } } }
+    R = { slug: ownSlug(cur.url), gen: R.gen + 1, title: info.title, chapters: info.chapters, first: info.start, next: info.start, cur: info.start, loading: false, paused: false, seriesUrl: info.seriesUrl };
     // WHY: Fill the chapter menu. HOW: buildChapterMenu().
     buildChapterMenu();
     // WHY: Clear old content. HOW: empty the stream, hide the end message, update the download bar.
@@ -8436,7 +8481,7 @@ window.MF_FIX = {
       if (/bot check|HTTP 40[13]|HTTP 429|HTTP 503/i.test(e.message)) reportBlocked(ch.url, e.message);   // round 8: one big pop-up per site
       // ROUND 9: a chapter we only GUESSED (chapter-3 from chapter-5) that does not exist is not an error: drop it quietly.
       // WHY: A guessed chapter missing is normal. HOW: if guess and not found.
-      if (ch.guess && /HTTP 404|HTTP 410|no images found|not found/i.test(e.message)) {
+      if ((ch.guess || isForeignLink(ch.url, R.slug)) && /HTTP 404|HTTP 410|no images found|not found|DIFFERENT page|MAIN PAGE/i.test(e.message)) {   // ROUND 69: a foreign manga page that slipped into the list is dropped like a guess
         // WHY: Remove it quietly. HOW: mark dead, remove, rebuild menu and bar.
         ch.dead = true; removeSection(sec); buildChapterMenu(); updateDlBar();
         // WHY: Tell once. HOW: flag and toast.
@@ -15375,7 +15420,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (151 lines)
+### File: `MANGAFLOW_GUIDE.md`  (153 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15526,6 +15571,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 68: the site felt slower because the new background AutoPilot asked the network up to 4x more on pages with dead pictures (measured with a profiler mock) -> it now waits for the page's own watchdog, restarts each picture at most twice, only scans when the picture situation changed and repairs at most 3 times per page.
 
 - **Round 69: preloaded chapters were still slow (hanging pictures used up the download slots; refill only every 0.8 s; each batch waited for its slowest chapter) -> a new preload engine marks stalled pictures, restarts them by another route, refills at once and adapts the number of parallel downloads. Translation: new optional "Smart AI translator" (Gemini / Claude / OpenAI key typed in the Translate panel, kept only in your browser) translates a whole page in one request with context and fixes OCR typos; the normal services stay as fallback.**
+
+- **Round 69b: kingofshojo showed 'Could not load Chapter 6/37/48/…' because a sidebar of OTHER manga (links to their main pages, with the text 'Chapter 6') was taken as the chapter list -> a series fence removes any link to another manga's main page from every chapter list (and quietly drops one if it ever slips through); a chapter address the site answers with an unrelated page now gets an honest message.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
