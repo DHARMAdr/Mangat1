@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 70 — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 71 — 2026-11-15 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -764,3 +764,12 @@ Paste this file at the start of a new session to give Claude full context. Then 
 
 **Useful starting prompt:**
 > "Here is MANGAFLOW.md (Round 43). I want to [describe your request]. The files are attached."
+
+## 4ze. Round 71 — "The site is missing 1 chapter: 26 (HTTP 404)" -> CHAPTER RESCUE + automatic retries (mgeko "Should I Make You a Nuclear Weapon?")
+**Report:** chapters in list 55, expected 56, gap 26 guessed as `...-chapter-26-eng-li`, the site answered 404 -> "the site is missing chapter 26".
+**Cause:** the gap finder (round 55) only COPIES the address pattern of the neighbours. If the site wrote that one chapter differently (another ending such as `-eng`, `-eng-li-2`) the guess is a 404 and a chapter the site HAS was called missing.
+**Fix (app.js, `rescueChapter`):** a chapter is called missing only after: (1) NEIGHBOUR LINKS: the nearest 4 listed chapters' pages are opened (each fetched once, `navMemo`) and every link is read (rel=prev/next, Prev/Next buttons, any link whose address has the wanted number); the first that really answers wins; (2) OTHER ADDRESS FORMS: endings used by other chapters of this manga, shortened endings, `-2`/`-3`, with and without the final slash (max 10, 3 at a time); (3) CONFIRMATION: if the neighbours' own Next/Previous links jump over the number, the site itself skips it -> only a toast, no red pop-up ("confirmed" in the report). Budget 30 rescues per reading session. It runs from both the background audit (`checkGap`) and `fillChapter` when a guessed chapter 404s (then the chapter reloads from the new address).
+**Slow connection:** a chapter that "could not be checked" (timeout/5xx) is asked again by itself after 12 s, 40 s and 100 s (`verifyChapterList`).
+**Pitfalls found while testing:** (a) the new helper must NOT be called `looksLikeChapter` (an older function of that name exists; JavaScript silently replaced it) -> named `chapterAnswers`; (b) `chapterPool` hands errors back as values, so `poolFetchDoc` was added where a real rejection is needed.
+**Tests:** `r71.js` (MODE=real / skip / form / slow): real -> chapter 26 appears in the menu; skip -> calm toast, no pop-up; form -> found by other endings; slow -> chapter retried after an HTTP 503. Whole regression (176 checks + reg2 + kings/mgeko/soft404/acct) rerun.
+**Repos:** the experimental Python proxy folder was removed again from Mangafox; all three repos hold the plain HTML/CSS/JS site.

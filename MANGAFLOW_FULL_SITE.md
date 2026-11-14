@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 70 — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 71 — 2026-11-15 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -831,6 +831,15 @@ Paste this file at the start of a new session to give Claude full context. Then 
 **Useful starting prompt:**
 > "Here is MANGAFLOW.md (Round 43). I want to [describe your request]. The files are attached."
 
+## 4ze. Round 71 — "The site is missing 1 chapter: 26 (HTTP 404)" -> CHAPTER RESCUE + automatic retries (mgeko "Should I Make You a Nuclear Weapon?")
+**Report:** chapters in list 55, expected 56, gap 26 guessed as `...-chapter-26-eng-li`, the site answered 404 -> "the site is missing chapter 26".
+**Cause:** the gap finder (round 55) only COPIES the address pattern of the neighbours. If the site wrote that one chapter differently (another ending such as `-eng`, `-eng-li-2`) the guess is a 404 and a chapter the site HAS was called missing.
+**Fix (app.js, `rescueChapter`):** a chapter is called missing only after: (1) NEIGHBOUR LINKS: the nearest 4 listed chapters' pages are opened (each fetched once, `navMemo`) and every link is read (rel=prev/next, Prev/Next buttons, any link whose address has the wanted number); the first that really answers wins; (2) OTHER ADDRESS FORMS: endings used by other chapters of this manga, shortened endings, `-2`/`-3`, with and without the final slash (max 10, 3 at a time); (3) CONFIRMATION: if the neighbours' own Next/Previous links jump over the number, the site itself skips it -> only a toast, no red pop-up ("confirmed" in the report). Budget 30 rescues per reading session. It runs from both the background audit (`checkGap`) and `fillChapter` when a guessed chapter 404s (then the chapter reloads from the new address).
+**Slow connection:** a chapter that "could not be checked" (timeout/5xx) is asked again by itself after 12 s, 40 s and 100 s (`verifyChapterList`).
+**Pitfalls found while testing:** (a) the new helper must NOT be called `looksLikeChapter` (an older function of that name exists; JavaScript silently replaced it) -> named `chapterAnswers`; (b) `chapterPool` hands errors back as values, so `poolFetchDoc` was added where a real rejection is needed.
+**Tests:** `r71.js` (MODE=real / skip / form / slow): real -> chapter 26 appears in the menu; skip -> calm toast, no pop-up; form -> found by other endings; slow -> chapter retried after an HTTP 503. Whole regression (176 checks + reg2 + kings/mgeko/soft404/acct) rerun.
+**Repos:** the experimental Python proxy folder was removed again from Mangafox; all three repos hold the plain HTML/CSS/JS site.
+
 
 
 ---
@@ -908,17 +917,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=72" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=73" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=72" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=73" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=72">
+  <link rel="stylesheet" href="style.css?v=73">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=72"></script>
+  <script src="boot.js?v=73"></script>
 </head>
 <body data-side="right">
 
@@ -1491,24 +1500,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=72"></script>
+  <script src="pdfmaker.js?v=73"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=72"></script>
-  <script src="app.js?v=72"></script>
+  <script src="troubleshoot-data.js?v=73"></script>
+  <script src="app.js?v=73"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=72"></script>
+  <script src="chapter-slider.js?v=73"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=72"></script>
+  <script src="reload-wheel.js?v=73"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=72"></script>
+  <script src="edge-slider.js?v=73"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=72"></script>
+  <script src="translate.js?v=73"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=72"></script>
+  <script src="profiles.js?v=73"></script>
 </body>
 </html>
 ~~~~~~
@@ -3796,7 +3805,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8524 lines)
+### File: `app.js`  (8650 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4691,7 +4700,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 70)',
+      'MangaFlow error report (build round 71)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -8172,7 +8181,7 @@ window.MF_FIX = {
   }
   function fillChapterGaps(chapters, startIdx) {
     chapters = fixReuploadNumbers(chapters);                                   // ROUND 67 (see above)
-    const audit = { expected: 0, listed: chapters.length, gaps: [], dead: [], unsure: [], notDetected: [], verified: 0, done: false };
+    const audit = { expected: 0, listed: chapters.length, gaps: [], dead: [], unsure: [], notDetected: [], rescued: [], confirmed: new Set(), verified: 0, done: false };
     try {
       const nums = chapters.map(c => c.reup ? c.num : chapterNumInUrl(c.url));
       const known = nums.filter(n => n != null);
@@ -8199,32 +8208,135 @@ window.MF_FIX = {
     } catch (e) { audit.skipped = 'check failed: ' + (e && e.message); }
     auditHold = audit; return chapters;
   }
+
+  /* ROUND 71 - CHAPTER RESCUE (reported: mgeko "Should I Make You a Nuclear Weapon?", "missing 1 chapter: 26 ... not on the site: HTTP 404").
+     WHY: the gap finder (round 55) GUESSES the address of a missing chapter by copying the pattern of its neighbours ("...-chapter-26-eng-li"). When the site wrote that one chapter a little
+          differently (".../chapter-26-eng", ".../chapter-26-eng-li-2", another word at the end) the guess is a 404 and the chapter was called "missing" although the site HAS it.
+     HOW (the chapter is only called missing after ALL of these failed):
+       1. NEIGHBOUR LINKS - the page of chapter 27 has a "Previous" button that points to the REAL chapter 26. We open the nearest listed neighbours (up to 4, each page is fetched once and remembered)
+          and read every link on them (rel=prev/next, buttons called Prev/Next, and any link whose address carries the wanted number). The first link that really answers wins.
+       2. OTHER ADDRESS FORMS - the endings other chapters of this manga use ("-eng-li", "-eng", "") and common re-upload endings ("-2", "-3"), with and without the final slash (at most 10 tries, 3 at a time).
+       3. HONEST CONFIRMATION - when the neighbours' own Next/Previous links jump OVER the number (chapter 25's Next goes to 27) the site itself skips it. That is not an error: no red pop-up, only a line in the
+          report ("confirmed by the site's own links").
+     A rescued chapter gets its real address, stops being a guess and loads normally. Budget: at most 30 rescues per reading session so a manga with 100 gaps cannot flood the site.
+     IMPROVE: also search the site's own search page for "<title> chapter 26". */
+  const navMemo = new Map();                                              // neighbour address -> Promise of {doc, base} (each neighbour page is fetched only once)
+  function navPage(url) {
+    if (!navMemo.has(url)) { if (navMemo.size > 60) navMemo.clear(); navMemo.set(url, fetchDoc(url).catch(e => { navMemo.delete(url); throw e; })); }
+    return navMemo.get(url);
+  }
+  const sameNum = (a, b) => a != null && b != null && Math.abs(a - b) < 1e-9;
+  // WHY: find the "Previous" and "Next" chapter links of a chapter page. HOW: rel attributes first, then class names, then the button text.
+  function navLinks(doc, base) {
+    const out = { prev: [], next: [], all: [] };
+    const add = (arr, a) => { const u = absUrl(a.getAttribute('href'), base); if (u && /^https?:/i.test(u) && !arr.includes(u)) arr.push(u); };
+    doc.querySelectorAll('a[href]').forEach(a => {
+      add(out.all, a);
+      const rel = (a.getAttribute('rel') || '').toLowerCase(), cls = ((a.className && a.className.baseVal === undefined ? a.className : '') + ' ' + ((a.parentElement && a.parentElement.className) || '')).toString().toLowerCase();
+      const txt = (a.textContent || a.getAttribute('title') || a.getAttribute('aria-label') || '').trim().toLowerCase().slice(0, 40);
+      if (rel.includes('prev') || /\bprev(ious)?\b/.test(cls) || /^(?:«|‹|<)?\s*(?:prev(?:ious)?)\b/.test(txt)) add(out.prev, a);
+      if (rel.includes('next') || /\bnext\b/.test(cls) || /^(?:next)\b/.test(txt) || /\bnext\s*(?:chap|ch)/.test(txt)) add(out.next, a);
+    });
+    doc.querySelectorAll('link[rel][href]').forEach(l => { const r = l.getAttribute('rel').toLowerCase(), u = absUrl(l.getAttribute('href'), base); if (!u) return; if (r === 'prev') out.prev.push(u); if (r === 'next') out.next.push(u); });
+    return out;
+  }
+  // WHY: does this address really show chapter `num`? HOW: the page must answer, must not be a "not found" page, and must show pictures or mention the number in its title.
+  async function chapterAnswers(url, num) {
+    const { doc, base } = await poolFetchDoc(url);
+    const sc = scanPictures(doc, base);
+    const ttl = ((doc.title || '') + ' ' + ((doc.querySelector('h1') || {}).textContent || '')).toLowerCase();
+    if (/\b404\b|not found|page (does ?n.t|does not) exist|no longer available/.test(ttl) && sc.list.length < 1) return false;
+    return sc.list.length >= 2 || new RegExp('(^|[^0-9])' + String(num).replace('.', '[._-]') + '([^0-9]|$)').test(ttl);
+  }
+  async function rescueChapter(c, gen) {
+    if (c.rescueTried) return !!c.rescued;
+    c.rescueTried = true;
+    R.rescueN = (R.rescueN || 0) + 1; if (R.rescueN > 30) return false;      // budget (see above)
+    const A = R.audit || auditHold || { rescued: [], confirmed: new Set() };
+    if (!A.rescued) A.rescued = []; if (!A.confirmed) A.confirmed = new Set();
+    try {
+      const real = R.chapters.filter(x => x !== c && !x.dead && !x.guess && x.num != null && isFinite(x.num));
+      const below = real.filter(x => x.num < c.num).sort((p, q) => q.num - p.num), above = real.filter(x => x.num > c.num).sort((p, q) => p.num - q.num);
+      const nbs = [above[0], below[0], above[1], below[1]].filter(Boolean);
+      if (!nbs.length) return false;
+      const have = new Set(R.chapters.filter(x => x !== c).map(x => x.url.split('#')[0].replace(/\/$/, '')));
+      const slug = R.slug || ownSlug(c.url); let host = ''; try { host = new URL(c.url).hostname.replace(/^www\./, ''); } catch { /* none */ }
+      const sameSite = u => { try { return new URL(u).hostname.replace(/^www\./, '') === host; } catch { return false; } };
+      const accept = u => { c.url = u; c.guess = false; c.rescued = true; c.dead = false; c.verified = true; A.rescued.push(fmtNum(c.num) + ' -> ' + u.replace(/^https?:\/\/[^/]+/, '').slice(0, 70)); return true; };
+      const tried = new Set([c.url.split('#')[0].replace(/\/$/, '')]);
+      let skipVotes = 0;
+      // 1. neighbour links
+      for (const nb of nbs) {
+        if (R.gen !== gen) return false;
+        let page; try { page = await navPage(nb.url); } catch { continue; }
+        const nav = navLinks(page.doc, page.base);
+        const isBelow = nb.num < c.num;
+        // a Previous/Next link that goes past the wanted number = the site itself skips it
+        (isBelow ? nav.next : nav.prev).forEach(u => { const n = chapterNumInUrl(u); if (n != null && sameSite(u) && (isBelow ? n > c.num : n < c.num)) skipVotes++; });
+        const cands = nav.all.filter(u => sameSite(u) && !isForeignLink(u, slug) && sameNum(chapterNumInUrl(u), c.num) && !have.has(u.split('#')[0].replace(/\/$/, '')) && !tried.has(u.split('#')[0].replace(/\/$/, '')));
+        (isBelow ? nav.next : nav.prev).forEach(u => { if (sameSite(u) && !cands.includes(u) && sameNum(chapterNumInUrl(u), c.num)) cands.unshift(u); });
+        for (const u of cands.slice(0, 3)) { tried.add(u.split('#')[0].replace(/\/$/, '')); try { if (await chapterAnswers(u, c.num)) return accept(u); } catch { /* next */ } }
+      }
+      // 2. other address forms
+      const mk0 = chapterUrlMaker(real.length ? nbs[0].url : c.url);
+      if (mk0) {
+        const tails = new Map();
+        const splitTail = url => { try { const u = new URL(url), m = CH_RE.exec(u.pathname); if (!m) return null; const at = m.index + m[0].length - m[1].length; return { origin: u.origin, pre: u.pathname.slice(0, at), tail: u.pathname.slice(at + m[1].length), search: u.search, w: m[1].length, pad: m[1].startsWith('0') && m[1].length > 1 }; } catch { return null; } };
+        real.slice().sort((p, q) => Math.abs(p.num - c.num) - Math.abs(q.num - c.num)).slice(0, 14).forEach(x => { const t = splitTail(x.url); if (t) tails.set(t.tail, (tails.get(t.tail) || 0) + 1); });
+        const base0 = splitTail(nbs[0].url); if (!base0) return false;
+        const derived = [];
+        Array.from(tails.keys()).forEach(t => {
+          derived.push(t);
+          const m = t.replace(/\/$/, '');
+          let cut = m; while (/-[a-z0-9]+$/i.test(cut)) { cut = cut.replace(/-[a-z0-9]+$/i, ''); derived.push(cut + (t.endsWith('/') ? '/' : '')); }
+          derived.push(m + '-2' + (t.endsWith('/') ? '/' : ''), m + '-3' + (t.endsWith('/') ? '/' : ''));
+          derived.push(t.endsWith('/') ? m : m + '/');
+        });
+        const urls = [], seen = new Set();
+        derived.forEach(t => { const u = base0.origin + base0.pre + (base0.pad ? String(c.num).padStart(base0.w, '0') : String(c.num)) + t + base0.search; const k = u.split('#')[0].replace(/\/$/, ''); if (!seen.has(k) && !tried.has(k) && !have.has(k)) { seen.add(k); urls.push(u); } });
+        const list = urls.slice(0, 10);
+        let found = null, k = 0;
+        const worker = async () => { while (k < list.length && !found && R.gen === gen) { const u = list[k++]; try { if (await chapterAnswers(u, c.num)) { found = found || u; } } catch { /* next form */ } } };
+        await Promise.all([worker(), worker(), worker()]);
+        if (found) return accept(found);
+      }
+      // 3. honest confirmation
+      if (skipVotes >= 1) { A.confirmed.add(fmtNum(c.num)); c.confirmedGone = true; }
+    } catch { /* a rescue never breaks reading */ }
+    return false;
+  }
   let auditHold = null;
   const auditShown = new Set();
+  // ROUND 71: the check of ONE guessed chapter, shared by the first pass and the later retries. Returns 'ok', 'dead' or 'unsure'.
+  async function checkGap(c, gen, A) {
+    const unsureAt = () => A.unsure.findIndex(x => x.startsWith(c.num + ' ('));
+    const clearUnsure = () => { const j = unsureAt(); if (j >= 0) A.unsure.splice(j, 1); };
+    const gone = async why => {
+      if (await rescueChapter(c, gen)) { clearUnsure(); A.verified++; return 'ok'; }      // ROUND 71: look for the real address before calling it missing
+      c.dead = true; clearUnsure(); A.dead.push(c.num + ' (' + why + ')'); return 'dead';
+    };
+    try {
+      const { doc, base } = await poolFetchDoc(c.url);
+      // ROUND 57: a page that ANSWERS (HTTP 200) is kept even when no picture can be seen in its HTML. WHY: sites such as arenascan write the pictures with a script, so the old rule
+      //   ("no picture = chapter missing") wrongly threw real chapters out and the reader jumped from chapter 1 to chapter 20. HOW: only an honest "not found" removes a chapter:
+      //   HTTP 404/410 (below) or a page whose title says 404 / not found and that does not mention this chapter number.
+      const sc = scanPictures(doc, base);
+      const ttl = ((doc.title || '') + ' ' + ((doc.querySelector('h1') || {}).textContent || '')).toLowerCase();
+      const says404 = /\b404\b|not found|page (does ?n.t|does not) exist|no longer available/.test(ttl) && !new RegExp('(^|[^0-9])' + c.num + '([^0-9]|$)').test(ttl);
+      if (says404 && sc.list.length < 1) return await gone('the site shows its "not found" page');
+      c.verified = true; clearUnsure(); A.verified++; return 'ok';
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (/HTTP 404|HTTP 410|NOT FOUND/i.test(msg)) return await gone('not on the site: ' + (msg.match(/HTTP 4\d\d/) || ['not found'])[0]);
+      if (unsureAt() < 0) A.unsure.push(c.num + ' (' + msg.slice(0, 60) + ')');
+      c.unsure = true; return 'unsure';
+    }
+  }
   async function verifyChapterList(gen) {
     const A = auditHold; if (!A) return; R.audit = A;
     const gaps = R.chapters.filter(c => c.gap);
     let k = 0;
-    const one = async () => {
-      while (k < gaps.length) {
-        const c = gaps[k++]; if (R.gen !== gen) return;
-        try {
-          const { doc, base } = await fetchDoc(c.url);
-          // ROUND 57: a page that ANSWERS (HTTP 200) is kept even when no picture can be seen in its HTML. WHY: sites such as arenascan write the pictures with a script, so the old rule
-          //   ("no picture = chapter missing") wrongly threw real chapters out and the reader jumped from chapter 1 to chapter 20. HOW: only an honest "not found" removes a chapter:
-          //   HTTP 404/410 (below) or a page whose title says 404 / not found and that does not mention this chapter number.
-          const sc = scanPictures(doc, base);
-          const ttl = ((doc.title || '') + ' ' + ((doc.querySelector('h1') || {}).textContent || '')).toLowerCase();
-          const says404 = /\b404\b|not found|page (does ?n.t|does not) exist|no longer available/.test(ttl) && !new RegExp('(^|[^0-9])' + c.num + '([^0-9]|$)').test(ttl);
-          if (says404 && sc.list.length < 1) { c.dead = true; A.dead.push(c.num + ' (the site shows its "not found" page)'); }
-          else { c.verified = true; A.verified++; }
-        } catch (e) {
-          const msg = String((e && e.message) || e);
-          if (/HTTP 404|HTTP 410|NOT FOUND/i.test(msg)) { c.dead = true; A.dead.push(c.num + ' (not on the site: ' + (msg.match(/HTTP 4\d\d/) || ['not found'])[0] + ')'); }
-          else A.unsure.push(c.num + ' (' + msg.slice(0, 60) + ')');
-        }
-      }
-    };
+    const one = async () => { while (k < gaps.length) { const c = gaps[k++]; if (R.gen !== gen) return; await checkGap(c, gen, A); } };
     await Promise.all([one(), one(), one()]);
     if (R.gen !== gen) return;
     // take dead chapters off the screen and out of the menu
@@ -8234,6 +8346,15 @@ window.MF_FIX = {
     A.done = true;
     auditReport(gen, false);
     setTimeout(() => { if (R.gen === gen) auditReport(gen, true); }, 30000);
+    /* ROUND 71 - SLOW OR BAD CONNECTION: a chapter that "could not be checked" (timeout, 5xx, blocked for a moment) is asked again by itself after 12 s, 40 s and 100 s (slow phones, busy sites).
+       WHY: before, those stayed "unsure" for the whole session. HOW: only chapters flagged unsure are asked again; a success quietly joins the list, a real 404 goes through the rescue first. */
+    [12000, 40000, 100000].forEach(delay => setTimeout(async () => {
+      if (R.gen !== gen) return;
+      const again = R.chapters.filter(c => c.gap && c.unsure && !c.dead && !c.verified);
+      for (const c of again) { if (R.gen !== gen) return; c.unsure = false; const r = await checkGap(c, gen, A); if (r === 'dead') { const i = R.chapters.indexOf(c), sec = stream.querySelector('.chapter[data-index="' + i + '"]'); if (sec) removeSection(sec); buildChapterMenu(); updateDlBar(); } }
+      A.dead.sort(byNum); A.unsure.sort(byNum);
+      if (again.length) auditReport(gen, false);
+    }, delay));
   }
   function auditReport(gen, late) {
     const A = R.audit; if (!A || R.gen !== gen) return;
@@ -8245,9 +8366,12 @@ window.MF_FIX = {
         if (!pics && !x.dataset.verify && (x.dataset.failed === '1' || x.querySelector('.ch-msg')) ) A.notDetected.push(fmtNum(c.num));
       });
     }
-    const problems = A.dead.length + A.unsure.length + A.notDetected.length;
+    // ROUND 71: a chapter the site's own Previous/Next links jump over is not an error (see rescueChapter); only chapters that are REALLY unexplained are reported with the pop-up.
+    const conf = A.confirmed || new Set(), realDead = A.dead.filter(x => !conf.has(x.split(' ')[0]));
+    if (A.dead.length && !realDead.length && !A.unsure.length && !A.notDetected.length && !R.skipToast) { R.skipToast = true; toast('The site itself skips chapter ' + A.dead.map(x => x.split(' ')[0]).slice(0, 4).join(', ') + ' - nothing is wrong on your side'); }
+    const problems = realDead.length + A.unsure.length + A.notDetected.length;
     if (!problems && !A.skipped) return;
-    const key = (R.seriesUrl || R.title) + '|' + A.dead.join() + '|' + A.unsure.join() + '|' + A.notDetected.join();
+    const key = (R.seriesUrl || R.title) + '|' + realDead.join() + '|' + A.unsure.join() + '|' + A.notDetected.join();
     if (auditShown.has(key)) return; auditShown.add(key);
     if (A.skipped && !problems) return;      // nothing wrong was found; the note is only for the diagnostic report
     const lines = [
@@ -8255,14 +8379,15 @@ window.MF_FIX = {
       'Chapters in the site\'s own list: ' + A.listed + ' | expected from the numbers: ' + A.expected,
       'Missing from the site\'s list and added by guessing: ' + (A.gaps.length ? A.gaps.join(', ') : 'none'),
       'Found on the site after checking: ' + A.verified,
-      'NOT on the original site (so the site itself lacks them): ' + (A.dead.length ? A.dead.join(', ') : 'none'),
+      'Found by the rescue (neighbour links / other address forms): ' + ((A.rescued || []).length ? A.rescued.join(', ') : 'none'),
+      'NOT on the original site (so the site itself lacks them): ' + (A.dead.length ? A.dead.map(x => x + (conf.has(x.split(' ')[0]) ? ' [confirmed: the site\'s own Previous/Next links skip it]' : '')).join(', ') : 'none'),
       'Could not be checked (network or block, will be tried again when reached): ' + (A.unsure.length ? A.unsure.join(', ') : 'none'),
       'In the list but NOT shown in reading mode: ' + (A.notDetected.length ? A.notDetected.join(', ') : 'none')
     ];
     const head = A.notDetected.length ? 'Some chapters were found on the site but could not be shown in reading mode: ' + A.notDetected.slice(0, 8).join(', ')
-      : A.dead.length ? 'The site is missing ' + A.dead.length + ' chapter(s): ' + A.dead.slice(0, 8).map(x => x.split(' ')[0]).join(', ') + (A.dead.length > 8 ? ' …' : '')
+      : realDead.length ? 'The site is missing ' + realDead.length + ' chapter(s): ' + realDead.slice(0, 8).map(x => x.split(' ')[0]).join(', ') + (realDead.length > 8 ? ' …' : '')
       : 'Some chapters could not be checked: ' + A.unsure.slice(0, 8).map(x => x.split(' ')[0]).join(', ');
-    showError(head, { title: '📚 Chapter check: ' + (A.notDetected.length ? 'not shown in reading mode' : A.dead.length ? 'missing on the site' : 'could not verify'), details: lines.join('\n'), hint: 'Open the original site and look at the chapter list. If the chapter is there, press Retry on its box or send this report.' });
+    showError(head, { title: '📚 Chapter check: ' + (A.notDetected.length ? 'not shown in reading mode' : realDead.length ? 'missing on the site' : 'could not verify'), details: lines.join('\n'), hint: 'Open the original site and look at the chapter list. If the chapter is there, press Retry on its box or send this report.' });
   }
   // ROUND 57: what the site view (Page 2) knows about the chapter list - for the diagnostic report when "no chapter shows".
   function pageListText() {
@@ -8364,6 +8489,13 @@ window.MF_FIX = {
           takes longer than 6 s gives its place to the next one (it keeps running in the background), so one slow or dead chapter can never block the queue.
      IMPROVE: make the number depend on how fast the last chapters answered. */
   const chPool = { run: 0, max: 8, q: [], n: 0, wait: 0, dur: 0, slow: 0 };   // ROUND 70: 8 (was 4: with real, slow chapter answers 4 made the later chapters show up too late); wait/dur/n/slow are numbers for the diagnostic
+  // ROUND 71: chapterPool hands back errors as plain values (fine for loadNext). poolFetchDoc wants a REAL rejection so callers can tell "404" from "ok".
+  function poolFetchDoc(url) {
+    // the real fetch is started INSIDE a plain async function so a failure is always caught here and handed back as a value, then re-thrown to the one caller that awaits it
+    return new Promise((resolve, reject) => {
+      chapterPool(async () => { try { resolve(await fetchDoc(url)); } catch (e) { reject(e); } });
+    });
+  }
   function chapterPool(job) {
     return new Promise(resolve => {
       const asked = Date.now();
@@ -8552,6 +8684,9 @@ window.MF_FIX = {
       // ROUND 9: a chapter we only GUESSED (chapter-3 from chapter-5) that does not exist is not an error: drop it quietly.
       // WHY: A guessed chapter missing is normal. HOW: if guess and not found.
       if ((ch.guess || isForeignLink(ch.url, R.slug)) && /HTTP 404|HTTP 410|no images found|not found|DIFFERENT page|MAIN PAGE/i.test(e.message)) {   // ROUND 69: a foreign manga page that slipped into the list is dropped like a guess
+        // ROUND 71: before a guessed chapter is dropped, look for its real address (neighbour links, other endings); if found, load it again from the new address.
+        if (ch.guess && !ch.rescueTried && await rescueChapter(ch, gen)) { if (gen !== R.gen || sec._fillTok !== tok) return; return fillChapter(sec, i, gen); }
+        if (gen !== R.gen || sec._fillTok !== tok) return;
         // WHY: Remove it quietly. HOW: mark dead, remove, rebuild menu and bar.
         ch.dead = true; removeSection(sec); buildChapterMenu(); updateDlBar();
         // WHY: Tell once. HOW: flag and toast.
@@ -11615,7 +11750,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 70)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 71)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -15554,7 +15689,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (161 lines)
+### File: `MANGAFLOW_GUIDE.md`  (163 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15563,7 +15698,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 70 — 2026-11-14*
+*Last updated: Round 71 — 2026-11-15*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15715,6 +15850,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 69e: preloading made self-limiting (at most 4 chapter pages fetched at once, picture slots capped near the old number, near chapters before far ones, first pictures first, slow pictures are no longer downloaded twice). My mock tests could not reproduce the exact slowdown, so if it is still slow, send the diagnostic.**
 
 - **Round 70: a row removed from 'Continue reading' came back after a refresh (the cloud merge had no memory of deletions) -> every removal now leaves a deletion note that wins over old copies; reading-mode loading: chapter pool 8 at a time (was 4), looser picture limits, and the diagnostic now shows real timing numbers (chapter pool, picture load).**
+
+- **Round 71: 'the site is missing chapter 26 (HTTP 404)' although the site may have it under another address ending -> a chapter rescue now reads the Previous/Next links of neighbouring chapters and tries other address endings before calling a chapter missing; when the site's own links skip a number it is only a small note (no red pop-up); chapters that could not be checked because of a slow connection are asked again by themselves after 12 s, 40 s and 100 s.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

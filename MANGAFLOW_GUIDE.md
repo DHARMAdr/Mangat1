@@ -1,7 +1,7 @@
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 70 — 2026-11-14*
+*Last updated: Round 71 — 2026-11-15*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -153,6 +153,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 69e: preloading made self-limiting (at most 4 chapter pages fetched at once, picture slots capped near the old number, near chapters before far ones, first pictures first, slow pictures are no longer downloaded twice). My mock tests could not reproduce the exact slowdown, so if it is still slow, send the diagnostic.**
 
 - **Round 70: a row removed from 'Continue reading' came back after a refresh (the cloud merge had no memory of deletions) -> every removal now leaves a deletion note that wins over old copies; reading-mode loading: chapter pool 8 at a time (was 4), looser picture limits, and the diagnostic now shows real timing numbers (chapter pool, picture load).**
+
+- **Round 71: 'the site is missing chapter 26 (HTTP 404)' although the site may have it under another address ending -> a chapter rescue now reads the Previous/Next links of neighbouring chapters and tries other address endings before calling a chapter missing; when the site's own links skip a number it is only a small note (no red pop-up); chapters that could not be checked because of a slow connection are asked again by themselves after 12 s, 40 s and 100 s.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
