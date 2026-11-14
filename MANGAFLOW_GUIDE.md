@@ -1,7 +1,7 @@
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 68 — 2026-11-13*
+*Last updated: Round 69 — 2026-11-14*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -141,6 +141,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 67: the site's re-uploaded chapters (chapter-3-2) were read as "chapter 3.2" and the reader then guessed a "missing" chapter 3 whose pictures are dead -> "-2" copies are now chapter 3 (no guessed dead copy); a background AutoPilot (every 10 s) now repairs ALL loaded chapters by itself (dead uploads, boxes with messages, long waits, proxies, stuck loaders, Page 2 pictures) and "Fix automatically" now also looks at the chapters ahead.
 
 - **Round 68: the site felt slower because the new background AutoPilot asked the network up to 4x more on pages with dead pictures (measured with a profiler mock) -> it now waits for the page's own watchdog, restarts each picture at most twice, only scans when the picture situation changed and repairs at most 3 times per page.
+
+- **Round 69: preloaded chapters were still slow (hanging pictures used up the download slots; refill only every 0.8 s; each batch waited for its slowest chapter) -> a new preload engine marks stalled pictures, restarts them by another route, refills at once and adapts the number of parallel downloads. Translation: new optional "Smart AI translator" (Gemini / Claude / OpenAI key typed in the Translate panel, kept only in your browser) translates a whole page in one request with context and fixes OCR typos; the normal services stay as fallback.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

@@ -148,6 +148,7 @@
   #mfTrPanel.open{display:block;}
   #mfTrPanel label{display:block;margin:0 0 8px;font-weight:600;font-size:12px;color:#b0b0cc;}
   #mfTrPanel select{display:block;width:100%;margin-top:3px;min-height:38px;font-size:15px;background:#2a2a3e;color:#e8e8f0;border:1px solid #55557a;border-radius:8px;padding:0 8px;}
+  #mfTrPanel input{display:block;width:100%;margin-top:3px;min-height:38px;font-size:15px;background:#2a2a3e;color:#e8e8f0;border:1px solid #55557a;border-radius:8px;padding:0 8px;box-sizing:border-box;}
   #mfTrPanel .row{display:flex;gap:8px;margin-top:4px;}
   #mfTrPanel .row button{flex:1;min-height:38px;border-radius:10px;background:#3a3a55;color:#e8e8f0;border:1px solid #55557a;cursor:pointer;font:600 14px system-ui,sans-serif;}
   .chapter{position:relative;}                                                           /* WHY: the boxes are placed inside the chapter box */
@@ -175,6 +176,9 @@
   const panel = document.createElement('div'); panel.id = 'mfTrPanel'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Translate settings');
   panel.innerHTML = '<label>Translate into<select id="mfTrTo"></select></label><label>Language written on the pages<select id="mfTrFrom"></select></label>' +
     '<label>Translation service<select id="mfTrEng"><option value="auto">Automatic (best one that works)</option><option value="chrome">Chrome on-device translator</option><option value="google">Google</option><option value="mymemory">MyMemory</option></select></label>' +
+    '<label>Smart AI translator (best meaning)<select id="mfTrAi"><option value="off">Off</option><option value="gemini">Google Gemini (free key)</option><option value="claude">Anthropic Claude</option><option value="openai">OpenAI / compatible</option></select></label>' +
+    '<label id="mfTrKeyRow" hidden>API key (kept only in this browser)<input id="mfTrKey" type="password" autocomplete="off" spellcheck="false" placeholder="paste your key"></label>' +
+    '<div class="row" id="mfTrAiRow" hidden><button type="button" id="mfTrAiTest">Test key</button></div><div id="mfTrAiMsg" style="font-size:12px;margin-top:4px;opacity:.85"></div>' +
     '<div class="row"><button type="button" id="mfTrAgain">Translate again</button><button type="button" id="mfTrClose">Close</button></div>';
   document.body.append(btn, bar, panel);
   const $msg = bar.querySelector('#mfTrMsg'), $retry = bar.querySelector('#mfTrRetry'), $det = bar.querySelector('#mfTrDet');
@@ -445,7 +449,7 @@
           answer is remembered (cache) so the same sentence is never asked twice. When a service can not be reached directly (the site's security rules or a
           blocked network) the request is repeated through YOUR proxy (worker.js). IMPROVE: add LibreTranslate (needs a server of your own).
      --------------------------------------------------------------- */
-  const cache = new Map(), rest = { chrome: 0, google: 0, mymemory: 0 }, fails = { chrome: 0, google: 0, mymemory: 0 }, usedBy = {};
+  const cache = new Map(), rest = { chrome: 0, google: 0, mymemory: 0, ai: 0 }, fails = { chrome: 0, google: 0, mymemory: 0, ai: 0 }, usedBy = {};
   let lastEngine = '';
   async function getJson(url) {
     const tries = [() => fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' })];
@@ -736,10 +740,98 @@
     const mid = list.length >> 1;
     return (await translateGroup(list.slice(0, mid), from, to)).concat(await translateGroup(list.slice(mid), from, to));
   }
+  /* ---------------------------------------------------------------
+     ROUND 69: SMART AI TRANSLATOR (optional, the owner's own key)
+     WHY: Google / MyMemory translate each line alone, so the meaning is often wrong (slang, "he/she", names, OCR typos). An AI model reads the WHOLE
+       page at once, fixes obvious reading mistakes of the OCR, keeps the same speaker and tone, and answers in ONE request (faster than many small ones).
+     HOW: the key is typed in the Translate panel and kept ONLY in this browser (localStorage 'mf_ai'); it is sent only to the provider chosen.
+       The answer must be a JSON list with exactly one text per bubble; anything else is refused and the normal services (above) are used instead.
+     IMPROVE: add a "story so far" memory (last 3 lines of the previous page) so names stay the same across pages (prevLines below already does part of it).
+     --------------------------------------------------------------- */
+  const AI_DEFAULT = { provider: 'off', key: '', model: '', base: '' };
+  const AI_MODELS = { gemini: 'gemini-2.5-flash', claude: 'claude-haiku-5-5', openai: 'gpt-4o-mini' };
+  let ai = Object.assign({}, AI_DEFAULT);
+  try { Object.assign(ai, JSON.parse(localStorage.getItem('mf_ai') || '{}')); } catch { /* storage blocked: AI stays off */ }
+  if (!['off', 'gemini', 'claude', 'openai'].includes(ai.provider)) ai.provider = 'off';
+  const aiOn = () => ai.provider !== 'off' && !!ai.key && cfg.engine !== 'google' && cfg.engine !== 'mymemory' && cfg.engine !== 'chrome' && Date.now() > (rest.ai || 0);
+  let prevLines = [];                                       // the last translated lines of the previous page (context for names)
+  const LANG_NAME = code => { const l = LANG_TO.find(x => x[0] === code); return l ? l[1] : code; };
+  function aiPrompt(texts, from, to) {
+    return 'You translate speech bubbles of a manga / manhwa / comic page. The numbered lines below are in reading order and come from OCR, so a few letters may be wrong: ' +
+      'repair obvious reading mistakes using the story context. Translate EACH line into natural, meaningful ' + LANG_NAME(to) + ' (keep the speaker\'s tone, slang, names, honorifics and sound effects sensible; ' +
+      'never translate word by word; keep the meaning, not the grammar of the source). Source language: ' + (from === 'auto' ? 'detect it' : from) + '.\n' +
+      (prevLines.length ? 'Previous page ended with: ' + JSON.stringify(prevLines.slice(-3)) + '\n' : '') +
+      'Reply with ONLY a JSON array of ' + texts.length + ' strings (one per numbered line, same order, no numbering, no notes).\n\n' + texts.map((t, i) => (i + 1) + '. ' + t.replace(/\n/g, ' ')).join('\n');
+  }
+  // WHY: the three providers speak three slightly different languages. HOW: one small function each, all return the model's text.
+  const AI_CALL = {
+    gemini: async (prompt, signal) => {
+      const base = ai.base || 'https://generativelanguage.googleapis.com', model = ai.model || AI_MODELS.gemini;
+      const r = await fetch(base + '/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(ai.key), { method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } }) });
+      if (!r.ok) throw aiErr(r.status);
+      const j = await r.json(); return (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map(p => p.text || '').join('');
+    },
+    claude: async (prompt, signal) => {
+      const base = ai.base || 'https://api.anthropic.com', model = ai.model || AI_MODELS.claude;
+      const r = await fetch(base + '/v1/messages', { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-api-key': ai.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 2048, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }) });
+      if (!r.ok) throw aiErr(r.status);
+      const j = await r.json(); return (j.content || []).map(p => p.text || '').join('');
+    },
+    openai: async (prompt, signal) => {
+      const base = (ai.base || 'https://api.openai.com/v1').replace(/\/+$/, ''), model = ai.model || AI_MODELS.openai;
+      const r = await fetch(base + '/chat/completions', { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ai.key },
+        body: JSON.stringify({ model, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }) });
+      if (!r.ok) throw aiErr(r.status);
+      const j = await r.json(); return ((((j.choices || [])[0] || {}).message || {}).content) || '';
+    }
+  };
+  function aiErr(status) { const e = new Error('the AI service answered HTTP ' + status + (status === 400 || status === 401 || status === 403 ? ' (check the key)' : status === 429 ? ' (too many requests / quota)' : '')); e.status = status; return e; }
+  // WHY: models sometimes wrap the JSON in ```json fences or add a sentence. HOW: cut from the first [ to the last ] and parse.
+  function parseAiList(raw, n) {
+    let t = String(raw || '').trim(); const a = t.indexOf('['), b = t.lastIndexOf(']'); if (a < 0 || b <= a) return null;
+    try { const arr = JSON.parse(t.slice(a, b + 1)); if (Array.isArray(arr) && arr.length === n && arr.every(x => typeof x === 'string')) return arr.map(x => x.trim()); } catch { /* not JSON */ }
+    return null;
+  }
+  async function translateAI(texts, from, to) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
+    try {
+      for (let tryN = 0; tryN < 2; tryN++) {
+        const raw = await AI_CALL[ai.provider](aiPrompt(texts, from, to), ctl.signal);
+        const list = parseAiList(raw, texts.length);
+        if (list && list.every(x => x.length)) { prevLines = list.slice(-3); usedBy.ai = (usedBy.ai || 0) + 1; lastEngine = 'ai (' + ai.provider + ')'; fails.ai = 0; return list; }
+        note('AI answer was not a good list (try ' + (tryN + 1) + ')');
+      }
+      throw new Error('the AI answer was not a list of ' + texts.length + ' texts');
+    } finally { clearTimeout(timer); }
+  }
+  // test button: one tiny request so the owner sees at once whether the key works
+  async function aiTest() {
+    const keep = Object.assign({}, ai);
+    try { const out = await translateAI(['ありがとう', 'どこに行くの?'], 'jpn', cfg.to || 'en'); return 'Works: ' + out.join(' / '); }
+    catch (e) { return 'Not working: ' + (e && e.name === 'AbortError' ? 'no answer in 30 s' : (e && e.message)); }
+    finally { Object.assign(ai, keep); }
+  }
+
   // onChunk(startIndex, resultsSoFar) is called after every chunk so the caller can draw the first bubbles early.
   async function translateAll(texts, from, to, onChunk) {
     if (!texts.length) return [];
     const out = new Array(texts.length); let firstErr = null;
+    // ROUND 69: the smart AI reads the whole page in ONE request (up to 40 bubbles). If it fails, the normal services below take over (nothing is lost).
+    if (aiOn()) {
+      try {
+        const res = await translateAI(texts.slice(0, 40), from, to);
+        res.forEach((t, i) => { out[i] = polish(t, to); });
+        if (texts.length <= 40) { if (onChunk) onChunk(0, out); return out; }
+        const restIdx = texts.map((_, i) => i).slice(40), more = await translateAI(restIdx.map(i => texts[i]), from, to);
+        restIdx.forEach((i, n) => { out[i] = polish(more[n], to); }); if (onChunk) onChunk(0, out); return out;
+      } catch (e) {
+        note('AI translator failed: ' + (e && e.message));
+        if (e && (e.status === 400 || e.status === 401 || e.status === 403 || e.status === 429)) rest.ai = Date.now() + 120000; else if (++fails.ai >= 3) { rest.ai = Date.now() + 60000; fails.ai = 0; }
+        for (let i = 0; i < out.length; i++) out[i] = undefined;
+      }
+    }
     for (const idx of makeChunks(texts)) {
       const list = idx.map(i => texts[i]);
       try { const parts = await translateGroup(list, from, to); idx.forEach((i, n) => { out[i] = polish(parts[n], to); }); }
@@ -834,7 +926,7 @@
   const queue = new Set();
   const state = img => { let s = pages.get(img); if (!s) { s = { state: 'new' }; pages.set(img, s); } return s; };
   const ocrKey = img => (img.currentSrc || img.src) + '|' + cfg.from + '|' + (cfg.from === 'auto' ? autoLang : '');
-  const trKey = () => cfg.to + '|' + cfg.engine;
+  const trKey = () => cfg.to + '|' + cfg.engine + '|' + (aiOn() ? ai.provider + ai.model : '');
   function setStatus(t, isErr) { $msg.textContent = t; bar.classList.toggle('err', !!isErr); $retry.hidden = $det.hidden = !isErr; btn.classList.toggle('busy', running && !isErr); }
   function idleStatus() { setStatus((queue.size ? 'Translating… ' + queue.size + ' page' + (queue.size === 1 ? '' : 's') + ' waiting' : done ? done + ' page' + (done === 1 ? '' : 's') + ' translated' : 'Translate is on. Scroll to a page.') + ' · to ' + (LANG_TO.find(l => l[0] === cfg.to) || [0, cfg.to])[1].split(' (')[0]); }
   // WHY: enqueue one page for translation, and also pre-load the next few pages ahead.
@@ -970,6 +1062,14 @@
   panel.querySelector('#mfTrClose').onclick = () => panel.classList.remove('open');
   // WHY: changing a language must repeat only what is needed. HOW: the setting is saved through app.js; 'mf-settings' comes back and refresh() below does the work.
   $to.onchange = () => setSetting({ trTo: $to.value }); $from.onchange = () => setSetting({ trFrom: $from.value }); $eng.onchange = () => setSetting({ trEngine: $eng.value });
+  // ROUND 69: the Smart AI part of the panel. HOW: every change is saved to localStorage 'mf_ai' at once; pages already translated are translated again with the new setting.
+  const $ai = panel.querySelector('#mfTrAi'), $key = panel.querySelector('#mfTrKey'), $aiMsg = panel.querySelector('#mfTrAiMsg');
+  function syncAi() { $ai.value = ai.provider; $key.value = ai.key; panel.querySelector('#mfTrKeyRow').hidden = panel.querySelector('#mfTrAiRow').hidden = ai.provider === 'off'; }
+  function saveAi() { try { localStorage.setItem('mf_ai', JSON.stringify(ai)); } catch { /* storage blocked: works until the page closes */ } rest.ai = 0; fails.ai = 0; syncAi(); }
+  $ai.onchange = () => { ai.provider = $ai.value; saveAi(); $aiMsg.textContent = ai.provider === 'off' ? '' : ai.key ? '' : 'Paste your key, then press Test key.'; };
+  $key.onchange = () => { ai.key = $key.value.trim(); saveAi(); };
+  panel.querySelector('#mfTrAiTest').onclick = async () => { ai.key = $key.value.trim(); saveAi(); $aiMsg.textContent = 'Testing…'; $aiMsg.textContent = await aiTest(); };
+  syncAi();
   panel.querySelector('#mfTrAgain').onclick = () => { panel.classList.remove('open'); redo(true); };
   function redo(all) {                                     // forget the finished pages of this session and do them again (all = also read the pictures again)
     problem = null; queue.clear();
@@ -1013,8 +1113,8 @@
   }
   document.addEventListener('click', e => { if (e.target && e.target.id === 'setTrTest') selfTest(); });
   function report() {
-    return ['Translate add-on (round 65)', 'button on: ' + on + ' | into: ' + cfg.to + ' | pages written in: ' + cfg.from + (autoLang ? ' (detected ' + autoLang + ')' : '') + ' | service setting: ' + cfg.engine + ' | last service used: ' + (lastEngine || '-'),
-      'pages: ' + pages.size + ' known, ' + done + ' done, ' + queue.size + ' waiting | service answers: ' + (JSON.stringify(usedBy)) + ' | reader started: ' + !!worker + ' (' + (workerLang || '-') + ') | built-in translator: ' + ('Translator' in self),
+    return ['Translate add-on (round 69)', 'button on: ' + on + ' | into: ' + cfg.to + ' | pages written in: ' + cfg.from + (autoLang ? ' (detected ' + autoLang + ')' : '') + ' | service setting: ' + cfg.engine + ' | last service used: ' + (lastEngine || '-'),
+      'smart AI: ' + (aiOn() ? ai.provider : 'off') + ' | pages: ' + pages.size + ' known, ' + done + ' done, ' + queue.size + ' waiting | service answers: ' + (JSON.stringify(usedBy)) + ' | reader started: ' + !!worker + ' (' + (workerLang || '-') + ') | built-in translator: ' + ('Translator' in self),
       '--- diary ---'].concat(logLines.slice(-25)).join('\n');
   }
 
@@ -1031,7 +1131,7 @@
   }
   window.MangaFlowTranslate = { version: 1, el: btn, report, getPageData, info: () => ({ on, done, queue: queue.size, cfg: { ...cfg, proxies: cfg.proxies.length }, autoLang }), langs: { LANG_TO, OCR_LANGS },
     // used by the tests: run the pure parts without a browser page
-    _test: { groupLines, dedupe, usable, tidy, guessLang, fixOcr, isGarbage, readingOrder, badAnswer, polish, splitBatch, makeChunks, translateAll, keepWords } };
+    _test: { translateAI, parseAiList, aiOn, setAi: o => Object.assign(ai, o), groupLines, dedupe, usable, tidy, guessLang, fixOcr, isGarbage, readingOrder, badAnswer, polish, splitBatch, makeChunks, translateAll, keepWords } };
   scan();
   if (cfg.auto) { const t = setInterval(() => { if (document.body.classList.contains('reading')) { clearInterval(t); setOn(true); } }, 800); setTimeout(() => clearInterval(t), 20000); }   // "start translating as soon as I open reading mode"
 })();

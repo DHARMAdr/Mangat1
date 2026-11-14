@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 68 — 2026-11-13 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 69 — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -412,6 +412,13 @@ Also: a service that never answers (the built-in browser translator can hang whi
 **Root cause:** the Round 67 AutoPilot's site-view part ran in parallel with the page's own watchdog (frameWatch, first 70 s): both restarted the same dead pictures, and the scan + full repair (which retries every picture through the proxies) could run again and again. Dead pictures cannot be repaired, so all of it was wasted traffic that competes with the pictures you actually want.
 **Fixes:** the site-view autopilot now (1) starts only after frameWatch is finished (75 s after the page was shown), (2) restarts a picture at most 2 times and at most 4 per tick, (3) runs the scan only when the picture situation CHANGED (signature of failed/pending/empty counts), (4) repairs at most 3 times per page (now, +2 min, +5 min). Reading mode: failed pictures get their waiting time shortened only while ≤12 pictures are failing and only for their first 3 retries (a retry storm helps nobody). Result on the same dead-picture test: 22 → 34 requests in 90 s (one gentle repair) instead of 90.
 **Rule for future rounds:** every background helper must be measured with `perf3.js` (requests and script time) before it ships; background work must be bounded (count, interval, "only when something changed").
+
+## 4y. Round 69 — chapters preloaded slowly + translation slow / wrong meaning (`?v=69`)
+
+**Part A — preloading (speed only).** *Symptom:* the next chapters were "preloaded" but still opened slowly, with gaps. *Root cause (measured with `perf4.js`, which makes some pictures hang forever):* (1) the keeper counted hanging pictures as "in flight", so a few stuck pictures used up all download slots and nothing new started; (2) the keeper only looked again every 800 ms, so a finished picture left a slot empty for up to 0.8 s; (3) `loadNext` waited for the SLOWEST chapter of a batch of 10 before asking for the next batch. *Fix:* new "preload engine" in `app.js` (`preloadFill`, `preloadSlots`, `preloadGood/Bad`, `requestFill`, `stallMs`): a picture that makes no progress for ~12 s (3x the median load time, 8–20 s) is marked *stalled*, no longer counts, and is restarted by the next fallback route (direct -> own proxy -> image proxy); slots grow slowly when pictures load fine (+1 per 6 successes, max 12 small / 16 large) and shrink by 25 % when they fail (AIMD, like TCP); a finished picture immediately asks for a refill (coalesced, 60 ms); the nearest chapters get `fetchPriority = high`; `loadNext` gives each batch at most 10 s. *Measured:* with hanging pictures 29 -> 98 pictures in 50 s; healthy pages are also faster. Nothing else was changed (no buttons, menus or reading features touched).
+
+**Part B — translation.** *Root cause of "wrong meaning":* Google / MyMemory translate each line alone and the OCR text has typos, so slang, pronouns and names go wrong. *Fix (new, optional):* **Smart AI translator** (`translate.js`, section "ROUND 69"). In the Translate panel choose Off / Google Gemini (free key) / Anthropic Claude / OpenAI-compatible, paste your own key (kept only in this browser, `localStorage` key `mf_ai`, sent only to the chosen provider) and press *Test key*. The whole page (up to 40 bubbles, in reading order, with the last lines of the previous page) goes in ONE request; the model repairs OCR typos and answers a JSON list with exactly one text per bubble. A bad answer (wrong count, empty, not JSON) is retried once and then the normal services take over, so nothing is lost; HTTP 400/401/403/429 pauses the AI for 2 minutes, 3 other failures pause it for 1 minute. It is used only when the service setting is *Automatic*. One request per page is also faster than many small ones. Tested with fake Gemini/Claude/OpenAI endpoints (`r69ai.js`): good answer, ```json fences, wrong count -> Google fallback, HTTP 429 -> fallback + rest, panel UI, Test key.
+*How to improve:* overlap OCR of the next page with the translation of this one; DeepL needs a small route in `worker.js` (its key must never be in the browser).
 
 ## How to Deploy / Set Up
 
@@ -855,17 +862,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=68" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=69" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=68" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=69" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=68">
+  <link rel="stylesheet" href="style.css?v=69">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=68"></script>
+  <script src="boot.js?v=69"></script>
 </head>
 <body data-side="right">
 
@@ -1438,24 +1445,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=68"></script>
+  <script src="pdfmaker.js?v=69"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=68"></script>
-  <script src="app.js?v=68"></script>
+  <script src="troubleshoot-data.js?v=69"></script>
+  <script src="app.js?v=69"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=68"></script>
+  <script src="chapter-slider.js?v=69"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=68"></script>
+  <script src="reload-wheel.js?v=69"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=68"></script>
+  <script src="edge-slider.js?v=69"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=68"></script>
+  <script src="translate.js?v=69"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=68"></script>
+  <script src="profiles.js?v=69"></script>
 </body>
 </html>
 ~~~~~~
@@ -3743,7 +3750,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8383 lines)
+### File: `app.js`  (8435 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4638,7 +4645,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 68)',
+      'MangaFlow error report (build round 69)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -8281,7 +8288,8 @@ window.MF_FIX = {
         // WHY: Create boxes in order. HOW: makeSection for each index.
         for (let i = from; i < to; i++) secs.push(makeSection(i));
         // WHY: Fill all boxes at the same time. HOW: Promise.all waits for all.
-        await Promise.all(secs.map(sec => fillChapter(sec, +sec.dataset.index, gen)));
+        // ROUND 69: do not let ONE slow chapter hold back the next batch: after 10 s the batch counts as done (the slow chapter keeps filling by itself, and the keeper heals it if needed)
+        await Promise.race([Promise.all(secs.map(sec => fillChapter(sec, +sec.dataset.index, gen))), new Promise(r => setTimeout(r, 10000))]);
       } finally {
         // WHY: Only reset if the session is still the same. HOW: compare gen.
         if (gen === R.gen) {
@@ -8521,15 +8529,16 @@ window.MF_FIX = {
     // into its own function.
     // ROUND 29d: the SAME reload is used by the Retry button and by the keeper. WHY: one way to start again, so the two can never differ. HOW: remove the red box, forget the used tries (n = 0),
     //   show the picture again and ask for it with ?r=<time> so the browser does not answer from its cache of the failure. IMPROVE: none needed.
+    img._nextTry = () => { if (n >= attempts.length) return false; img.onerror(); return true; };       // ROUND 69: the preload engine pushes a stalled picture to its next way of loading
     img._reload = () => {
       if (img._box) { img._box.remove(); img._box = null; }
-      n = 0; img._failed = false; img._healing = true; img.hidden = false; img.loading = 'eager'; img._eagerAt = Date.now();
+      n = 0; img._failed = false; img._stalled = false; img._healing = true; img.hidden = false; img.loading = 'eager'; img._eagerAt = Date.now();
       img.src = src + (src.includes('?') ? '&' : '?') + 'r=' + Date.now();
     };
     const fail = () => {
       // ROUND 29d: a picture that failed is NOT reported at once any more: the keeper tries again by itself (4 s, 8 s, 16 s ... up to 90 s). Only a picture that failed again after
       // two such retries counts for the "Several pictures are not loading" report (noteFail, round 11), so a short internet hiccup never opens a pop-up.
-      img._failed = true; img._failedAt = Date.now(); img._healing = false; img._healAt = img._failedAt + healWait(img._healN);
+      img._failed = true; img._failedAt = Date.now(); img._healing = false; img._healAt = img._failedAt + healWait(img._healN); preloadBad(); requestFill();   // ROUND 69: a failed picture frees its slot at once
       if (img._healN === 2) noteFail(src, k, ref);
       const box = document.createElement('div'); box.className = 'page-fail'; img._box = box;
       // WHY: tell the reader a picture is missing. HOW: append a plain message into the chapter box.
@@ -8557,6 +8566,7 @@ window.MF_FIX = {
     // the screen. IMPROVE: Reserve the height using the picture width and height.
     img.onload = () => {
       img._done = true; img._failed = false; img._healing = false;                // round 29d: the keeper sees this picture is fine now
+      if (img._eagerAt && !img._healN && !img._stalled) preloadGood(Date.now() - img._eagerAt); requestFill();   // ROUND 69: measure the load time, free the slot at once
       const h0 = img.offsetHeight;                                           // height with the grey placeholder
       img.classList.add('loaded');
       if (!ANCHOR_OK && img.getBoundingClientRect().bottom <= 0) window.scrollBy(0, img.offsetHeight - h0);   // keep the view still
@@ -8640,6 +8650,60 @@ window.MF_FIX = {
   }
   // WHY: the keeper only works while reading, in a visible tab, with a network. HOW: four plain checks. IMPROVE: none needed.
   const keeperOn = () => document.body.classList.contains('reading') && !reader.hidden && !document.hidden && navigator.onLine !== false && !R.paused;
+
+  /* =====================================================================================================================
+     ROUND 69 - THE PRELOAD ENGINE (owner: "the preloaded chapters are still slow ... it should always keep the next 5-10 chapters ready, without gaps").
+     MEASURED PROBLEM (mock `perf4.js`, 10 chapters ahead, 2 of every 8 pictures of a chapter "hang" = the host never answers on the first try, like a slow CDN):
+        only 29 of 100 pictures were loaded after 45 s. WHY: the preloader keeps at most N pictures "in flight" (6-8). A picture whose host never answers stays "in flight" for 45 s before the
+        keeper retried it, so a few hanging pictures filled ALL slots and the whole queue stood still = the "gaps". Also, a free slot was only refilled at the next 0.8 s tick.
+     FIXES (all only about speed; nothing else changes):
+       1. STALL DETECTION: a picture that has not finished after `stallMs()` (3x the typical load time of this connection, between 8 and 20 s) is marked stalled: it no longer occupies a slot
+          (the next picture starts at once) and it is pushed to its next way of loading (own proxy / backup proxy). It keeps trying in the background.
+       2. REFILL AT ONCE: preloadFill() also runs (coalesced, at most every 60 ms) when any picture finishes or fails, so a free slot is never idle until the next tick.
+       3. ADAPTIVE SLOTS (like the "AIMD" rule of the internet): start with the old number (4 / 6 / 8); +1 slot after every 6 pictures in a row that loaded fine (up to 12 / 16); -25 % after a
+          failure or a stall (never below 3). A fast line is used fully, a weak line is not flooded.
+       4. PRIORITY: the pictures of the chapter being read and the next one are asked with fetchpriority=high, far chapters with low, so the near ones are never delayed by far ones.
+       5. The chapter loader no longer waits for a stuck chapter: a batch counts as finished after 10 s even if one chapter is still answering (that chapter keeps filling in the background).
+     IMPROVE: use the Resource Timing API to measure real bandwidth; preload the first 3 pictures of EVERY chapter in the window before the rest of them. */
+  const preload = { slots: 0, okRun: 0, times: [], stalls: 0, fills: 0, timer: 0, lastFill: 0 };
+  function stallMs() {
+    const t = preload.times; if (t.length < 5) return 12000;
+    const m = t.slice().sort((a, b) => a - b)[t.length >> 1];
+    return Math.max(8000, Math.min(20000, m * 3));
+  }
+  function preloadBase(small) {
+    let limit = small ? 4 : 6;
+    try { const ct = navigator.connection && navigator.connection.effectiveType; if (ct === '4g' && !navigator.connection.saveData) limit += 2; else if (ct === '2g' || ct === 'slow-2g') limit = 2; } catch { /* default */ }
+    return limit;
+  }
+  function preloadSlots(small) {
+    const base = preloadBase(small); if (base <= 2) return base;                                   // slow line: stay small
+    if (!preload.slots) preload.slots = base;
+    return Math.max(3, Math.min(preload.slots, small ? 12 : 16));
+  }
+  function preloadGood(ms) { preload.times.push(ms); if (preload.times.length > 30) preload.times.shift(); if (++preload.okRun >= 6) { preload.okRun = 0; preload.slots = Math.min(16, (preload.slots || 6) + 1); } }
+  function preloadBad() { preload.okRun = 0; preload.slots = Math.max(3, Math.floor((preload.slots || 6) * 0.75)); }
+  function requestFill() {                                                                           // called by finished pictures
+    if (preload.timer) return;
+    preload.timer = setTimeout(() => { preload.timer = 0; try { if (reader.hidden || !R || !R.chapters || !keeperOn()) return; const secs = $$('.chapter', stream), imgs = secs.flatMap(x => $$('img.page', x)); preloadFill(secs, imgs, Date.now(), R.cur, keeperAhead(), window.innerWidth <= 700); } catch { /* never break reading */ } }, 60);
+  }
+  function preloadFill(secs, imgs, now, cur, ahead, small) {
+    if (ahead <= 0) return;
+    preload.fills++;
+    const stall = stallMs(), dist = sec => Math.abs((+sec.dataset.index) - cur);
+    // 1. stalled pictures stop occupying a slot and go to their next way of loading
+    imgs.forEach(i => { if (i._eagerAt && !i._done && !i._failed && !i._stalled && now - i._eagerAt > stall) { i._stalled = true; preload.stalls++; preloadBad(); try { if (i._nextTry) i._nextTry(); } catch { /* the keeper heals it later */ } } });
+    let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._stalled).length;
+    const limit = preloadSlots(small);
+    secs.filter(x => { const k = +x.dataset.index; return k >= cur && k <= cur + ahead; }).sort((a, b) => a.dataset.index - b.dataset.index).forEach(x => {
+      const near = dist(x) <= 1;
+      $$('img.page', x).forEach(i => {
+        if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return;
+        try { i.fetchPriority = near ? 'high' : 'low'; } catch { /* old browser */ }
+        i.loading = 'eager'; i._eagerAt = now; pending++;
+      });
+    });
+  }
   function keeperTick() {
     try {
       if (!keeperOn()) return;
@@ -8672,16 +8736,11 @@ window.MF_FIX = {
       let busy = imgs.filter(i => i._healing).length;
       imgs.filter(i => i._failed && now >= (i._healAt || 0)).sort((a, b) => dist(a.closest('.chapter')) - dist(b.closest('.chapter'))).forEach(i => { if (busy >= 3 || !i._reload) return; i._healN++; busy++; keeper.healedPics++; i._reload(); });
       imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._healing && now - i._eagerAt > 45000).forEach(i => { if (busy >= 3 || !i._reload) return; i._healN++; busy++; i._reload(); });
-      // D. preload: switch the lazy pictures of the window to eager, nearest first, a few at a time
-      if (ahead > 0) {
-        let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed).length; let limit = small ? 4 : 6; try { const ct = navigator.connection && navigator.connection.effectiveType; if (ct === '4g' && !navigator.connection.saveData) limit += 2; else if (ct === '2g' || ct === 'slow-2g') limit = 2; } catch { /* default */ }   // ROUND 63: was 3 / 4
-        secs.filter(x => { const k = +x.dataset.index; return k >= cur && k <= cur + ahead; }).sort((a, b) => a.dataset.index - b.dataset.index).forEach(x => {
-          $$('img.page', x).forEach(i => { if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return; i.loading = 'eager'; i._eagerAt = now; pending++; });
-        });
-      }
+      // D. preload (ROUND 69: now its own function, preloadFill, so it can also run the moment a picture finishes - see below)
+      preloadFill(secs, imgs, now, cur, ahead, small);
       // E. ROUND 66: the dead-upload doctor (see deadUploadDoctor below). Runs by itself every few seconds while you read.
       deadUploadDoctor(secs, imgs, now);
-      keeper.last = 'ahead ' + ahead + ', dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
+      keeper.last = 'ahead ' + ahead + ', slots ' + preloadSlots(small) + ' (stall ' + Math.round(stallMs() / 1000) + ' s, stalled ' + preload.stalls + '), dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
     } catch { /* the keeper must never break reading */ }
   }
   // WHY: after the internet returns or the tab comes back, do not wait for the old (long) waiting times. HOW: forget them and run a tick now. IMPROVE: none needed.
@@ -11421,7 +11480,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 68)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 69)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -12568,7 +12627,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `translate.js`  (1038 lines)
+### File: `translate.js`  (1138 lines)
 
 **Why this file exists / what it does:** Optional add-on: translate the words inside manga pictures (OCR + translation) and draw the new text on top.
 
@@ -12724,6 +12783,7 @@ window.MF_FIX = {
   #mfTrPanel.open{display:block;}
   #mfTrPanel label{display:block;margin:0 0 8px;font-weight:600;font-size:12px;color:#b0b0cc;}
   #mfTrPanel select{display:block;width:100%;margin-top:3px;min-height:38px;font-size:15px;background:#2a2a3e;color:#e8e8f0;border:1px solid #55557a;border-radius:8px;padding:0 8px;}
+  #mfTrPanel input{display:block;width:100%;margin-top:3px;min-height:38px;font-size:15px;background:#2a2a3e;color:#e8e8f0;border:1px solid #55557a;border-radius:8px;padding:0 8px;box-sizing:border-box;}
   #mfTrPanel .row{display:flex;gap:8px;margin-top:4px;}
   #mfTrPanel .row button{flex:1;min-height:38px;border-radius:10px;background:#3a3a55;color:#e8e8f0;border:1px solid #55557a;cursor:pointer;font:600 14px system-ui,sans-serif;}
   .chapter{position:relative;}                                                           /* WHY: the boxes are placed inside the chapter box */
@@ -12751,6 +12811,9 @@ window.MF_FIX = {
   const panel = document.createElement('div'); panel.id = 'mfTrPanel'; panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-label', 'Translate settings');
   panel.innerHTML = '<label>Translate into<select id="mfTrTo"></select></label><label>Language written on the pages<select id="mfTrFrom"></select></label>' +
     '<label>Translation service<select id="mfTrEng"><option value="auto">Automatic (best one that works)</option><option value="chrome">Chrome on-device translator</option><option value="google">Google</option><option value="mymemory">MyMemory</option></select></label>' +
+    '<label>Smart AI translator (best meaning)<select id="mfTrAi"><option value="off">Off</option><option value="gemini">Google Gemini (free key)</option><option value="claude">Anthropic Claude</option><option value="openai">OpenAI / compatible</option></select></label>' +
+    '<label id="mfTrKeyRow" hidden>API key (kept only in this browser)<input id="mfTrKey" type="password" autocomplete="off" spellcheck="false" placeholder="paste your key"></label>' +
+    '<div class="row" id="mfTrAiRow" hidden><button type="button" id="mfTrAiTest">Test key</button></div><div id="mfTrAiMsg" style="font-size:12px;margin-top:4px;opacity:.85"></div>' +
     '<div class="row"><button type="button" id="mfTrAgain">Translate again</button><button type="button" id="mfTrClose">Close</button></div>';
   document.body.append(btn, bar, panel);
   const $msg = bar.querySelector('#mfTrMsg'), $retry = bar.querySelector('#mfTrRetry'), $det = bar.querySelector('#mfTrDet');
@@ -13021,7 +13084,7 @@ window.MF_FIX = {
           answer is remembered (cache) so the same sentence is never asked twice. When a service can not be reached directly (the site's security rules or a
           blocked network) the request is repeated through YOUR proxy (worker.js). IMPROVE: add LibreTranslate (needs a server of your own).
      --------------------------------------------------------------- */
-  const cache = new Map(), rest = { chrome: 0, google: 0, mymemory: 0 }, fails = { chrome: 0, google: 0, mymemory: 0 }, usedBy = {};
+  const cache = new Map(), rest = { chrome: 0, google: 0, mymemory: 0, ai: 0 }, fails = { chrome: 0, google: 0, mymemory: 0, ai: 0 }, usedBy = {};
   let lastEngine = '';
   async function getJson(url) {
     const tries = [() => fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' })];
@@ -13312,10 +13375,98 @@ window.MF_FIX = {
     const mid = list.length >> 1;
     return (await translateGroup(list.slice(0, mid), from, to)).concat(await translateGroup(list.slice(mid), from, to));
   }
+  /* ---------------------------------------------------------------
+     ROUND 69: SMART AI TRANSLATOR (optional, the owner's own key)
+     WHY: Google / MyMemory translate each line alone, so the meaning is often wrong (slang, "he/she", names, OCR typos). An AI model reads the WHOLE
+       page at once, fixes obvious reading mistakes of the OCR, keeps the same speaker and tone, and answers in ONE request (faster than many small ones).
+     HOW: the key is typed in the Translate panel and kept ONLY in this browser (localStorage 'mf_ai'); it is sent only to the provider chosen.
+       The answer must be a JSON list with exactly one text per bubble; anything else is refused and the normal services (above) are used instead.
+     IMPROVE: add a "story so far" memory (last 3 lines of the previous page) so names stay the same across pages (prevLines below already does part of it).
+     --------------------------------------------------------------- */
+  const AI_DEFAULT = { provider: 'off', key: '', model: '', base: '' };
+  const AI_MODELS = { gemini: 'gemini-2.5-flash', claude: 'claude-haiku-5-5', openai: 'gpt-4o-mini' };
+  let ai = Object.assign({}, AI_DEFAULT);
+  try { Object.assign(ai, JSON.parse(localStorage.getItem('mf_ai') || '{}')); } catch { /* storage blocked: AI stays off */ }
+  if (!['off', 'gemini', 'claude', 'openai'].includes(ai.provider)) ai.provider = 'off';
+  const aiOn = () => ai.provider !== 'off' && !!ai.key && cfg.engine !== 'google' && cfg.engine !== 'mymemory' && cfg.engine !== 'chrome' && Date.now() > (rest.ai || 0);
+  let prevLines = [];                                       // the last translated lines of the previous page (context for names)
+  const LANG_NAME = code => { const l = LANG_TO.find(x => x[0] === code); return l ? l[1] : code; };
+  function aiPrompt(texts, from, to) {
+    return 'You translate speech bubbles of a manga / manhwa / comic page. The numbered lines below are in reading order and come from OCR, so a few letters may be wrong: ' +
+      'repair obvious reading mistakes using the story context. Translate EACH line into natural, meaningful ' + LANG_NAME(to) + ' (keep the speaker\'s tone, slang, names, honorifics and sound effects sensible; ' +
+      'never translate word by word; keep the meaning, not the grammar of the source). Source language: ' + (from === 'auto' ? 'detect it' : from) + '.\n' +
+      (prevLines.length ? 'Previous page ended with: ' + JSON.stringify(prevLines.slice(-3)) + '\n' : '') +
+      'Reply with ONLY a JSON array of ' + texts.length + ' strings (one per numbered line, same order, no numbering, no notes).\n\n' + texts.map((t, i) => (i + 1) + '. ' + t.replace(/\n/g, ' ')).join('\n');
+  }
+  // WHY: the three providers speak three slightly different languages. HOW: one small function each, all return the model's text.
+  const AI_CALL = {
+    gemini: async (prompt, signal) => {
+      const base = ai.base || 'https://generativelanguage.googleapis.com', model = ai.model || AI_MODELS.gemini;
+      const r = await fetch(base + '/v1beta/models/' + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(ai.key), { method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } }) });
+      if (!r.ok) throw aiErr(r.status);
+      const j = await r.json(); return (((j.candidates || [])[0] || {}).content || { parts: [] }).parts.map(p => p.text || '').join('');
+    },
+    claude: async (prompt, signal) => {
+      const base = ai.base || 'https://api.anthropic.com', model = ai.model || AI_MODELS.claude;
+      const r = await fetch(base + '/v1/messages', { method: 'POST', signal, headers: { 'Content-Type': 'application/json', 'x-api-key': ai.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model, max_tokens: 2048, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }) });
+      if (!r.ok) throw aiErr(r.status);
+      const j = await r.json(); return (j.content || []).map(p => p.text || '').join('');
+    },
+    openai: async (prompt, signal) => {
+      const base = (ai.base || 'https://api.openai.com/v1').replace(/\/+$/, ''), model = ai.model || AI_MODELS.openai;
+      const r = await fetch(base + '/chat/completions', { method: 'POST', signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + ai.key },
+        body: JSON.stringify({ model, temperature: 0.2, messages: [{ role: 'user', content: prompt }] }) });
+      if (!r.ok) throw aiErr(r.status);
+      const j = await r.json(); return ((((j.choices || [])[0] || {}).message || {}).content) || '';
+    }
+  };
+  function aiErr(status) { const e = new Error('the AI service answered HTTP ' + status + (status === 400 || status === 401 || status === 403 ? ' (check the key)' : status === 429 ? ' (too many requests / quota)' : '')); e.status = status; return e; }
+  // WHY: models sometimes wrap the JSON in ```json fences or add a sentence. HOW: cut from the first [ to the last ] and parse.
+  function parseAiList(raw, n) {
+    let t = String(raw || '').trim(); const a = t.indexOf('['), b = t.lastIndexOf(']'); if (a < 0 || b <= a) return null;
+    try { const arr = JSON.parse(t.slice(a, b + 1)); if (Array.isArray(arr) && arr.length === n && arr.every(x => typeof x === 'string')) return arr.map(x => x.trim()); } catch { /* not JSON */ }
+    return null;
+  }
+  async function translateAI(texts, from, to) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 30000);
+    try {
+      for (let tryN = 0; tryN < 2; tryN++) {
+        const raw = await AI_CALL[ai.provider](aiPrompt(texts, from, to), ctl.signal);
+        const list = parseAiList(raw, texts.length);
+        if (list && list.every(x => x.length)) { prevLines = list.slice(-3); usedBy.ai = (usedBy.ai || 0) + 1; lastEngine = 'ai (' + ai.provider + ')'; fails.ai = 0; return list; }
+        note('AI answer was not a good list (try ' + (tryN + 1) + ')');
+      }
+      throw new Error('the AI answer was not a list of ' + texts.length + ' texts');
+    } finally { clearTimeout(timer); }
+  }
+  // test button: one tiny request so the owner sees at once whether the key works
+  async function aiTest() {
+    const keep = Object.assign({}, ai);
+    try { const out = await translateAI(['ありがとう', 'どこに行くの?'], 'jpn', cfg.to || 'en'); return 'Works: ' + out.join(' / '); }
+    catch (e) { return 'Not working: ' + (e && e.name === 'AbortError' ? 'no answer in 30 s' : (e && e.message)); }
+    finally { Object.assign(ai, keep); }
+  }
+
   // onChunk(startIndex, resultsSoFar) is called after every chunk so the caller can draw the first bubbles early.
   async function translateAll(texts, from, to, onChunk) {
     if (!texts.length) return [];
     const out = new Array(texts.length); let firstErr = null;
+    // ROUND 69: the smart AI reads the whole page in ONE request (up to 40 bubbles). If it fails, the normal services below take over (nothing is lost).
+    if (aiOn()) {
+      try {
+        const res = await translateAI(texts.slice(0, 40), from, to);
+        res.forEach((t, i) => { out[i] = polish(t, to); });
+        if (texts.length <= 40) { if (onChunk) onChunk(0, out); return out; }
+        const restIdx = texts.map((_, i) => i).slice(40), more = await translateAI(restIdx.map(i => texts[i]), from, to);
+        restIdx.forEach((i, n) => { out[i] = polish(more[n], to); }); if (onChunk) onChunk(0, out); return out;
+      } catch (e) {
+        note('AI translator failed: ' + (e && e.message));
+        if (e && (e.status === 400 || e.status === 401 || e.status === 403 || e.status === 429)) rest.ai = Date.now() + 120000; else if (++fails.ai >= 3) { rest.ai = Date.now() + 60000; fails.ai = 0; }
+        for (let i = 0; i < out.length; i++) out[i] = undefined;
+      }
+    }
     for (const idx of makeChunks(texts)) {
       const list = idx.map(i => texts[i]);
       try { const parts = await translateGroup(list, from, to); idx.forEach((i, n) => { out[i] = polish(parts[n], to); }); }
@@ -13410,7 +13561,7 @@ window.MF_FIX = {
   const queue = new Set();
   const state = img => { let s = pages.get(img); if (!s) { s = { state: 'new' }; pages.set(img, s); } return s; };
   const ocrKey = img => (img.currentSrc || img.src) + '|' + cfg.from + '|' + (cfg.from === 'auto' ? autoLang : '');
-  const trKey = () => cfg.to + '|' + cfg.engine;
+  const trKey = () => cfg.to + '|' + cfg.engine + '|' + (aiOn() ? ai.provider + ai.model : '');
   function setStatus(t, isErr) { $msg.textContent = t; bar.classList.toggle('err', !!isErr); $retry.hidden = $det.hidden = !isErr; btn.classList.toggle('busy', running && !isErr); }
   function idleStatus() { setStatus((queue.size ? 'Translating… ' + queue.size + ' page' + (queue.size === 1 ? '' : 's') + ' waiting' : done ? done + ' page' + (done === 1 ? '' : 's') + ' translated' : 'Translate is on. Scroll to a page.') + ' · to ' + (LANG_TO.find(l => l[0] === cfg.to) || [0, cfg.to])[1].split(' (')[0]); }
   // WHY: enqueue one page for translation, and also pre-load the next few pages ahead.
@@ -13546,6 +13697,14 @@ window.MF_FIX = {
   panel.querySelector('#mfTrClose').onclick = () => panel.classList.remove('open');
   // WHY: changing a language must repeat only what is needed. HOW: the setting is saved through app.js; 'mf-settings' comes back and refresh() below does the work.
   $to.onchange = () => setSetting({ trTo: $to.value }); $from.onchange = () => setSetting({ trFrom: $from.value }); $eng.onchange = () => setSetting({ trEngine: $eng.value });
+  // ROUND 69: the Smart AI part of the panel. HOW: every change is saved to localStorage 'mf_ai' at once; pages already translated are translated again with the new setting.
+  const $ai = panel.querySelector('#mfTrAi'), $key = panel.querySelector('#mfTrKey'), $aiMsg = panel.querySelector('#mfTrAiMsg');
+  function syncAi() { $ai.value = ai.provider; $key.value = ai.key; panel.querySelector('#mfTrKeyRow').hidden = panel.querySelector('#mfTrAiRow').hidden = ai.provider === 'off'; }
+  function saveAi() { try { localStorage.setItem('mf_ai', JSON.stringify(ai)); } catch { /* storage blocked: works until the page closes */ } rest.ai = 0; fails.ai = 0; syncAi(); }
+  $ai.onchange = () => { ai.provider = $ai.value; saveAi(); $aiMsg.textContent = ai.provider === 'off' ? '' : ai.key ? '' : 'Paste your key, then press Test key.'; };
+  $key.onchange = () => { ai.key = $key.value.trim(); saveAi(); };
+  panel.querySelector('#mfTrAiTest').onclick = async () => { ai.key = $key.value.trim(); saveAi(); $aiMsg.textContent = 'Testing…'; $aiMsg.textContent = await aiTest(); };
+  syncAi();
   panel.querySelector('#mfTrAgain').onclick = () => { panel.classList.remove('open'); redo(true); };
   function redo(all) {                                     // forget the finished pages of this session and do them again (all = also read the pictures again)
     problem = null; queue.clear();
@@ -13589,8 +13748,8 @@ window.MF_FIX = {
   }
   document.addEventListener('click', e => { if (e.target && e.target.id === 'setTrTest') selfTest(); });
   function report() {
-    return ['Translate add-on (round 65)', 'button on: ' + on + ' | into: ' + cfg.to + ' | pages written in: ' + cfg.from + (autoLang ? ' (detected ' + autoLang + ')' : '') + ' | service setting: ' + cfg.engine + ' | last service used: ' + (lastEngine || '-'),
-      'pages: ' + pages.size + ' known, ' + done + ' done, ' + queue.size + ' waiting | service answers: ' + (JSON.stringify(usedBy)) + ' | reader started: ' + !!worker + ' (' + (workerLang || '-') + ') | built-in translator: ' + ('Translator' in self),
+    return ['Translate add-on (round 69)', 'button on: ' + on + ' | into: ' + cfg.to + ' | pages written in: ' + cfg.from + (autoLang ? ' (detected ' + autoLang + ')' : '') + ' | service setting: ' + cfg.engine + ' | last service used: ' + (lastEngine || '-'),
+      'smart AI: ' + (aiOn() ? ai.provider : 'off') + ' | pages: ' + pages.size + ' known, ' + done + ' done, ' + queue.size + ' waiting | service answers: ' + (JSON.stringify(usedBy)) + ' | reader started: ' + !!worker + ' (' + (workerLang || '-') + ') | built-in translator: ' + ('Translator' in self),
       '--- diary ---'].concat(logLines.slice(-25)).join('\n');
   }
 
@@ -13607,7 +13766,7 @@ window.MF_FIX = {
   }
   window.MangaFlowTranslate = { version: 1, el: btn, report, getPageData, info: () => ({ on, done, queue: queue.size, cfg: { ...cfg, proxies: cfg.proxies.length }, autoLang }), langs: { LANG_TO, OCR_LANGS },
     // used by the tests: run the pure parts without a browser page
-    _test: { groupLines, dedupe, usable, tidy, guessLang, fixOcr, isGarbage, readingOrder, badAnswer, polish, splitBatch, makeChunks, translateAll, keepWords } };
+    _test: { translateAI, parseAiList, aiOn, setAi: o => Object.assign(ai, o), groupLines, dedupe, usable, tidy, guessLang, fixOcr, isGarbage, readingOrder, badAnswer, polish, splitBatch, makeChunks, translateAll, keepWords } };
   scan();
   if (cfg.auto) { const t = setInterval(() => { if (document.body.classList.contains('reading')) { clearInterval(t); setOn(true); } }, 800); setTimeout(() => clearInterval(t), 20000); }   // "start translating as soon as I open reading mode"
 })();
@@ -15216,7 +15375,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (149 lines)
+### File: `MANGAFLOW_GUIDE.md`  (151 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15225,7 +15384,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 68 — 2026-11-13*
+*Last updated: Round 69 — 2026-11-14*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15365,6 +15524,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 67: the site's re-uploaded chapters (chapter-3-2) were read as "chapter 3.2" and the reader then guessed a "missing" chapter 3 whose pictures are dead -> "-2" copies are now chapter 3 (no guessed dead copy); a background AutoPilot (every 10 s) now repairs ALL loaded chapters by itself (dead uploads, boxes with messages, long waits, proxies, stuck loaders, Page 2 pictures) and "Fix automatically" now also looks at the chapters ahead.
 
 - **Round 68: the site felt slower because the new background AutoPilot asked the network up to 4x more on pages with dead pictures (measured with a profiler mock) -> it now waits for the page's own watchdog, restarts each picture at most twice, only scans when the picture situation changed and repairs at most 3 times per page.
+
+- **Round 69: preloaded chapters were still slow (hanging pictures used up the download slots; refill only every 0.8 s; each batch waited for its slowest chapter) -> a new preload engine marks stalled pictures, restarts them by another route, refills at once and adapts the number of parallel downloads. Translation: new optional "Smart AI translator" (Gemini / Claude / OpenAI key typed in the Translate panel, kept only in your browser) translates a whole page in one request with context and fixes OCR typos; the normal services stay as fallback.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

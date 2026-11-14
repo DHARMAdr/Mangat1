@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 68)',
+      'MangaFlow error report (build round 69)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -4530,7 +4530,8 @@
         // WHY: Create boxes in order. HOW: makeSection for each index.
         for (let i = from; i < to; i++) secs.push(makeSection(i));
         // WHY: Fill all boxes at the same time. HOW: Promise.all waits for all.
-        await Promise.all(secs.map(sec => fillChapter(sec, +sec.dataset.index, gen)));
+        // ROUND 69: do not let ONE slow chapter hold back the next batch: after 10 s the batch counts as done (the slow chapter keeps filling by itself, and the keeper heals it if needed)
+        await Promise.race([Promise.all(secs.map(sec => fillChapter(sec, +sec.dataset.index, gen))), new Promise(r => setTimeout(r, 10000))]);
       } finally {
         // WHY: Only reset if the session is still the same. HOW: compare gen.
         if (gen === R.gen) {
@@ -4770,15 +4771,16 @@
     // into its own function.
     // ROUND 29d: the SAME reload is used by the Retry button and by the keeper. WHY: one way to start again, so the two can never differ. HOW: remove the red box, forget the used tries (n = 0),
     //   show the picture again and ask for it with ?r=<time> so the browser does not answer from its cache of the failure. IMPROVE: none needed.
+    img._nextTry = () => { if (n >= attempts.length) return false; img.onerror(); return true; };       // ROUND 69: the preload engine pushes a stalled picture to its next way of loading
     img._reload = () => {
       if (img._box) { img._box.remove(); img._box = null; }
-      n = 0; img._failed = false; img._healing = true; img.hidden = false; img.loading = 'eager'; img._eagerAt = Date.now();
+      n = 0; img._failed = false; img._stalled = false; img._healing = true; img.hidden = false; img.loading = 'eager'; img._eagerAt = Date.now();
       img.src = src + (src.includes('?') ? '&' : '?') + 'r=' + Date.now();
     };
     const fail = () => {
       // ROUND 29d: a picture that failed is NOT reported at once any more: the keeper tries again by itself (4 s, 8 s, 16 s ... up to 90 s). Only a picture that failed again after
       // two such retries counts for the "Several pictures are not loading" report (noteFail, round 11), so a short internet hiccup never opens a pop-up.
-      img._failed = true; img._failedAt = Date.now(); img._healing = false; img._healAt = img._failedAt + healWait(img._healN);
+      img._failed = true; img._failedAt = Date.now(); img._healing = false; img._healAt = img._failedAt + healWait(img._healN); preloadBad(); requestFill();   // ROUND 69: a failed picture frees its slot at once
       if (img._healN === 2) noteFail(src, k, ref);
       const box = document.createElement('div'); box.className = 'page-fail'; img._box = box;
       // WHY: tell the reader a picture is missing. HOW: append a plain message into the chapter box.
@@ -4806,6 +4808,7 @@
     // the screen. IMPROVE: Reserve the height using the picture width and height.
     img.onload = () => {
       img._done = true; img._failed = false; img._healing = false;                // round 29d: the keeper sees this picture is fine now
+      if (img._eagerAt && !img._healN && !img._stalled) preloadGood(Date.now() - img._eagerAt); requestFill();   // ROUND 69: measure the load time, free the slot at once
       const h0 = img.offsetHeight;                                           // height with the grey placeholder
       img.classList.add('loaded');
       if (!ANCHOR_OK && img.getBoundingClientRect().bottom <= 0) window.scrollBy(0, img.offsetHeight - h0);   // keep the view still
@@ -4889,6 +4892,60 @@
   }
   // WHY: the keeper only works while reading, in a visible tab, with a network. HOW: four plain checks. IMPROVE: none needed.
   const keeperOn = () => document.body.classList.contains('reading') && !reader.hidden && !document.hidden && navigator.onLine !== false && !R.paused;
+
+  /* =====================================================================================================================
+     ROUND 69 - THE PRELOAD ENGINE (owner: "the preloaded chapters are still slow ... it should always keep the next 5-10 chapters ready, without gaps").
+     MEASURED PROBLEM (mock `perf4.js`, 10 chapters ahead, 2 of every 8 pictures of a chapter "hang" = the host never answers on the first try, like a slow CDN):
+        only 29 of 100 pictures were loaded after 45 s. WHY: the preloader keeps at most N pictures "in flight" (6-8). A picture whose host never answers stays "in flight" for 45 s before the
+        keeper retried it, so a few hanging pictures filled ALL slots and the whole queue stood still = the "gaps". Also, a free slot was only refilled at the next 0.8 s tick.
+     FIXES (all only about speed; nothing else changes):
+       1. STALL DETECTION: a picture that has not finished after `stallMs()` (3x the typical load time of this connection, between 8 and 20 s) is marked stalled: it no longer occupies a slot
+          (the next picture starts at once) and it is pushed to its next way of loading (own proxy / backup proxy). It keeps trying in the background.
+       2. REFILL AT ONCE: preloadFill() also runs (coalesced, at most every 60 ms) when any picture finishes or fails, so a free slot is never idle until the next tick.
+       3. ADAPTIVE SLOTS (like the "AIMD" rule of the internet): start with the old number (4 / 6 / 8); +1 slot after every 6 pictures in a row that loaded fine (up to 12 / 16); -25 % after a
+          failure or a stall (never below 3). A fast line is used fully, a weak line is not flooded.
+       4. PRIORITY: the pictures of the chapter being read and the next one are asked with fetchpriority=high, far chapters with low, so the near ones are never delayed by far ones.
+       5. The chapter loader no longer waits for a stuck chapter: a batch counts as finished after 10 s even if one chapter is still answering (that chapter keeps filling in the background).
+     IMPROVE: use the Resource Timing API to measure real bandwidth; preload the first 3 pictures of EVERY chapter in the window before the rest of them. */
+  const preload = { slots: 0, okRun: 0, times: [], stalls: 0, fills: 0, timer: 0, lastFill: 0 };
+  function stallMs() {
+    const t = preload.times; if (t.length < 5) return 12000;
+    const m = t.slice().sort((a, b) => a - b)[t.length >> 1];
+    return Math.max(8000, Math.min(20000, m * 3));
+  }
+  function preloadBase(small) {
+    let limit = small ? 4 : 6;
+    try { const ct = navigator.connection && navigator.connection.effectiveType; if (ct === '4g' && !navigator.connection.saveData) limit += 2; else if (ct === '2g' || ct === 'slow-2g') limit = 2; } catch { /* default */ }
+    return limit;
+  }
+  function preloadSlots(small) {
+    const base = preloadBase(small); if (base <= 2) return base;                                   // slow line: stay small
+    if (!preload.slots) preload.slots = base;
+    return Math.max(3, Math.min(preload.slots, small ? 12 : 16));
+  }
+  function preloadGood(ms) { preload.times.push(ms); if (preload.times.length > 30) preload.times.shift(); if (++preload.okRun >= 6) { preload.okRun = 0; preload.slots = Math.min(16, (preload.slots || 6) + 1); } }
+  function preloadBad() { preload.okRun = 0; preload.slots = Math.max(3, Math.floor((preload.slots || 6) * 0.75)); }
+  function requestFill() {                                                                           // called by finished pictures
+    if (preload.timer) return;
+    preload.timer = setTimeout(() => { preload.timer = 0; try { if (reader.hidden || !R || !R.chapters || !keeperOn()) return; const secs = $$('.chapter', stream), imgs = secs.flatMap(x => $$('img.page', x)); preloadFill(secs, imgs, Date.now(), R.cur, keeperAhead(), window.innerWidth <= 700); } catch { /* never break reading */ } }, 60);
+  }
+  function preloadFill(secs, imgs, now, cur, ahead, small) {
+    if (ahead <= 0) return;
+    preload.fills++;
+    const stall = stallMs(), dist = sec => Math.abs((+sec.dataset.index) - cur);
+    // 1. stalled pictures stop occupying a slot and go to their next way of loading
+    imgs.forEach(i => { if (i._eagerAt && !i._done && !i._failed && !i._stalled && now - i._eagerAt > stall) { i._stalled = true; preload.stalls++; preloadBad(); try { if (i._nextTry) i._nextTry(); } catch { /* the keeper heals it later */ } } });
+    let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._stalled).length;
+    const limit = preloadSlots(small);
+    secs.filter(x => { const k = +x.dataset.index; return k >= cur && k <= cur + ahead; }).sort((a, b) => a.dataset.index - b.dataset.index).forEach(x => {
+      const near = dist(x) <= 1;
+      $$('img.page', x).forEach(i => {
+        if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return;
+        try { i.fetchPriority = near ? 'high' : 'low'; } catch { /* old browser */ }
+        i.loading = 'eager'; i._eagerAt = now; pending++;
+      });
+    });
+  }
   function keeperTick() {
     try {
       if (!keeperOn()) return;
@@ -4921,16 +4978,11 @@
       let busy = imgs.filter(i => i._healing).length;
       imgs.filter(i => i._failed && now >= (i._healAt || 0)).sort((a, b) => dist(a.closest('.chapter')) - dist(b.closest('.chapter'))).forEach(i => { if (busy >= 3 || !i._reload) return; i._healN++; busy++; keeper.healedPics++; i._reload(); });
       imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._healing && now - i._eagerAt > 45000).forEach(i => { if (busy >= 3 || !i._reload) return; i._healN++; busy++; i._reload(); });
-      // D. preload: switch the lazy pictures of the window to eager, nearest first, a few at a time
-      if (ahead > 0) {
-        let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed).length; let limit = small ? 4 : 6; try { const ct = navigator.connection && navigator.connection.effectiveType; if (ct === '4g' && !navigator.connection.saveData) limit += 2; else if (ct === '2g' || ct === 'slow-2g') limit = 2; } catch { /* default */ }   // ROUND 63: was 3 / 4
-        secs.filter(x => { const k = +x.dataset.index; return k >= cur && k <= cur + ahead; }).sort((a, b) => a.dataset.index - b.dataset.index).forEach(x => {
-          $$('img.page', x).forEach(i => { if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return; i.loading = 'eager'; i._eagerAt = now; pending++; });
-        });
-      }
+      // D. preload (ROUND 69: now its own function, preloadFill, so it can also run the moment a picture finishes - see below)
+      preloadFill(secs, imgs, now, cur, ahead, small);
       // E. ROUND 66: the dead-upload doctor (see deadUploadDoctor below). Runs by itself every few seconds while you read.
       deadUploadDoctor(secs, imgs, now);
-      keeper.last = 'ahead ' + ahead + ', dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
+      keeper.last = 'ahead ' + ahead + ', slots ' + preloadSlots(small) + ' (stall ' + Math.round(stallMs() / 1000) + ' s, stalled ' + preload.stalls + '), dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
     } catch { /* the keeper must never break reading */ }
   }
   // WHY: after the internet returns or the tab comes back, do not wait for the old (long) waiting times. HOW: forget them and run a tick now. IMPROVE: none needed.
@@ -7670,7 +7722,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 68)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 69)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
