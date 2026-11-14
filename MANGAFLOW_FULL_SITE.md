@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 69 — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 69d — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -427,6 +427,22 @@ Also: a service that never answers (the built-in browser translator can hang whi
 **Fix (three layers):** (1) `fenceSeries()` / `ownSlug()` / `isForeignLink()` in `app.js`: every list that leaves `pickSeries` passes the fence, which removes entries that are main-page addresses (`<folder>/<name>/`, no chapter number, word-like name) whose name does not contain this manga's name. Number-only / id addresses are never touched. (2) `startReading` fences the list once more (history / background lists) and keeps the chapter being read. (3) `fillChapter` drops a foreign entry quietly (like a guessed chapter) if one ever gets through, with no red box and no pop-up. Also: a chapter address that the site answers with an unrelated page now says "that chapter probably does not exist on the site" instead of the misleading "built with JavaScript" text.
 **Test:** `soft404.js` (before: 8 boxes with 7 red "Could not load" boxes; after: only the real chapter, no pop-up).
 **Improve:** compare link titles with the page title; per-site rules.
+
+## 4za. Round 69c — "the browser blocked something: frame-src → https://kingofshojo.com" after using a shortcut on a site's page (the frame rescue)
+
+**Report:** pressing a shortcut-type button on a manga site's page (First / New chapter, home, etc.) gave a red pop-up and the page went blank.
+**Root cause:** something on the page (a link or tap our click listener did not catch, e.g. an image-map `<area>` link) made the page FRAME go to the real site. MangaFlow's security rule `frame-src` refuses to show another site inside the frame (this is right and stays), but then nothing was shown and the pop-up appeared. Reproduced in `shortcut1.js` (`location.href` inside the frame). Chrome only reports the ORIGIN ("https://kingofshojo.com"), never the path.
+**Fix:** (1) **Frame rescue** in `onSecurityViolation`: a blocked `frame-src` / `child-src` address is treated like a click: if the person tapped a link in the last 4 s, that link is opened inside MangaFlow; otherwise the page they were on is shown again (never a blank frame, no pop-up). Max 2 rescues per 10 s, Google's own hosts excluded. (2) `<area href>` links are now neutralised and caught like `<a>` links. (3) The "New Chapter" button of such sites is now recognised as "go to the latest chapter" (`fixShortcuts`). The `frame-src` rule itself was NOT loosened.
+**Test:** `shortcut1.js` — First / New chapter buttons open the right chapter; a native frame navigation (home or a chapter address) shows the page again with 474 characters of content and no pop-up.
+**Improve:** keep a per-site list of buttons that need special handling.
+
+## 4zb. Round 69d — roliascan.com: "listed 79, expected 80, gaps 80, not on the site 1..80: HTTP 404" and chapters 57-60 "taking very long" (chapter ids in addresses)
+
+**Report (diagnostic, build 68):** the site-view chapter list showed numbers like `1.17315 … 80.372633`, the audit reported 80 chapters "not on the site (HTTP 404)", the reader list had 159 entries (79 real + 80 guessed) and chapters 57–60 stayed at "loading 83 s / FAILED".
+**Root cause (reproduced with `rolia1.js`: 90 failed requests):** roliascan addresses are `/read/<name>/ch<N>-<id>/`. `CH_RE` read "dash + any digits" as a decimal, so `ch1-17315` became chapter 1.17315. With no whole numbers the gap finder (round 55) guessed chapters 1…80 using the old id with a new number (never exists): 80 slow 404 requests through three proxies crowded out the real chapters, and the audit wrongly blamed the site.
+**Fix:** (1) `CH_RE` accepts a decimal part only when it has 1–3 digits and no digit follows, so `3-5`, `10.5` stay decimals and `-17315` / `-162003` are ids. (2) `ID_SUFFIX_RE`: when most addresses end in `<number>-<long id>`, `fillChapterGaps` guesses nothing (the id of a missing chapter is unknown) and notes "chapter addresses contain a site id". Chapter numbers are whole numbers again, so the audit, the menu and "Chapter N" labels are right.
+**Test:** `rolia1.js 8766` (after) vs a copy of the previous build (before): 404 requests 90 → 20 (only series-page lookups), boxes loaded in 25 s 5 → 10, no false audit.
+**Improve:** when a site's chapter list is clearly complete, skip the background audit entirely.
 
 ## How to Deploy / Set Up
 
@@ -870,17 +886,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=69" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=70" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=69" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=70" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=69">
+  <link rel="stylesheet" href="style.css?v=70">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=69"></script>
+  <script src="boot.js?v=70"></script>
 </head>
 <body data-side="right">
 
@@ -1453,24 +1469,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=69"></script>
+  <script src="pdfmaker.js?v=70"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=69"></script>
-  <script src="app.js?v=69"></script>
+  <script src="troubleshoot-data.js?v=70"></script>
+  <script src="app.js?v=70"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=69"></script>
+  <script src="chapter-slider.js?v=70"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=69"></script>
+  <script src="reload-wheel.js?v=70"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=69"></script>
+  <script src="edge-slider.js?v=70"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=69"></script>
+  <script src="translate.js?v=70"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=69"></script>
+  <script src="profiles.js?v=70"></script>
 </body>
 </html>
 ~~~~~~
@@ -3758,7 +3774,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8472 lines)
+### File: `app.js`  (8496 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4653,7 +4669,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 69)',
+      'MangaFlow error report (build round 69d)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -5134,7 +5150,7 @@ window.MF_FIX = {
   function neutralizeLinks(d, base) {
     // WHY: handle every link that has an address. HOW: querySelectorAll('a[href]') finds them; forEach runs the steps for
     // each. IMPROVE: none needed.
-    d.querySelectorAll('a[href]').forEach(a => {
+    d.querySelectorAll('a[href],area[href]').forEach(a => {      // ROUND 69c: image-map <area> links too (they were never caught and sent the frame to the real site)
       // WHY: if a link was already handled (or set by shortcuts), only make sure it is neutral. HOW: dataset.mfHref is the
       // data-mf-href attribute; reset href and remove target, then return. IMPROVE: none needed.
       if (a.dataset.mfHref) { a.setAttribute('href', appLink(a.dataset.mfHref)); a.removeAttribute('target'); return; }   // already done / set by shortcuts (round 22: href = our own address)
@@ -5282,7 +5298,7 @@ window.MF_FIX = {
       // capital letters. If it matches, use the first chapter. IMPROVE: support other languages.
       if (/read\s*first|first\s*chapter|start\s*reading|btn-read-first/i.test(txt + ' ' + idc)) target = first;
       // WHY: detect a 'read last / latest' button. HOW: the same kind of pattern test, then use the last chapter.
-      else if (/read\s*last|last\s*chapter|latest\s*chapter|newest\s*chapter|btn-read-last/i.test(txt + ' ' + idc)) target = last;
+      else if (/read\s*last|last\s*chapter|latest\s*chapter|newest\s*chapter|new\s*chapter(?!\s*\d)|btn-read-last/i.test(txt + ' ' + idc)) target = last;
       // WHY: store the real address on the link. HOW: data-mf-href is read later by the click handler. IMPROVE: none.
       if (target) a.dataset.mfHref = target.url;                       // neutralizeLinks() turns href into "#mf"
     });
@@ -5953,7 +5969,7 @@ window.MF_FIX = {
     if (bridgeClick(e)) return;               // ROUND 56: the site's own Next / Previous / Chapters buttons (see the button bridge above)
     // ROUND 25: Allow all site interactions (buttons, dropdowns, forms) to work. Only intercept link navigation.
     // WHY: preventing all clicks broke site features like filters, buttons, dropdowns. HOW: only preventDefault on actual link clicks.
-    const a = e.target.closest && e.target.closest('a');
+    const a = e.target.closest && e.target.closest('a,area[href]');   // ROUND 69c: also <area>
     if (!a || !cur) {
       // No link clicked - let the site's own click handlers run (buttons, dropdowns, etc.)
       return;
@@ -5964,6 +5980,7 @@ window.MF_FIX = {
     // WHY: read the real address if we saved one. HOW: data-mf-href first, then the normal href.
     const mf = a.dataset.mfHref;
     const href = a.getAttribute('href') || '';
+    try { lastTap = { t: Date.now(), href: mf || absUrl(href, cur.base) || '' }; } catch { lastTap = { t: 0, href: '' }; }   // ROUND 69c: remembered for the frame rescue
     // WHY: plain '#' links should just scroll the page. HOW: if there is no saved address and the href is empty or starts
     // with #, return without cancelling.
     if (!mf && (!href || href.startsWith('#'))) return;                  // in-page anchor: let it scroll
@@ -6351,7 +6368,14 @@ window.MF_FIX = {
               that hide image URLs inside JSON/JavaScript (needs a headless-browser proxy). */
   // WHY: one pattern to find chapter numbers like 'chapter 12' or 'ch.12.5'. HOW: a regular expression (a text pattern)
   // with word checks around it; group 1 is the number. IMPROVE: add other words like 'vol' or other languages.
-  const CH_RE = /(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:/]*(\d+(?:[._-]\d+)?)/i;
+  /* ROUND 69d - "ch1-17315" IS CHAPTER 1 WITH THE SITE'S ID 17315, NOT CHAPTER 1.17315 (reported: roliascan.com, "listed 79, expected 80, gaps 80 ... 1 to 80: not on the site: HTTP 404", chapters 57-60 "taking very long").
+     WHY: roliascan writes chapter addresses as /ch53-162003/ (number, dash, id). The old pattern read a dash plus ANY digits as a decimal, so every chapter became 53.162003. The gap finder then saw
+          "no whole numbers at all" and GUESSED 80 chapters whose address (old id + new number) can never exist: 80 slow 404 requests that crowded out the real chapters, and a false audit report.
+     HOW: a decimal part is accepted only when it has 1 to 3 digits and no digit follows ((?!\d)). "3-5", "10.5", "12_5" stay decimals; "-17315" / "-162003" (4+ digits) are an id and are left out.
+     IMPROVE: also teach it other id styles if a site shows them. */
+  const CH_RE = /(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:/]*(\d+(?:[._-]\d{1,3}(?!\d))?)/i;
+  // ROUND 69d: addresses that end in "<number>-<long id>" cannot be guessed (the id of a missing chapter is unknown), so the gap finder must not invent them.
+  const ID_SUFFIX_RE = /(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:/]*\d+[-_]\d{4,}(?!\d)/i;
   // WHY: get a chapter number from text or an address. HOW: run the pattern; if it matches, turn the number into a float,
   // changing - or _ into a dot.
   // ROUND 39 FIX — "some mangas in other sites were not detectable, named in different points/numbers".
@@ -8130,6 +8154,8 @@ window.MF_FIX = {
     try {
       const nums = chapters.map(c => c.reup ? c.num : chapterNumInUrl(c.url));
       const known = nums.filter(n => n != null);
+      // ROUND 69d: most addresses carry a chapter id -> a missing chapter's address cannot be built, so nothing is guessed (no 404 flood, no false "missing" report).
+      if (chapters.length >= 2 && chapters.filter(c => { try { return ID_SUFFIX_RE.test(decodeURIComponent(new URL(c.url).pathname)); } catch { return false; } }).length >= chapters.length * 0.6) { audit.skipped = 'chapter addresses contain a site id, so missing chapters cannot be guessed'; auditHold = audit; return chapters; }
       if (chapters.length < 2 || known.length < Math.max(2, chapters.length * 0.6)) { audit.skipped = 'chapter numbers cannot be read from the addresses'; auditHold = audit; return chapters; }
       const whole = new Set(known.filter(n => Number.isInteger(n)));
       const lo = Math.min(...known), hi = Math.max(...known);
@@ -11051,10 +11077,24 @@ window.MF_FIX = {
   // quietly.
   let secShown = 0;
   const cspSeen = (window.__mfCspSeen = window.__mfCspSeen || new Set());      // round 23: declared here (before first use); section 18 reads the same set
+  let rescueTimes = [], lastTap = { t: 0, href: '' };          // ROUND 69c: when the frame rescue ran / the last link the person tapped in the page frame                                      // ROUND 69c: when the frame rescue ran (see below)
   function onSecurityViolation(e) {
     if (!/^(script|object|worker|child|frame|form-action|base)/i.test(e.effectiveDirective || '')) return;
     // WHY: a security rule (CSP) blocked something. HOW: read which address and file it was.
     const blocked = e.blockedURI || '', src = e.sourceFile || '';
+    // ROUND 69c - THE FRAME RESCUE. Reported: using a "shortcut" button of a manga site's page gave "The browser blocked something: frame-src -> https://kingofshojo.com" and the whole page went blank.
+    //   ROOT CAUSE: some click / link / button of a site's page made the page FRAME itself go to the real site (a link we did not catch, an <area> map link, a touch that skipped our click listener).
+    //   Our security rules (frame-src) correctly refuse to show another site inside the frame, but then the frame stayed empty and a red pop-up appeared.
+    //   WHY a rescue: the person only wanted to GO to that address. HOW: when the blocked thing is a normal web address, treat it exactly like a click on that link: open it inside MangaFlow with navigate().
+    //   Max 2 rescues in 10 seconds so a page that keeps redirecting can never loop. Google's own hosts (the search panel) are left alone. IMPROVE: tell the person in one short toast which address was opened.
+    if (/^(frame|child)-src/i.test(e.effectiveDirective || '') && /^https?:\/\//i.test(e.blockedURI || '') && cur && !/google|gstatic|googlesyndication|googleadservices|doubleclick|syndicatedsearch/i.test(e.blockedURI)) {
+      const nowR = Date.now(); rescueTimes = rescueTimes.filter(t => nowR - t < 10000);
+      // The browser only tells us the ORIGIN ("https://kingofshojo.com"), never the path. So: if the person tapped a link a moment ago, that link is where they wanted to go; otherwise show the page they were on again (never a blank frame).
+      if (rescueTimes.length < 2) { rescueTimes.push(nowR); let target = e.blockedURI; try { const bo = new URL(e.blockedURI); if (lastTap.href && nowR - lastTap.t < 4000 && new URL(lastTap.href).origin === bo.origin) target = lastTap.href; else if (bo.pathname === '/' && !bo.search && cur.url) target = cur.url; } catch { /* keep the blocked address */ }
+        setTimeout(() => { try { navigate(unwrap(target), true); } catch { /* the frame keeps its last page */ } }, 50); }
+      try { cspSeen.add('frame rescued ' + new URL(e.blockedURI).host); } catch { /* ignore */ }
+      return;
+    }
     if (/^(chrome|moz|safari|edge)-extension/i.test(blocked + ' ' + src)) return;       // browser add-ons are not our business
     // ROUND 28d - INLINE EVENT HANDLERS OF OTHER SITES' PAGES (script-src-attr). WHY: kingofshojo.com and many other sites put onload= / onclick= attributes in their HTML. MangaFlow never runs
     //   other sites' scripts (rule 1), so the browser blocking them is exactly what we want. Chrome 156 reports it while DOMParser reads the page (fetchDoc), on MangaFlow's OWN document
@@ -11525,7 +11565,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 69)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 69d)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -15420,7 +15460,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (153 lines)
+### File: `MANGAFLOW_GUIDE.md`  (157 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15429,7 +15469,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 69 — 2026-11-14*
+*Last updated: Round 69d — 2026-11-14*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15573,6 +15613,10 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 69: preloaded chapters were still slow (hanging pictures used up the download slots; refill only every 0.8 s; each batch waited for its slowest chapter) -> a new preload engine marks stalled pictures, restarts them by another route, refills at once and adapts the number of parallel downloads. Translation: new optional "Smart AI translator" (Gemini / Claude / OpenAI key typed in the Translate panel, kept only in your browser) translates a whole page in one request with context and fixes OCR typos; the normal services stay as fallback.**
 
 - **Round 69b: kingofshojo showed 'Could not load Chapter 6/37/48/…' because a sidebar of OTHER manga (links to their main pages, with the text 'Chapter 6') was taken as the chapter list -> a series fence removes any link to another manga's main page from every chapter list (and quietly drops one if it ever slips through); a chapter address the site answers with an unrelated page now gets an honest message.**
+
+- **Round 69c: using a shortcut button on a site's page (e.g. kingofshojo) showed 'The browser blocked something: frame-src' and a blank page -> a frame rescue now opens the tapped link inside MangaFlow (or shows the same page again), <area> links are caught, and the 'New Chapter' button works; the security rule itself is unchanged.**
+
+- **Round 69d: roliascan.com addresses like /ch53-162003/ (number, dash, site id) were read as chapter 53.162003, so 80 chapters were guessed, 404 requests flooded the proxies and chapters 57-60 'took very long' -> a decimal part is only 1-3 digits now (ids are ignored) and nothing is guessed when addresses carry an id.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

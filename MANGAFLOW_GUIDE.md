@@ -1,7 +1,7 @@
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 69 — 2026-11-14*
+*Last updated: Round 69d — 2026-11-14*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -145,6 +145,10 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 69: preloaded chapters were still slow (hanging pictures used up the download slots; refill only every 0.8 s; each batch waited for its slowest chapter) -> a new preload engine marks stalled pictures, restarts them by another route, refills at once and adapts the number of parallel downloads. Translation: new optional "Smart AI translator" (Gemini / Claude / OpenAI key typed in the Translate panel, kept only in your browser) translates a whole page in one request with context and fixes OCR typos; the normal services stay as fallback.**
 
 - **Round 69b: kingofshojo showed 'Could not load Chapter 6/37/48/…' because a sidebar of OTHER manga (links to their main pages, with the text 'Chapter 6') was taken as the chapter list -> a series fence removes any link to another manga's main page from every chapter list (and quietly drops one if it ever slips through); a chapter address the site answers with an unrelated page now gets an honest message.**
+
+- **Round 69c: using a shortcut button on a site's page (e.g. kingofshojo) showed 'The browser blocked something: frame-src' and a blank page -> a frame rescue now opens the tapped link inside MangaFlow (or shows the same page again), <area> links are caught, and the 'New Chapter' button works; the security rule itself is unchanged.**
+
+- **Round 69d: roliascan.com addresses like /ch53-162003/ (number, dash, site id) were read as chapter 53.162003, so 80 chapters were guessed, 404 requests flooded the proxies and chapters 57-60 'took very long' -> a decimal part is only 1-3 digits now (ids are ignored) and nothing is guessed when addresses carry an id.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

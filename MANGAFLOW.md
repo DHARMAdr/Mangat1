@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 69 — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 69d — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -361,6 +361,22 @@ Also: a service that never answers (the built-in browser translator can hang whi
 **Fix (three layers):** (1) `fenceSeries()` / `ownSlug()` / `isForeignLink()` in `app.js`: every list that leaves `pickSeries` passes the fence, which removes entries that are main-page addresses (`<folder>/<name>/`, no chapter number, word-like name) whose name does not contain this manga's name. Number-only / id addresses are never touched. (2) `startReading` fences the list once more (history / background lists) and keeps the chapter being read. (3) `fillChapter` drops a foreign entry quietly (like a guessed chapter) if one ever gets through, with no red box and no pop-up. Also: a chapter address that the site answers with an unrelated page now says "that chapter probably does not exist on the site" instead of the misleading "built with JavaScript" text.
 **Test:** `soft404.js` (before: 8 boxes with 7 red "Could not load" boxes; after: only the real chapter, no pop-up).
 **Improve:** compare link titles with the page title; per-site rules.
+
+## 4za. Round 69c — "the browser blocked something: frame-src → https://kingofshojo.com" after using a shortcut on a site's page (the frame rescue)
+
+**Report:** pressing a shortcut-type button on a manga site's page (First / New chapter, home, etc.) gave a red pop-up and the page went blank.
+**Root cause:** something on the page (a link or tap our click listener did not catch, e.g. an image-map `<area>` link) made the page FRAME go to the real site. MangaFlow's security rule `frame-src` refuses to show another site inside the frame (this is right and stays), but then nothing was shown and the pop-up appeared. Reproduced in `shortcut1.js` (`location.href` inside the frame). Chrome only reports the ORIGIN ("https://kingofshojo.com"), never the path.
+**Fix:** (1) **Frame rescue** in `onSecurityViolation`: a blocked `frame-src` / `child-src` address is treated like a click: if the person tapped a link in the last 4 s, that link is opened inside MangaFlow; otherwise the page they were on is shown again (never a blank frame, no pop-up). Max 2 rescues per 10 s, Google's own hosts excluded. (2) `<area href>` links are now neutralised and caught like `<a>` links. (3) The "New Chapter" button of such sites is now recognised as "go to the latest chapter" (`fixShortcuts`). The `frame-src` rule itself was NOT loosened.
+**Test:** `shortcut1.js` — First / New chapter buttons open the right chapter; a native frame navigation (home or a chapter address) shows the page again with 474 characters of content and no pop-up.
+**Improve:** keep a per-site list of buttons that need special handling.
+
+## 4zb. Round 69d — roliascan.com: "listed 79, expected 80, gaps 80, not on the site 1..80: HTTP 404" and chapters 57-60 "taking very long" (chapter ids in addresses)
+
+**Report (diagnostic, build 68):** the site-view chapter list showed numbers like `1.17315 … 80.372633`, the audit reported 80 chapters "not on the site (HTTP 404)", the reader list had 159 entries (79 real + 80 guessed) and chapters 57–60 stayed at "loading 83 s / FAILED".
+**Root cause (reproduced with `rolia1.js`: 90 failed requests):** roliascan addresses are `/read/<name>/ch<N>-<id>/`. `CH_RE` read "dash + any digits" as a decimal, so `ch1-17315` became chapter 1.17315. With no whole numbers the gap finder (round 55) guessed chapters 1…80 using the old id with a new number (never exists): 80 slow 404 requests through three proxies crowded out the real chapters, and the audit wrongly blamed the site.
+**Fix:** (1) `CH_RE` accepts a decimal part only when it has 1–3 digits and no digit follows, so `3-5`, `10.5` stay decimals and `-17315` / `-162003` are ids. (2) `ID_SUFFIX_RE`: when most addresses end in `<number>-<long id>`, `fillChapterGaps` guesses nothing (the id of a missing chapter is unknown) and notes "chapter addresses contain a site id". Chapter numbers are whole numbers again, so the audit, the menu and "Chapter N" labels are right.
+**Test:** `rolia1.js 8766` (after) vs a copy of the previous build (before): 404 requests 90 → 20 (only series-page lookups), boxes loaded in 25 s 5 → 10, no false audit.
+**Improve:** when a site's chapter list is clearly complete, skip the background audit entirely.
 
 ## How to Deploy / Set Up
 

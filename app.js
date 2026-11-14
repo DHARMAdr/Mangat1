@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 69)',
+      'MangaFlow error report (build round 69d)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -1368,7 +1368,7 @@
   function neutralizeLinks(d, base) {
     // WHY: handle every link that has an address. HOW: querySelectorAll('a[href]') finds them; forEach runs the steps for
     // each. IMPROVE: none needed.
-    d.querySelectorAll('a[href]').forEach(a => {
+    d.querySelectorAll('a[href],area[href]').forEach(a => {      // ROUND 69c: image-map <area> links too (they were never caught and sent the frame to the real site)
       // WHY: if a link was already handled (or set by shortcuts), only make sure it is neutral. HOW: dataset.mfHref is the
       // data-mf-href attribute; reset href and remove target, then return. IMPROVE: none needed.
       if (a.dataset.mfHref) { a.setAttribute('href', appLink(a.dataset.mfHref)); a.removeAttribute('target'); return; }   // already done / set by shortcuts (round 22: href = our own address)
@@ -1516,7 +1516,7 @@
       // capital letters. If it matches, use the first chapter. IMPROVE: support other languages.
       if (/read\s*first|first\s*chapter|start\s*reading|btn-read-first/i.test(txt + ' ' + idc)) target = first;
       // WHY: detect a 'read last / latest' button. HOW: the same kind of pattern test, then use the last chapter.
-      else if (/read\s*last|last\s*chapter|latest\s*chapter|newest\s*chapter|btn-read-last/i.test(txt + ' ' + idc)) target = last;
+      else if (/read\s*last|last\s*chapter|latest\s*chapter|newest\s*chapter|new\s*chapter(?!\s*\d)|btn-read-last/i.test(txt + ' ' + idc)) target = last;
       // WHY: store the real address on the link. HOW: data-mf-href is read later by the click handler. IMPROVE: none.
       if (target) a.dataset.mfHref = target.url;                       // neutralizeLinks() turns href into "#mf"
     });
@@ -2187,7 +2187,7 @@
     if (bridgeClick(e)) return;               // ROUND 56: the site's own Next / Previous / Chapters buttons (see the button bridge above)
     // ROUND 25: Allow all site interactions (buttons, dropdowns, forms) to work. Only intercept link navigation.
     // WHY: preventing all clicks broke site features like filters, buttons, dropdowns. HOW: only preventDefault on actual link clicks.
-    const a = e.target.closest && e.target.closest('a');
+    const a = e.target.closest && e.target.closest('a,area[href]');   // ROUND 69c: also <area>
     if (!a || !cur) {
       // No link clicked - let the site's own click handlers run (buttons, dropdowns, etc.)
       return;
@@ -2198,6 +2198,7 @@
     // WHY: read the real address if we saved one. HOW: data-mf-href first, then the normal href.
     const mf = a.dataset.mfHref;
     const href = a.getAttribute('href') || '';
+    try { lastTap = { t: Date.now(), href: mf || absUrl(href, cur.base) || '' }; } catch { lastTap = { t: 0, href: '' }; }   // ROUND 69c: remembered for the frame rescue
     // WHY: plain '#' links should just scroll the page. HOW: if there is no saved address and the href is empty or starts
     // with #, return without cancelling.
     if (!mf && (!href || href.startsWith('#'))) return;                  // in-page anchor: let it scroll
@@ -2585,7 +2586,14 @@
               that hide image URLs inside JSON/JavaScript (needs a headless-browser proxy). */
   // WHY: one pattern to find chapter numbers like 'chapter 12' or 'ch.12.5'. HOW: a regular expression (a text pattern)
   // with word checks around it; group 1 is the number. IMPROVE: add other words like 'vol' or other languages.
-  const CH_RE = /(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:/]*(\d+(?:[._-]\d+)?)/i;
+  /* ROUND 69d - "ch1-17315" IS CHAPTER 1 WITH THE SITE'S ID 17315, NOT CHAPTER 1.17315 (reported: roliascan.com, "listed 79, expected 80, gaps 80 ... 1 to 80: not on the site: HTTP 404", chapters 57-60 "taking very long").
+     WHY: roliascan writes chapter addresses as /ch53-162003/ (number, dash, id). The old pattern read a dash plus ANY digits as a decimal, so every chapter became 53.162003. The gap finder then saw
+          "no whole numbers at all" and GUESSED 80 chapters whose address (old id + new number) can never exist: 80 slow 404 requests that crowded out the real chapters, and a false audit report.
+     HOW: a decimal part is accepted only when it has 1 to 3 digits and no digit follows ((?!\d)). "3-5", "10.5", "12_5" stay decimals; "-17315" / "-162003" (4+ digits) are an id and are left out.
+     IMPROVE: also teach it other id styles if a site shows them. */
+  const CH_RE = /(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:/]*(\d+(?:[._-]\d{1,3}(?!\d))?)/i;
+  // ROUND 69d: addresses that end in "<number>-<long id>" cannot be guessed (the id of a missing chapter is unknown), so the gap finder must not invent them.
+  const ID_SUFFIX_RE = /(?<![a-z])(?:chapter|chap|ch|episode|ep)(?![a-z])[\s._\-#:/]*\d+[-_]\d{4,}(?!\d)/i;
   // WHY: get a chapter number from text or an address. HOW: run the pattern; if it matches, turn the number into a float,
   // changing - or _ into a dot.
   // ROUND 39 FIX — "some mangas in other sites were not detectable, named in different points/numbers".
@@ -4364,6 +4372,8 @@
     try {
       const nums = chapters.map(c => c.reup ? c.num : chapterNumInUrl(c.url));
       const known = nums.filter(n => n != null);
+      // ROUND 69d: most addresses carry a chapter id -> a missing chapter's address cannot be built, so nothing is guessed (no 404 flood, no false "missing" report).
+      if (chapters.length >= 2 && chapters.filter(c => { try { return ID_SUFFIX_RE.test(decodeURIComponent(new URL(c.url).pathname)); } catch { return false; } }).length >= chapters.length * 0.6) { audit.skipped = 'chapter addresses contain a site id, so missing chapters cannot be guessed'; auditHold = audit; return chapters; }
       if (chapters.length < 2 || known.length < Math.max(2, chapters.length * 0.6)) { audit.skipped = 'chapter numbers cannot be read from the addresses'; auditHold = audit; return chapters; }
       const whole = new Set(known.filter(n => Number.isInteger(n)));
       const lo = Math.min(...known), hi = Math.max(...known);
@@ -7285,10 +7295,24 @@
   // quietly.
   let secShown = 0;
   const cspSeen = (window.__mfCspSeen = window.__mfCspSeen || new Set());      // round 23: declared here (before first use); section 18 reads the same set
+  let rescueTimes = [], lastTap = { t: 0, href: '' };          // ROUND 69c: when the frame rescue ran / the last link the person tapped in the page frame                                      // ROUND 69c: when the frame rescue ran (see below)
   function onSecurityViolation(e) {
     if (!/^(script|object|worker|child|frame|form-action|base)/i.test(e.effectiveDirective || '')) return;
     // WHY: a security rule (CSP) blocked something. HOW: read which address and file it was.
     const blocked = e.blockedURI || '', src = e.sourceFile || '';
+    // ROUND 69c - THE FRAME RESCUE. Reported: using a "shortcut" button of a manga site's page gave "The browser blocked something: frame-src -> https://kingofshojo.com" and the whole page went blank.
+    //   ROOT CAUSE: some click / link / button of a site's page made the page FRAME itself go to the real site (a link we did not catch, an <area> map link, a touch that skipped our click listener).
+    //   Our security rules (frame-src) correctly refuse to show another site inside the frame, but then the frame stayed empty and a red pop-up appeared.
+    //   WHY a rescue: the person only wanted to GO to that address. HOW: when the blocked thing is a normal web address, treat it exactly like a click on that link: open it inside MangaFlow with navigate().
+    //   Max 2 rescues in 10 seconds so a page that keeps redirecting can never loop. Google's own hosts (the search panel) are left alone. IMPROVE: tell the person in one short toast which address was opened.
+    if (/^(frame|child)-src/i.test(e.effectiveDirective || '') && /^https?:\/\//i.test(e.blockedURI || '') && cur && !/google|gstatic|googlesyndication|googleadservices|doubleclick|syndicatedsearch/i.test(e.blockedURI)) {
+      const nowR = Date.now(); rescueTimes = rescueTimes.filter(t => nowR - t < 10000);
+      // The browser only tells us the ORIGIN ("https://kingofshojo.com"), never the path. So: if the person tapped a link a moment ago, that link is where they wanted to go; otherwise show the page they were on again (never a blank frame).
+      if (rescueTimes.length < 2) { rescueTimes.push(nowR); let target = e.blockedURI; try { const bo = new URL(e.blockedURI); if (lastTap.href && nowR - lastTap.t < 4000 && new URL(lastTap.href).origin === bo.origin) target = lastTap.href; else if (bo.pathname === '/' && !bo.search && cur.url) target = cur.url; } catch { /* keep the blocked address */ }
+        setTimeout(() => { try { navigate(unwrap(target), true); } catch { /* the frame keeps its last page */ } }, 50); }
+      try { cspSeen.add('frame rescued ' + new URL(e.blockedURI).host); } catch { /* ignore */ }
+      return;
+    }
     if (/^(chrome|moz|safari|edge)-extension/i.test(blocked + ' ' + src)) return;       // browser add-ons are not our business
     // ROUND 28d - INLINE EVENT HANDLERS OF OTHER SITES' PAGES (script-src-attr). WHY: kingofshojo.com and many other sites put onload= / onclick= attributes in their HTML. MangaFlow never runs
     //   other sites' scripts (rule 1), so the browser blocking them is exactly what we want. Chrome 156 reports it while DOMParser reads the page (fetchDoc), on MangaFlow's OWN document
@@ -7759,7 +7783,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 69)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 69d)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
