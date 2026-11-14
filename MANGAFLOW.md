@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 69e — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 70 — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -391,6 +391,14 @@ Also: a service that never answers (the built-in browser translator can hang whi
 **Measured:** pictures ready ahead 19.7 / 30 (min 19, round 68: 18.6, min 16; round 69 first build: min 12); with hanging pictures 69 vs 36 pictures in 45 s (round 68) — kept most of the round-69 gain without flooding.
 **Known limit:** until a picture has loaded, its grey box is 260 px tall, so on a tall phone screen the browser's own lazy loading starts 5-9 pictures at once (first 3 pictures: 7.4 s on the mock line). Making the box taller would change scrolling, so it was NOT changed. **If it is still slow**, press Settings > Troubleshoot > Copy diagnostic right after it happens (the "Keeper" line now shows slots / stall time) and the real cause can be read from it.
 **Improve:** measure real bandwidth with the Resource Timing API; start native lazy loading only for the nearest pictures.
+
+## 4zd. Round 70 — "deleted Continue-reading rows come back (needs 3 reloads)" + "next chapters show up too late / images keep loading" (deletion notes, looser pool)
+
+**Report:** (a) removing a row from *Continue reading* on the home page made it come back after a refresh; it only stayed away after about 3 reloads. (b) The next chapters of reading mode appeared late and pictures kept loading; sometimes "some chapters missing / not loading".
+**(a) Root cause (reproduced with `acct1.js`, a mock cloud server: old build 3 of 3 rows after every reload):** the cloud merge (`mergeLists` in `profiles.js`) is a UNION without any memory of deletions. A removed row is still in the cloud copy; the upload of the new list waits 3 s, so a refresh in that time (or an offline moment) let the next pull put the row back. Another device that still had the row did the same.
+**Fix (`profiles.js`, section 3a "deletion notes / tombstones"):** every removal now leaves a note `{ list: { key: time } }` (localStorage `mf_tomb_<user>`, also uploaded inside the cloud copy as field `_tomb`, no server change needed). `mergeLists(a, b, tomb)` drops a row when its note is NEWER than the row's `at`; a manga read again later (newer `at`) is kept. Removals are noticed by a snapshot of each list's keys (`snapKeys`, `noteRemoved`) on every `mf-store` event and in the window's own delete buttons, so `app.js` needed no change. Notes older than 90 days are dropped, max 500 per list. The upload on page close now uses `keepalive`. Test: after delete + immediate refresh 2 rows stay 2, a second delete 1, an old copy from "another device" does not bring them back, a re-read manga returns.
+**(b) Analysis:** timing the same reading start in Rounds 61, 64, 67, 68, 69, 69e (`perf6.js`, `bis` runs) showed no slower round on the mock (all 10 boxes in 2 s, 100 pictures in 4-5 s; round 68: 11 s). The one change that a real, slow site can punish is the round-69e "4 chapter pages at a time" limit (with 8 s answers the later chapters wait for waves). **Changes:** chapter pool 8 at a time, a fetch older than 6 s gives its place away; picture slots may exceed the old number by 4 (was 2); "first pictures first" only until 2 pictures are loaded (3 extra downloads); far chapters wait only while more than 4 near pictures are pending. **Diagnostic:** the "Keeper" line now shows `chapter pool: N fetched, waited X ms, took Y ms, slow K, picture load Z ms` — the real numbers from the phone. If it is still slow, copy the diagnostic after reading for 2 minutes and the slow part can be read from these numbers.
+**Improve:** make the pool size follow `chPool.dur`; keep deletion notes on the server too so a brand-new device learns them.
 
 ## How to Deploy / Set Up
 

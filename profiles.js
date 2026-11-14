@@ -110,6 +110,41 @@
     writeLists(u, o);
   }
 
+  /* ---- 3a. ROUND 70: DELETION RECORDS ("tombstones") - why a removed "Continue reading" row came back until the page was reloaded 3 times --------------------------------------
+     ROOT CAUSE: mergeLists() is a UNION. A row removed on this device is still in the cloud copy (the upload waits 3 s and a quick refresh cancelled it), so the next pull put the row back; removing it
+        again and reloading in time finally pushed the shorter list. Any other device that still had the row brought it back as well.
+     FIX: every removal leaves a small note { list: { key: time } } kept per profile (localStorage 'mf_tomb_<user>') and sent to the cloud together with the lists (field "_tomb").
+        mergeLists() drops a row whose key has a note that is NEWER than the row ("at"), so a deletion wins over the old copy, while a row read again later (newer "at") is kept.
+     HOW: noticing a removal needs no change in app.js: a snapshot of the keys of each list is kept (snapKeys); when the list changes (event "mf-store" or the window's own delete buttons) the keys that
+        vanished get a note. Notes older than 90 days are dropped; at most 500 per list.   IMPROVE: let the cloud server keep the notes as well, so a brand-new device also learns them. */
+  const tombKey = u => 'mf_tomb_' + u;
+  const readTomb = u => { const t = LS.get(tombKey(u), {}); return t && typeof t === 'object' ? t : {}; };
+  function mergeTomb(a, b) {                                    // two sets of notes -> one (the newest time per key)
+    const out = {}, lim = Date.now() - 90 * 86400000;
+    [a, b].forEach(t => Object.keys(t || {}).forEach(k => {
+      if (!LISTS.includes(k) || !t[k] || typeof t[k] !== 'object') return;
+      out[k] = out[k] || {};
+      Object.keys(t[k]).forEach(id => { const v = +t[k][id] || 0; if (v > lim && v > (out[k][id] || 0)) out[k][id] = v; });
+    }));
+    Object.keys(out).forEach(k => { const ids = Object.keys(out[k]); if (ids.length > 500) { ids.sort((x, y) => out[k][y] - out[k][x]).slice(500).forEach(id => delete out[k][id]); } });
+    return out;
+  }
+  const snapKeys = {};                                          // list name -> Set of the keys seen the last time
+  const keysNow = (u, k) => { const v = LS.get(listKey(u, k), null); return Array.isArray(v) ? new Set(v.map(it => (keyOf[k] || (x => JSON.stringify(x)))(it)).filter(Boolean)) : null; };
+  function snapAll(u) { LISTS.forEach(k => { const n = keysNow(u, k); if (n) snapKeys[k] = n; }); }
+  // WHY: called after a list changed by the person. HOW: keys in the snapshot that are gone now get a note; then the snapshot is renewed. Returns true when a note was added.
+  function noteRemoved(u, only) {
+    if (!u) return false; let added = false; const t = readTomb(u), now = Date.now();
+    LISTS.forEach(k => {
+      if (only && k !== only) return;
+      const n = keysNow(u, k); if (!n) return; const old = snapKeys[k];
+      if (old) old.forEach(id => { if (!n.has(id)) { t[k] = t[k] || {}; t[k][id] = now; added = true; } });
+      snapKeys[k] = n;
+    });
+    if (added) LS.set(tombKey(u), mergeTomb(t, {}));
+    return added;
+  }
+
   /* ---- 3b. ROUND 19: GUEST ACTIVITY + MERGING (so signing in later loses nothing) ------------------------------------------------------------ */
   // WHY: the owner reads first and signs in later, and wants that reading to appear in the profile. HOW: while nobody is signed in, every "read" / "download"
   // event is kept in a small guest list (max 200). At sign-in the list is sent to the profile and emptied. mergeLists() combines two copies of the personal lists
@@ -122,8 +157,9 @@
   // ROUND 30: the limits app.js keeps (addRecent keeps 20 pages, saveRead keeps 30 manga). WHY: a merged list longer than the app's own limit is cut by the app at its next save, then the cloud
   // gives the cut rows back, the copies differ again and the page reloaded - for ever. HOW: the merge keeps the same numbers. IMPROVE: let app.js tell profiles.js its limits in an event.
   // ROUND 38: raised from 20/30 to 500 to match the new limits in app.js — users want all history visible. IMPROVE: none needed.
+  if (session) snapAll(session.user);                           // ROUND 70: the first snapshot (so the first removal of this visit is noticed); here because it needs keyOf
   const CAP = { recent: 500, reads: 500, books: 2000 };   // ROUND 43: books had no entry, so the merge silently cut bookmarks at 300
-  function mergeLists(a, b) {                                   // a = one copy, b = another; returns the combined lists
+  function mergeLists(a, b, tomb) {                             // a = one copy, b = another; returns the combined lists (ROUND 70: 'tomb' = deletion notes, see 3a)
     const out = {};
     LISTS.forEach(k => {
       const x = a && a[k], y = b && b[k];
@@ -135,7 +171,9 @@
           const id = kf(it) || JSON.stringify(it), old = best.get(id);
           if (!old) { best.set(id, it); order.push(id); } else if (((it && it.at) || 0) > ((old && old.at) || 0)) best.set(id, it);
         });
-        const res = order.map(id => best.get(id));
+        let res = order.map(id => best.get(id));
+        const tk = tomb && tomb[k];                                                           // ROUND 70: a row with a NEWER deletion note is gone for good
+        if (tk) res = res.filter(it => { const id = kf(it) || JSON.stringify(it), tv = tk[id]; return !(tv && ((it && it.at) || 0) <= tv); });
         if (res.length && res.every(it => it && typeof it.at === 'number')) res.sort((p, q) => q.at - p.at);          // newest first (the sort keeps the order of equal times)
         out[k] = res.slice(0, CAP[k] || 300);
       } else if ((x && typeof x === 'object') || (y && typeof y === 'object')) out[k] = Object.assign({}, y || {}, x || {});   // progress: object of chapter -> position
@@ -242,12 +280,12 @@
   /* ---- 6. keeping bookmarks etc. in step with the cloud --------------------------------------------------------------------------- */
   const atKey = () => 'mf_stateat_' + (session ? session.user : '');   // when this browser last agreed with the cloud
   // WHY: copy this profile's lists to the cloud. HOW: one small JSON; remember the server time. A failure is silent (tried again next change).
-  async function pushState(strict) {
+  async function pushState(strict, keep) {
     clearTimeout(stateTimer); stateTimer = 0;
     if (!session || !session.cloud) return false;
     // WHY: send the lists to the cloud. HOW: POST the lists as one JSON text, then remember the server time so a later pull
     // can compare. A failure returns false and is retried on the next change.
-    try { const r = await post('/state/put', { ...tok(), json: JSON.stringify(readLists(session.user)) }); LS.set(atKey(), r.updated || Date.now()); setSync(true, '', 0); return true; }
+    try { const r = await post('/state/put', { ...tok(), json: JSON.stringify(Object.assign(readLists(session.user), { _tomb: readTomb(session.user) })) }, keep); LS.set(atKey(), r.updated || Date.now()); setSync(true, '', 0); return true; }
     catch (e) { setSync(false, 'bookmarks: ' + e.message); if (strict) throw e; return false; }
   }
   // WHY: after sign-in, take the cloud copy if it is newer than ours, otherwise send ours. Returns true when local lists changed.
@@ -260,8 +298,11 @@
       // WHY: reading on two devices, or reading before signing in, must never lose the other side. HOW: mergeLists() above. IMPROVE: per-item time stamps.
       const r = await post('/state/get', tok());
       let cloudLists = {}; try { cloudLists = r.json ? JSON.parse(r.json) : {}; } catch { /* broken: ignore */ }
-      const merged = mergeLists(readLists(session.user), cloudLists), changed = writeLists(session.user, merged);
-      if (JSON.stringify(merged) !== JSON.stringify(cloudLists) && Object.keys(merged).length) await pushState();
+      noteRemoved(session.user);                                  // ROUND 70: a removal made just before this page opened (the upload may not have left) is noted first
+      const tomb = mergeTomb(readTomb(session.user), cloudLists._tomb), merged = mergeLists(readLists(session.user), cloudLists, tomb), changed = writeLists(session.user, merged);
+      LS.set(tombKey(session.user), tomb); snapAll(session.user);
+      const mergedFull = Object.assign({}, merged, { _tomb: tomb });
+      if (JSON.stringify(mergedFull) !== JSON.stringify(cloudLists) && Object.keys(merged).length) await pushState();
       else LS.set(atKey(), r.updated || Date.now());
       return changed;
     } catch { /* offline: the local lists keep working */ }
@@ -269,7 +310,10 @@
   }
   // WHY: app.js says "a list changed". HOW: wait 6 seconds of quiet, then push. Admins keep no cloud lists.
   // ROUND 19: the admin's own bookmarks / reading are saved too (before, the admin was skipped: that was the "my data is not saved" bug).
-  window.addEventListener('mf-store', () => { if (session && session.cloud) { clearTimeout(stateTimer); stateTimer = setTimeout(pushState, 3000); } });   // round 20: 3 s
+  window.addEventListener('mf-store', e => {
+    if (session) noteRemoved(session.user, e && e.detail && e.detail.key);     // ROUND 70: a removal leaves a deletion note at once (local, survives a quick refresh)
+    if (session && session.cloud) { clearTimeout(stateTimer); stateTimer = setTimeout(pushState, 3000); }   // round 20: 3 s
+  });
 
   /* ---- 7. recording what a signed-in person does ------------------------------------------------------------------------------ */
   // WHY: send the waiting items to the Worker. HOW: one request for the whole batch; if it fails the items stay in the list for the next try.
@@ -300,8 +344,8 @@
     else Local.add(session.user, [item]);
   });
   // WHY: when the person leaves the page the waiting batch must go out now. HOW: keepalive lets the request finish after the page hides.
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { flush(true); if (stateTimer) pushState(); } });
-  window.addEventListener('pagehide', () => { flush(true); if (stateTimer) pushState(); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { flush(true); if (stateTimer) pushState(false, true); } });   // ROUND 70: keepalive = the request survives the page closing
+  window.addEventListener('pagehide', () => { flush(true); if (stateTimer) pushState(false, true); });
 
   /* ---- 8. bug reports: "Send to admin" ----------------------------------------------------------------------------------------- */
   // WHY: send one report to the admin. HOW: Worker /bug (cloud) or a local list (this device). The report text comes from app.js.
@@ -693,7 +737,7 @@
     const r = await (create ? api.register(user, code) : api.login(user, code));
     // WHY: remember who is signed in and how (cloud or local). HOW: stored in localStorage as mf_session; app.js reads the
     // name from it at start. IMPROVE: store only a token.
-    session = { user: r.user || cleanName(user), role: r.role || 'user', cloud: useCloud, token: r.token || '' };
+    session = { user: r.user || cleanName(user), role: r.role || 'user', cloud: useCloud, token: r.token || '' }; snapAll(session.user);
     LS.set('mf_session', session); lastKey = ''; view.tab = session.role === 'admin' ? 'admin' : 'me'; view.sel = '';
     if (session.role === 'admin') LS.set('mf_admin_dev', true);   // round 19: this browser may show the Server tab on the sign-in screen from now on
     // ROUND 19: reading done BEFORE signing in is adopted by the profile (history list + bookmarks), then everything is pushed to the cloud, then the page reloads.
@@ -860,7 +904,7 @@
         // WHY: match by id first (newer entries), then by chapterUrl (older entries saved without an id).
         const newReads = oldReads.filter(r => r.id !== entryId && (r.chapterUrl || '') !== entryId);
         lists.reads = newReads;
-        writeLists(session.user, lists);
+        writeLists(session.user, lists); noteRemoved(session.user, 'reads');   // ROUND 70: deletion note
         // WHY: keep app.js in sync — tell it the list changed so it redraws the start page "Continue reading" section.
         window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { reads: newReads } }));
         setMsg('Removed from reading history.', true);
@@ -874,7 +918,7 @@
         const lists = readLists(session.user);
         const newBooks = (lists.books || []).filter(x => (x && x.url) !== u);
         lists.books = newBooks;
-        writeLists(session.user, lists);
+        writeLists(session.user, lists); noteRemoved(session.user, 'books');   // ROUND 70
         view.bmSel.delete(u);
         window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { books: newBooks } }));
         setMsg('Bookmark removed.', true);
@@ -888,7 +932,7 @@
         const removed = (lists.books || []).filter(x => x && view.bmSel.has(x.url)).length;
         const newBooks = (lists.books || []).filter(x => !(x && view.bmSel.has(x.url)));
         lists.books = newBooks;
-        writeLists(session.user, lists);
+        writeLists(session.user, lists); noteRemoved(session.user, 'books');   // ROUND 70
         view.bmSel = new Set();
         window.dispatchEvent(new CustomEvent('mf-lists-changed', { detail: { books: newBooks } }));
         setMsg(removed + (removed === 1 ? ' bookmark removed.' : ' bookmarks removed.'), true);

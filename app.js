@@ -887,7 +887,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 69e)',
+      'MangaFlow error report (build round 70)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -4556,17 +4556,18 @@
      WHY: loadNext used to ask for 10 chapter pages at the SAME moment, and since round 69 a second batch could start before the first one ended. Real sites and the proxy answer only a few
           requests at a time (many send "429 too many requests"), so ten parallel requests are each slower than four, the nearest chapter (the one you need first) waits as long as the farthest one,
           and the slow answers looked like "Loading Chapter 57 is taking very long".
-     HOW: at most 4 chapter pages are being fetched at any moment, always in the order they were asked (nearest first). A fetch that takes longer than 20 s gives its place to the next one (it keeps
-          running in the background), so one dead chapter can never block the queue.
+     HOW: at most 8 chapter pages are being fetched at any moment (ROUND 70: was 4, which made later chapters appear too late on slow sites), always in the order they were asked (nearest first). A fetch that
+          takes longer than 6 s gives its place to the next one (it keeps running in the background), so one slow or dead chapter can never block the queue.
      IMPROVE: make the number depend on how fast the last chapters answered. */
-  const chPool = { run: 0, max: 4, q: [] };
+  const chPool = { run: 0, max: 8, q: [], n: 0, wait: 0, dur: 0, slow: 0 };   // ROUND 70: 8 (was 4: with real, slow chapter answers 4 made the later chapters show up too late); wait/dur/n/slow are numbers for the diagnostic
   function chapterPool(job) {
     return new Promise(resolve => {
+      const asked = Date.now();
       const start = () => {
-        chPool.run++; let freed = false;
+        chPool.run++; let freed = false; const began = Date.now();
         const free = () => { if (freed) return; freed = true; chPool.run--; const n = chPool.q.shift(); if (n) n(); };
-        const t = setTimeout(free, 20000);
-        Promise.resolve().then(job).then(resolve, resolve).finally(() => { clearTimeout(t); free(); });
+        const t = setTimeout(() => { chPool.slow++; free(); }, 6000);                    // ROUND 70: 6 s (was 20 s): a slow chapter never holds a place for long
+        Promise.resolve().then(job).then(resolve, resolve).finally(() => { clearTimeout(t); chPool.n++; chPool.wait += (began - asked - chPool.wait) / Math.min(chPool.n, 20); chPool.dur += (Date.now() - began - chPool.dur) / Math.min(chPool.n, 20); free(); });
       };
       if (chPool.run < chPool.max) start(); else chPool.q.push(start);
     });
@@ -4989,7 +4990,7 @@
   function preloadSlots(small) {
     const base = preloadBase(small); if (base <= 2) return base;                                   // slow line: stay small
     if (!preload.slots) preload.slots = base;
-    return Math.max(3, Math.min(preload.slots, base + 2));                                          // ROUND 69e: never more than 2 above the old fixed number (many parallel downloads share ONE phone line and slow the page you are reading)
+    return Math.max(3, Math.min(preload.slots, base + 4));                                          // ROUND 70: never more than 4 above the old fixed number (69e: 2 was too strict, the next chapters were not ready) (many parallel downloads share ONE phone line and slow the page you are reading)
   }
   function preloadGood(ms) { preload.times.push(ms); if (preload.times.length > 30) preload.times.shift(); if (++preload.okRun >= 6) { preload.okRun = 0; preload.slots = Math.min(16, (preload.slots || 6) + 1); } }   // (preloadSlots() caps this at base + 2; growth needs 6 FAST pictures in a row, see preloadGood callers)
   function preloadBad() { preload.okRun = 0; preload.slots = Math.max(3, Math.floor((preload.slots || 6) * 0.75)); }
@@ -5007,14 +5008,14 @@
     imgs.forEach(i => { if (i._stalled && !i._done && !i._failed && !i._restarted && now - i._eagerAt > stall * 2) { i._restarted = true; try { if (i._nextTry) i._nextTry(); } catch { /* the keeper heals it later */ } } });
     let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._stalled).length;
     // ROUND 69e: FIRST PICTURES FIRST. Until 3 pictures of the stream are fully loaded, only 2 extra pictures may download: the ones you are looking at get the whole line (measured: first pictures 7.4 s -> faster).
-    let limit = preloadSlots(small); if (imgs.filter(i => i._done).length < 3) limit = Math.min(limit, 2);
+    let limit = preloadSlots(small); if (imgs.filter(i => i._done).length < 2) limit = Math.min(limit, 3);     // ROUND 70: until 2 pictures are loaded only 3 extra ones (was: until 3, only 2)
     // ROUND 69e: NEAR FIRST. Far chapters (2 or more ahead) only get a slot when at most 2 pictures of the chapter being read and the next one are still downloading: they never fight with the page you look at.
     let nearPending = imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._stalled && Math.abs((+(i.closest('.chapter') || { dataset: { index: cur } }).dataset.index) - cur) <= 1).length;
     secs.filter(x => { const k = +x.dataset.index; return k >= cur && k <= cur + ahead; }).sort((a, b) => a.dataset.index - b.dataset.index).forEach(x => {
       const near = dist(x) <= 1;
       $$('img.page', x).forEach(i => {
         if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return;
-        if (!near && nearPending > 2) return;
+        if (!near && nearPending > 4) return;                                 // ROUND 70: 4 (was 2)
         try { i.fetchPriority = near ? 'high' : 'low'; } catch { /* old browser */ }
         i.loading = 'eager'; i._eagerAt = now; pending++; if (near) nearPending++;
       });
@@ -5056,7 +5057,7 @@
       preloadFill(secs, imgs, now, cur, ahead, small);
       // E. ROUND 66: the dead-upload doctor (see deadUploadDoctor below). Runs by itself every few seconds while you read.
       deadUploadDoctor(secs, imgs, now);
-      keeper.last = 'ahead ' + ahead + ', slots ' + preloadSlots(small) + ' (stall ' + Math.round(stallMs() / 1000) + ' s, stalled ' + preload.stalls + '), dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
+      keeper.last = 'ahead ' + ahead + ', slots ' + preloadSlots(small) + ' (stall ' + Math.round(stallMs() / 1000) + ' s, stalled ' + preload.stalls + '), chapter pool: ' + chPool.n + ' fetched, waited ' + Math.round(chPool.wait) + ' ms, took ' + Math.round(chPool.dur) + ' ms, slow ' + chPool.slow + ', picture load ' + (preload.times.length ? Math.round(preload.times.slice().sort((a, b) => a - b)[preload.times.length >> 1]) + ' ms' : '-') + ', dead uploads skipped ' + keeper.dropped + (keeper.droppedList.length ? ' [' + keeper.droppedList.slice(-12).join(', ') + ']' : '') + ', pictures retried ' + keeper.healedPics + ', chapters healed ' + keeper.healedCh + ', waiting pictures ' + imgs.filter(i => i._failed).length + ', waiting chapters ' + secs.filter(x => x.dataset.failed === '1').length;
     } catch { /* the keeper must never break reading */ }
   }
   // WHY: after the internet returns or the tab comes back, do not wait for the old (long) waiting times. HOW: forget them and run a tick now. IMPROVE: none needed.
@@ -7810,7 +7811,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 69e)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 70)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
