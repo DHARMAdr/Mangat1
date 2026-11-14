@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 69d — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 69e — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -443,6 +443,20 @@ Also: a service that never answers (the built-in browser translator can hang whi
 **Fix:** (1) `CH_RE` accepts a decimal part only when it has 1–3 digits and no digit follows, so `3-5`, `10.5` stay decimals and `-17315` / `-162003` are ids. (2) `ID_SUFFIX_RE`: when most addresses end in `<number>-<long id>`, `fillChapterGaps` guesses nothing (the id of a missing chapter is unknown) and notes "chapter addresses contain a site id". Chapter numbers are whole numbers again, so the audit, the menu and "Chapter N" labels are right.
 **Test:** `rolia1.js 8766` (after) vs a copy of the previous build (before): 404 requests 90 → 20 (only series-page lookups), boxes loaded in 25 s 5 → 10, no false audit.
 **Improve:** when a site's chapter list is clearly complete, skip the background audit entirely.
+
+## 4zc. Round 69e — "the site got slower; preloading of the next chapters is still slow" (self-limiting preloading)
+
+**Report (after round 69):** the site felt slower than before, especially the preloaded chapters.
+**Honest analysis.** My own throttled mocks (`perf4.js`, `perf5.js`: a shared 1.2 MB/s line, one chapter every 6 s) do NOT show round 69 slower than round 68 (pictures of the next 3 chapters ready: 18.6 / 18.6 of 30), so the slowdown could not be reproduced exactly. What the round-69 code does that a real phone and real sites punish (and a mock cannot): (1) up to 12-16 pictures in parallel on ONE phone line, so the page you are reading shares the line with far chapters; (2) a picture that took longer than 8-12 s was restarted at once, which downloads it TWICE on a slow line; (3) up to 10 chapter pages were requested at the same moment (and a second batch could start before the first ended), which sites / the proxy answer with "429 too many requests" or very slow answers ("Loading Chapter 57 is taking very long").
+**Fix (everything about speed only):**
+ 1. `chapterPool()` — at most 4 chapter pages are fetched at any moment, nearest first; a fetch older than 20 s gives its place away (it keeps running).
+ 2. Picture slots never exceed the old fixed number + 2 (`preloadSlots`), growth only after 6 fast pictures in a row.
+ 3. NEAR FIRST: chapters 2 or more ahead only start pictures when at most 2 pictures of the current and next chapter are still downloading.
+ 4. FIRST PICTURES FIRST: until 3 pictures are loaded, only 2 extra pictures download.
+ 5. A stalled picture (now 12-25 s, 3x the typical time) only frees its slot; it is restarted after twice that time, so nothing is downloaded twice on a slow line.
+**Measured:** pictures ready ahead 19.7 / 30 (min 19, round 68: 18.6, min 16; round 69 first build: min 12); with hanging pictures 69 vs 36 pictures in 45 s (round 68) — kept most of the round-69 gain without flooding.
+**Known limit:** until a picture has loaded, its grey box is 260 px tall, so on a tall phone screen the browser's own lazy loading starts 5-9 pictures at once (first 3 pictures: 7.4 s on the mock line). Making the box taller would change scrolling, so it was NOT changed. **If it is still slow**, press Settings > Troubleshoot > Copy diagnostic right after it happens (the "Keeper" line now shows slots / stall time) and the real cause can be read from it.
+**Improve:** measure real bandwidth with the Resource Timing API; start native lazy loading only for the nearest pictures.
 
 ## How to Deploy / Set Up
 
@@ -886,17 +900,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=70" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=71" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=70" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=71" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=70">
+  <link rel="stylesheet" href="style.css?v=71">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=70"></script>
+  <script src="boot.js?v=71"></script>
 </head>
 <body data-side="right">
 
@@ -1469,24 +1483,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=70"></script>
+  <script src="pdfmaker.js?v=71"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=70"></script>
-  <script src="app.js?v=70"></script>
+  <script src="troubleshoot-data.js?v=71"></script>
+  <script src="app.js?v=71"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=70"></script>
+  <script src="chapter-slider.js?v=71"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=70"></script>
+  <script src="reload-wheel.js?v=71"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=70"></script>
+  <script src="edge-slider.js?v=71"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=70"></script>
+  <script src="translate.js?v=71"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=70"></script>
+  <script src="profiles.js?v=71"></script>
 </body>
 </html>
 ~~~~~~
@@ -3774,7 +3788,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8496 lines)
+### File: `app.js`  (8523 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4669,7 +4683,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 69d)',
+      'MangaFlow error report (build round 69e)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -8334,6 +8348,26 @@ window.MF_FIX = {
     toast('Tip: drag the slider on the right up or down to change chapter. Turn the wheel on the left to reload (right = this chapter, left = all).');
   }
 
+  /* ROUND 69e - THE CHAPTER POOL (reported after round 69: "the site got slower than before, the preloaded chapters are still slow").
+     WHY: loadNext used to ask for 10 chapter pages at the SAME moment, and since round 69 a second batch could start before the first one ended. Real sites and the proxy answer only a few
+          requests at a time (many send "429 too many requests"), so ten parallel requests are each slower than four, the nearest chapter (the one you need first) waits as long as the farthest one,
+          and the slow answers looked like "Loading Chapter 57 is taking very long".
+     HOW: at most 4 chapter pages are being fetched at any moment, always in the order they were asked (nearest first). A fetch that takes longer than 20 s gives its place to the next one (it keeps
+          running in the background), so one dead chapter can never block the queue.
+     IMPROVE: make the number depend on how fast the last chapters answered. */
+  const chPool = { run: 0, max: 4, q: [] };
+  function chapterPool(job) {
+    return new Promise(resolve => {
+      const start = () => {
+        chPool.run++; let freed = false;
+        const free = () => { if (freed) return; freed = true; chPool.run--; const n = chPool.q.shift(); if (n) n(); };
+        const t = setTimeout(free, 20000);
+        Promise.resolve().then(job).then(resolve, resolve).finally(() => { clearTimeout(t); free(); });
+      };
+      if (chPool.run < chPool.max) start(); else chPool.q.push(start);
+    });
+  }
+
   /* Load the next batch of chapters (up to BATCH) at the same time.
      HOW: 1) make the empty chapter boxes in order (so the order on the page is always right),
           2) fill all of them in parallel, 3) when every box is done, check the sentinel again.
@@ -8360,7 +8394,8 @@ window.MF_FIX = {
         for (let i = from; i < to; i++) secs.push(makeSection(i));
         // WHY: Fill all boxes at the same time. HOW: Promise.all waits for all.
         // ROUND 69: do not let ONE slow chapter hold back the next batch: after 10 s the batch counts as done (the slow chapter keeps filling by itself, and the keeper heals it if needed)
-        await Promise.race([Promise.all(secs.map(sec => fillChapter(sec, +sec.dataset.index, gen))), new Promise(r => setTimeout(r, 10000))]);
+        // ROUND 69e: but also never start ALL 10 at once (see chapterPool): the nearest chapter is fetched first and the site / proxy is not hammered (many sites answer "429 too many requests").
+        await Promise.race([Promise.all(secs.map(sec => chapterPool(() => fillChapter(sec, +sec.dataset.index, gen)))), new Promise(r => setTimeout(r, 15000))]);
       } finally {
         // WHY: Only reset if the session is still the same. HOW: compare gen.
         if (gen === R.gen) {
@@ -8740,7 +8775,7 @@ window.MF_FIX = {
   function stallMs() {
     const t = preload.times; if (t.length < 5) return 12000;
     const m = t.slice().sort((a, b) => a - b)[t.length >> 1];
-    return Math.max(8000, Math.min(20000, m * 3));
+    return Math.max(12000, Math.min(25000, m * 3));
   }
   function preloadBase(small) {
     let limit = small ? 4 : 6;
@@ -8750,9 +8785,9 @@ window.MF_FIX = {
   function preloadSlots(small) {
     const base = preloadBase(small); if (base <= 2) return base;                                   // slow line: stay small
     if (!preload.slots) preload.slots = base;
-    return Math.max(3, Math.min(preload.slots, small ? 12 : 16));
+    return Math.max(3, Math.min(preload.slots, base + 2));                                          // ROUND 69e: never more than 2 above the old fixed number (many parallel downloads share ONE phone line and slow the page you are reading)
   }
-  function preloadGood(ms) { preload.times.push(ms); if (preload.times.length > 30) preload.times.shift(); if (++preload.okRun >= 6) { preload.okRun = 0; preload.slots = Math.min(16, (preload.slots || 6) + 1); } }
+  function preloadGood(ms) { preload.times.push(ms); if (preload.times.length > 30) preload.times.shift(); if (++preload.okRun >= 6) { preload.okRun = 0; preload.slots = Math.min(16, (preload.slots || 6) + 1); } }   // (preloadSlots() caps this at base + 2; growth needs 6 FAST pictures in a row, see preloadGood callers)
   function preloadBad() { preload.okRun = 0; preload.slots = Math.max(3, Math.floor((preload.slots || 6) * 0.75)); }
   function requestFill() {                                                                           // called by finished pictures
     if (preload.timer) return;
@@ -8763,15 +8798,21 @@ window.MF_FIX = {
     preload.fills++;
     const stall = stallMs(), dist = sec => Math.abs((+sec.dataset.index) - cur);
     // 1. stalled pictures stop occupying a slot and go to their next way of loading
-    imgs.forEach(i => { if (i._eagerAt && !i._done && !i._failed && !i._stalled && now - i._eagerAt > stall) { i._stalled = true; preload.stalls++; preloadBad(); try { if (i._nextTry) i._nextTry(); } catch { /* the keeper heals it later */ } } });
+    imgs.forEach(i => { if (i._eagerAt && !i._done && !i._failed && !i._stalled && now - i._eagerAt > stall) { i._stalled = true; preload.stalls++; preloadBad(); } });
+    // ROUND 69e: a stalled picture only FREES its slot (its first request stays alive: on a slow line it is usually just late, and restarting it would download it twice). Only after twice the stall time it is pushed to its next way of loading.
+    imgs.forEach(i => { if (i._stalled && !i._done && !i._failed && !i._restarted && now - i._eagerAt > stall * 2) { i._restarted = true; try { if (i._nextTry) i._nextTry(); } catch { /* the keeper heals it later */ } } });
     let pending = imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._stalled).length;
-    const limit = preloadSlots(small);
+    // ROUND 69e: FIRST PICTURES FIRST. Until 3 pictures of the stream are fully loaded, only 2 extra pictures may download: the ones you are looking at get the whole line (measured: first pictures 7.4 s -> faster).
+    let limit = preloadSlots(small); if (imgs.filter(i => i._done).length < 3) limit = Math.min(limit, 2);
+    // ROUND 69e: NEAR FIRST. Far chapters (2 or more ahead) only get a slot when at most 2 pictures of the chapter being read and the next one are still downloading: they never fight with the page you look at.
+    let nearPending = imgs.filter(i => i._eagerAt && !i._done && !i._failed && !i._stalled && Math.abs((+(i.closest('.chapter') || { dataset: { index: cur } }).dataset.index) - cur) <= 1).length;
     secs.filter(x => { const k = +x.dataset.index; return k >= cur && k <= cur + ahead; }).sort((a, b) => a.dataset.index - b.dataset.index).forEach(x => {
       const near = dist(x) <= 1;
       $$('img.page', x).forEach(i => {
         if (pending >= limit || i.loading !== 'lazy' || i._done || i._failed || i._healing) return;
+        if (!near && nearPending > 2) return;
         try { i.fetchPriority = near ? 'high' : 'low'; } catch { /* old browser */ }
-        i.loading = 'eager'; i._eagerAt = now; pending++;
+        i.loading = 'eager'; i._eagerAt = now; pending++; if (near) nearPending++;
       });
     });
   }
@@ -11565,7 +11606,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 69d)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 69e)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -15460,7 +15501,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (157 lines)
+### File: `MANGAFLOW_GUIDE.md`  (159 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15469,7 +15510,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 69d — 2026-11-14*
+*Last updated: Round 69e — 2026-11-14*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15617,6 +15658,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 69c: using a shortcut button on a site's page (e.g. kingofshojo) showed 'The browser blocked something: frame-src' and a blank page -> a frame rescue now opens the tapped link inside MangaFlow (or shows the same page again), <area> links are caught, and the 'New Chapter' button works; the security rule itself is unchanged.**
 
 - **Round 69d: roliascan.com addresses like /ch53-162003/ (number, dash, site id) were read as chapter 53.162003, so 80 chapters were guessed, 404 requests flooded the proxies and chapters 57-60 'took very long' -> a decimal part is only 1-3 digits now (ids are ignored) and nothing is guessed when addresses carry an id.**
+
+- **Round 69e: preloading made self-limiting (at most 4 chapter pages fetched at once, picture slots capped near the old number, near chapters before far ones, first pictures first, slow pictures are no longer downloaded twice). My mock tests could not reproduce the exact slowdown, so if it is still slow, send the diagnostic.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

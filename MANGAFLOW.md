@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 69d — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 69e — 2026-11-14 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -377,6 +377,20 @@ Also: a service that never answers (the built-in browser translator can hang whi
 **Fix:** (1) `CH_RE` accepts a decimal part only when it has 1–3 digits and no digit follows, so `3-5`, `10.5` stay decimals and `-17315` / `-162003` are ids. (2) `ID_SUFFIX_RE`: when most addresses end in `<number>-<long id>`, `fillChapterGaps` guesses nothing (the id of a missing chapter is unknown) and notes "chapter addresses contain a site id". Chapter numbers are whole numbers again, so the audit, the menu and "Chapter N" labels are right.
 **Test:** `rolia1.js 8766` (after) vs a copy of the previous build (before): 404 requests 90 → 20 (only series-page lookups), boxes loaded in 25 s 5 → 10, no false audit.
 **Improve:** when a site's chapter list is clearly complete, skip the background audit entirely.
+
+## 4zc. Round 69e — "the site got slower; preloading of the next chapters is still slow" (self-limiting preloading)
+
+**Report (after round 69):** the site felt slower than before, especially the preloaded chapters.
+**Honest analysis.** My own throttled mocks (`perf4.js`, `perf5.js`: a shared 1.2 MB/s line, one chapter every 6 s) do NOT show round 69 slower than round 68 (pictures of the next 3 chapters ready: 18.6 / 18.6 of 30), so the slowdown could not be reproduced exactly. What the round-69 code does that a real phone and real sites punish (and a mock cannot): (1) up to 12-16 pictures in parallel on ONE phone line, so the page you are reading shares the line with far chapters; (2) a picture that took longer than 8-12 s was restarted at once, which downloads it TWICE on a slow line; (3) up to 10 chapter pages were requested at the same moment (and a second batch could start before the first ended), which sites / the proxy answer with "429 too many requests" or very slow answers ("Loading Chapter 57 is taking very long").
+**Fix (everything about speed only):**
+ 1. `chapterPool()` — at most 4 chapter pages are fetched at any moment, nearest first; a fetch older than 20 s gives its place away (it keeps running).
+ 2. Picture slots never exceed the old fixed number + 2 (`preloadSlots`), growth only after 6 fast pictures in a row.
+ 3. NEAR FIRST: chapters 2 or more ahead only start pictures when at most 2 pictures of the current and next chapter are still downloading.
+ 4. FIRST PICTURES FIRST: until 3 pictures are loaded, only 2 extra pictures download.
+ 5. A stalled picture (now 12-25 s, 3x the typical time) only frees its slot; it is restarted after twice that time, so nothing is downloaded twice on a slow line.
+**Measured:** pictures ready ahead 19.7 / 30 (min 19, round 68: 18.6, min 16; round 69 first build: min 12); with hanging pictures 69 vs 36 pictures in 45 s (round 68) — kept most of the round-69 gain without flooding.
+**Known limit:** until a picture has loaded, its grey box is 260 px tall, so on a tall phone screen the browser's own lazy loading starts 5-9 pictures at once (first 3 pictures: 7.4 s on the mock line). Making the box taller would change scrolling, so it was NOT changed. **If it is still slow**, press Settings > Troubleshoot > Copy diagnostic right after it happens (the "Keeper" line now shows slots / stall time) and the real cause can be read from it.
+**Improve:** measure real bandwidth with the Resource Timing API; start native lazy loading only for the nearest pictures.
 
 ## How to Deploy / Set Up
 

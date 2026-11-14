@@ -1,7 +1,7 @@
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 69d — 2026-11-14*
+*Last updated: Round 69e — 2026-11-14*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -149,6 +149,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 69c: using a shortcut button on a site's page (e.g. kingofshojo) showed 'The browser blocked something: frame-src' and a blank page -> a frame rescue now opens the tapped link inside MangaFlow (or shows the same page again), <area> links are caught, and the 'New Chapter' button works; the security rule itself is unchanged.**
 
 - **Round 69d: roliascan.com addresses like /ch53-162003/ (number, dash, site id) were read as chapter 53.162003, so 80 chapters were guessed, 404 requests flooded the proxies and chapters 57-60 'took very long' -> a decimal part is only 1-3 digits now (ids are ignored) and nothing is guessed when addresses carry an id.**
+
+- **Round 69e: preloading made self-limiting (at most 4 chapter pages fetched at once, picture slots capped near the old number, near chapters before far ones, first pictures first, slow pictures are no longer downloaded twice). My mock tests could not reproduce the exact slowdown, so if it is still slow, send the diagnostic.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
