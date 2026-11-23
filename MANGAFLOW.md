@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 71 — 2026-11-15 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 72 — 2026-11-23 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -773,3 +773,9 @@ Paste this file at the start of a new session to give Claude full context. Then 
 **Pitfalls found while testing:** (a) the new helper must NOT be called `looksLikeChapter` (an older function of that name exists; JavaScript silently replaced it) -> named `chapterAnswers`; (b) `chapterPool` hands errors back as values, so `poolFetchDoc` was added where a real rejection is needed.
 **Tests:** `r71.js` (MODE=real / skip / form / slow): real -> chapter 26 appears in the menu; skip -> calm toast, no pop-up; form -> found by other endings; slow -> chapter retried after an HTTP 503. Whole regression (176 checks + reg2 + kings/mgeko/soft404/acct) rerun.
 **Repos:** the experimental Python proxy folder was removed again from Mangafox; all three repos hold the plain HTML/CSS/JS site.
+
+## 4zf. Round 72 — manhuatop "The site is blocking MangaFlow (admin0)" / "Could not load Chapter 67: no proxy could load it ... NetworkError" (list of only 4 chapters)
+**Report (build 68):** reading unOrdinary on manhuatop.org (414 chapters on the site) from chapter 65; the chapter list had only 4 entries and chapter 67 failed with a plain network error from all three proxies; the pop-up was titled "The site is blocking MangaFlow".
+**Causes found:** (1) `explain()` matched the word "Cloudflare" inside the proxy error's own tip ("free on Cloudflare") and so called a pure NETWORK failure "the site is blocking MangaFlow" -> the "Tip:" tail is cut off before classifying. (2) A chapter that failed only because of the network opened the big red pop-up on the FIRST failure, before the keeper's automatic retry ran -> the first 2 such failures only change the box line ("Trying again by itself…", retry after 3 s, then 6 s); the pop-up with the report appears on the 3rd failure. (3) The chapter-list lookup failed once (network) and nothing asked again -> one retry after 1.5 s when the lookup threw. (4) Madara sites show only the newest ~50 chapters plus chapter 1 on the series page, so opening chapter 65 gave 1, 65, 365..414 and Next would jump to 365 -> if the nearest listed chapter on either side is more than 30 numbers away, the site's full list (`ajax/chapters`) is requested and used when longer.
+**Not provable from here:** why all three proxies failed at that moment (a short outage of the proxies or the connection is the most likely reason; the Cloudflare server of the site cannot be reached from the build machine).
+**Tests:** `r72.js` (MODE=hole: list 414 with 66 right after 65; MODE=net: eight network failures for chapter 67, no pop-up, the chapter loads by itself within ~40 s) + the full regression.

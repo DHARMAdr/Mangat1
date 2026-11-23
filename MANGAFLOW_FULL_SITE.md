@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 71 — 2026-11-15 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 72 — 2026-11-23 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -840,6 +840,12 @@ Paste this file at the start of a new session to give Claude full context. Then 
 **Tests:** `r71.js` (MODE=real / skip / form / slow): real -> chapter 26 appears in the menu; skip -> calm toast, no pop-up; form -> found by other endings; slow -> chapter retried after an HTTP 503. Whole regression (176 checks + reg2 + kings/mgeko/soft404/acct) rerun.
 **Repos:** the experimental Python proxy folder was removed again from Mangafox; all three repos hold the plain HTML/CSS/JS site.
 
+## 4zf. Round 72 — manhuatop "The site is blocking MangaFlow (admin0)" / "Could not load Chapter 67: no proxy could load it ... NetworkError" (list of only 4 chapters)
+**Report (build 68):** reading unOrdinary on manhuatop.org (414 chapters on the site) from chapter 65; the chapter list had only 4 entries and chapter 67 failed with a plain network error from all three proxies; the pop-up was titled "The site is blocking MangaFlow".
+**Causes found:** (1) `explain()` matched the word "Cloudflare" inside the proxy error's own tip ("free on Cloudflare") and so called a pure NETWORK failure "the site is blocking MangaFlow" -> the "Tip:" tail is cut off before classifying. (2) A chapter that failed only because of the network opened the big red pop-up on the FIRST failure, before the keeper's automatic retry ran -> the first 2 such failures only change the box line ("Trying again by itself…", retry after 3 s, then 6 s); the pop-up with the report appears on the 3rd failure. (3) The chapter-list lookup failed once (network) and nothing asked again -> one retry after 1.5 s when the lookup threw. (4) Madara sites show only the newest ~50 chapters plus chapter 1 on the series page, so opening chapter 65 gave 1, 65, 365..414 and Next would jump to 365 -> if the nearest listed chapter on either side is more than 30 numbers away, the site's full list (`ajax/chapters`) is requested and used when longer.
+**Not provable from here:** why all three proxies failed at that moment (a short outage of the proxies or the connection is the most likely reason; the Cloudflare server of the site cannot be reached from the build machine).
+**Tests:** `r72.js` (MODE=hole: list 414 with 66 right after 65; MODE=net: eight network failures for chapter 67, no pop-up, the chapter loads by itself within ~40 s) + the full regression.
+
 
 
 ---
@@ -917,17 +923,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=73" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=74" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=73" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=74" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=73">
+  <link rel="stylesheet" href="style.css?v=74">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=73"></script>
+  <script src="boot.js?v=74"></script>
 </head>
 <body data-side="right">
 
@@ -1500,24 +1506,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=73"></script>
+  <script src="pdfmaker.js?v=74"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=73"></script>
-  <script src="app.js?v=73"></script>
+  <script src="troubleshoot-data.js?v=74"></script>
+  <script src="app.js?v=74"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=73"></script>
+  <script src="chapter-slider.js?v=74"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=73"></script>
+  <script src="reload-wheel.js?v=74"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=73"></script>
+  <script src="edge-slider.js?v=74"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=73"></script>
+  <script src="translate.js?v=74"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=73"></script>
+  <script src="profiles.js?v=74"></script>
 </body>
 </html>
 ~~~~~~
@@ -3805,7 +3811,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8650 lines)
+### File: `app.js`  (8677 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4619,7 +4625,9 @@ window.MF_FIX = {
   // words (regular expressions) in a fixed order and returns the first matching { title, hint }. IMPROVE: move the texts
   // into a table to keep this short.
   function explain(msg) {
-    const m = msg || '';
+    // ROUND 72: the proxy error ends with a tip that says "free on Cloudflare"; the word Cloudflare made a plain NETWORK failure look like "The site is blocking MangaFlow".
+    //   HOW: the tip is cut off before the message is classified. IMPROVE: keep the tip out of the message and add it only when showing it.
+    const m = (msg || '').replace(/\s*Tip: add your own proxy[\s\S]*$/i, '');
     // WHY: bot checks, blocks and rate limits need their own explanation. HOW: the test looks for words like cloudflare or
     // HTTP 403/429/503, ignoring capitals. The next lines return the pop-up title and hint. IMPROVE: add a
     // retry-in-N-minutes timer.
@@ -4700,7 +4708,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 71)',
+      'MangaFlow error report (build round 72)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -8030,7 +8038,11 @@ window.MF_FIX = {
     // WHY: If the list is missing or incomplete, search for a better one. HOW: enter this block.
     if (isChapter && (chapters.length < 2 || incomplete || small)) {
       // WHY: Run the four ways. HOW: loadSeriesList; a failure becomes null.
-      const r = await loadSeriesList(doc, base, url).catch(() => null);
+      let threw = false;
+      let r = await loadSeriesList(doc, base, url).catch(() => { threw = true; return null; });
+      // ROUND 72: if the lookup FAILED (network hiccup, not "this site has no list") ask once more after a short wait. WHY: the report had a list of only 4 chapters because the series page could not be
+      //   reached once. HOW: one retry after 1.5 s, only after an error. IMPROVE: let the background upgrade the list later without a reload.
+      if (!r && threw) { await new Promise(res => setTimeout(res, 1500)); r = await loadSeriesList(doc, base, url).catch(() => null); }
       if (r && r.missed && r.missed.length) toast('Chapter-list page ' + r.missed.join(', ') + ' could not be loaded, so a few chapters may be missing.');   // round 28
       // WHY: Use the new list only if it is better. HOW: more chapters, or more earlier ones.
       if (r && (r.chapters.length > chapters.length || earlier(r.chapters) > earlier(chapters))) {
@@ -8039,6 +8051,22 @@ window.MF_FIX = {
       }
       // WHY: Reset the status text. HOW: setBusy.
       setBusy('Detecting chapters…');
+    }
+    // ROUND 72 - A HOLE AROUND THE CHAPTER YOU OPEN. WHY: some Madara sites (manhuatop.org) show only the newest ~50 chapters plus chapter 1 on the series page: opening chapter 65 gave 1, 65, 365, 366 ...
+    //   so "next chapter" jumped from 65 to 365. HOW: when the nearest listed chapters on either side are more than 30 numbers away, the site's own full list (ajax/chapters) is asked for and used if it is
+    //   longer. IMPROVE: fill a remaining hole by guessing, as the gap finder does for small holes.
+    if (isChapter && curNum0 != null && chapters.length >= 2) {
+      const others = chapters.filter(x => x.num != null && x.num !== curNum0).map(x => x.num);
+      const lo = Math.max(-Infinity, ...others.filter(v => v < curNum0)), hi = Math.min(Infinity, ...others.filter(v => v > curNum0));
+      if ((isFinite(hi) && hi - curNum0 > 30) || (isFinite(lo) && curNum0 - lo > 30)) {
+        try {
+          setBusy('Loading the full chapter list…');
+          const ser = seriesUrl || url.replace(/[^/]+\/?$/, '');
+          const full = await ajaxChapterList(doc, base, ser, url, true);
+          if (full.chapters.length > chapters.length) chapters = full.chapters;
+        } catch { /* keep the list we have */ }
+        setBusy('Detecting chapters…');
+      }
     }
     // WHY: Last resort. HOW: if still under 2 chapters, build guessed ones with synthesizeChapters.
     if (isChapter && chapters.length < 2) { const syn = synthesizeChapters(url, nav); if (syn) chapters = syn; }
@@ -8697,7 +8725,12 @@ window.MF_FIX = {
       // ROUND 9: the first "no pictures" problem of a site gets the big pop-up (with the report), the rest stay small.
       // ROUND 10: EVERY kind of chapter failure gets the big pop-up with a report (once per site and kind, so a bad site cannot flood you).
       // WHY: Show a big pop-up once per site and error. HOW: skip blocks, check noImgSeen set.
-      if (!/bot check|HTTP 40[13]|HTTP 429|HTTP 503/i.test(e.message) && !noImgSeen.has(hostOf(ch.url) + '|' + e.message.slice(0, 40))) {
+      // ROUND 72: a pure NETWORK failure (every proxy "NetworkError / timed out / failed to fetch", no HTTP answer from the site) is usually a short hiccup of the connection or the proxies.
+      //   WHY: the report "Could not load Chapter 67: no proxy could load it ... NetworkError" opened a big red pop-up on the FIRST failure, before the keeper's automatic retry had even run.
+      //   HOW: the first 2 such failures of a chapter only change the line in the box ("trying again by itself"); the pop-up (with the report) comes on the 3rd failure. IMPROVE: show the retry countdown.
+      const netOnly = !e.details && /no proxy could load|failed to fetch|networkerror|timed out|empty reply/i.test(e.message) && !/HTTP \d\d\d/.test(e.message.replace(/Tip:[\s\S]*$/, ''));
+      if (netOnly) { ch.netFails = (ch.netFails || 0) + 1; sec._healAt = Date.now() + 3000 * ch.netFails; wait.textContent = 'Could not reach the site for ' + labelFor(i) + ' (connection or proxy problem). Trying again by itself…'; }
+      if (!(netOnly && ch.netFails < 3) && !/bot check|HTTP 40[13]|HTTP 429|HTTP 503/i.test(e.message) && !noImgSeen.has(hostOf(ch.url) + '|' + e.message.slice(0, 40))) {
         // WHY: Remember it. HOW: add key to the set.
         noImgSeen.add(hostOf(ch.url) + '|' + e.message.slice(0, 40));
         // WHY: Show a report. HOW: showError with details.
@@ -11750,7 +11783,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 71)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 72)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -15689,7 +15722,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (163 lines)
+### File: `MANGAFLOW_GUIDE.md`  (165 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15698,7 +15731,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 71 — 2026-11-15*
+*Last updated: Round 72 — 2026-11-23*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15852,6 +15885,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 70: a row removed from 'Continue reading' came back after a refresh (the cloud merge had no memory of deletions) -> every removal now leaves a deletion note that wins over old copies; reading-mode loading: chapter pool 8 at a time (was 4), looser picture limits, and the diagnostic now shows real timing numbers (chapter pool, picture load).**
 
 - **Round 71: 'the site is missing chapter 26 (HTTP 404)' although the site may have it under another address ending -> a chapter rescue now reads the Previous/Next links of neighbouring chapters and tries other address endings before calling a chapter missing; when the site's own links skip a number it is only a small note (no red pop-up); chapters that could not be checked because of a slow connection are asked again by themselves after 12 s, 40 s and 100 s.**
+
+- **Round 72: manhuatop report - a plain network failure was shown as 'The site is blocking MangaFlow' (the word Cloudflare in the tip matched the block rule) and opened a big pop-up on the first failure -> network failures now say 'Could not reach the page', retry by themselves after 3 s / 6 s and only pop up on the 3rd failure; the chapter-list lookup is repeated once after a network error; when the listed chapters are more than 30 numbers away from the chapter you opened (site shows only the newest 50 + chapter 1) the site's full list is loaded.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

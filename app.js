@@ -806,7 +806,9 @@
   // words (regular expressions) in a fixed order and returns the first matching { title, hint }. IMPROVE: move the texts
   // into a table to keep this short.
   function explain(msg) {
-    const m = msg || '';
+    // ROUND 72: the proxy error ends with a tip that says "free on Cloudflare"; the word Cloudflare made a plain NETWORK failure look like "The site is blocking MangaFlow".
+    //   HOW: the tip is cut off before the message is classified. IMPROVE: keep the tip out of the message and add it only when showing it.
+    const m = (msg || '').replace(/\s*Tip: add your own proxy[\s\S]*$/i, '');
     // WHY: bot checks, blocks and rate limits need their own explanation. HOW: the test looks for words like cloudflare or
     // HTTP 403/429/503, ignoring capitals. The next lines return the pop-up title and hint. IMPROVE: add a
     // retry-in-N-minutes timer.
@@ -887,7 +889,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 71)',
+      'MangaFlow error report (build round 72)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -4217,7 +4219,11 @@
     // WHY: If the list is missing or incomplete, search for a better one. HOW: enter this block.
     if (isChapter && (chapters.length < 2 || incomplete || small)) {
       // WHY: Run the four ways. HOW: loadSeriesList; a failure becomes null.
-      const r = await loadSeriesList(doc, base, url).catch(() => null);
+      let threw = false;
+      let r = await loadSeriesList(doc, base, url).catch(() => { threw = true; return null; });
+      // ROUND 72: if the lookup FAILED (network hiccup, not "this site has no list") ask once more after a short wait. WHY: the report had a list of only 4 chapters because the series page could not be
+      //   reached once. HOW: one retry after 1.5 s, only after an error. IMPROVE: let the background upgrade the list later without a reload.
+      if (!r && threw) { await new Promise(res => setTimeout(res, 1500)); r = await loadSeriesList(doc, base, url).catch(() => null); }
       if (r && r.missed && r.missed.length) toast('Chapter-list page ' + r.missed.join(', ') + ' could not be loaded, so a few chapters may be missing.');   // round 28
       // WHY: Use the new list only if it is better. HOW: more chapters, or more earlier ones.
       if (r && (r.chapters.length > chapters.length || earlier(r.chapters) > earlier(chapters))) {
@@ -4226,6 +4232,22 @@
       }
       // WHY: Reset the status text. HOW: setBusy.
       setBusy('Detecting chapters…');
+    }
+    // ROUND 72 - A HOLE AROUND THE CHAPTER YOU OPEN. WHY: some Madara sites (manhuatop.org) show only the newest ~50 chapters plus chapter 1 on the series page: opening chapter 65 gave 1, 65, 365, 366 ...
+    //   so "next chapter" jumped from 65 to 365. HOW: when the nearest listed chapters on either side are more than 30 numbers away, the site's own full list (ajax/chapters) is asked for and used if it is
+    //   longer. IMPROVE: fill a remaining hole by guessing, as the gap finder does for small holes.
+    if (isChapter && curNum0 != null && chapters.length >= 2) {
+      const others = chapters.filter(x => x.num != null && x.num !== curNum0).map(x => x.num);
+      const lo = Math.max(-Infinity, ...others.filter(v => v < curNum0)), hi = Math.min(Infinity, ...others.filter(v => v > curNum0));
+      if ((isFinite(hi) && hi - curNum0 > 30) || (isFinite(lo) && curNum0 - lo > 30)) {
+        try {
+          setBusy('Loading the full chapter list…');
+          const ser = seriesUrl || url.replace(/[^/]+\/?$/, '');
+          const full = await ajaxChapterList(doc, base, ser, url, true);
+          if (full.chapters.length > chapters.length) chapters = full.chapters;
+        } catch { /* keep the list we have */ }
+        setBusy('Detecting chapters…');
+      }
     }
     // WHY: Last resort. HOW: if still under 2 chapters, build guessed ones with synthesizeChapters.
     if (isChapter && chapters.length < 2) { const syn = synthesizeChapters(url, nav); if (syn) chapters = syn; }
@@ -4884,7 +4906,12 @@
       // ROUND 9: the first "no pictures" problem of a site gets the big pop-up (with the report), the rest stay small.
       // ROUND 10: EVERY kind of chapter failure gets the big pop-up with a report (once per site and kind, so a bad site cannot flood you).
       // WHY: Show a big pop-up once per site and error. HOW: skip blocks, check noImgSeen set.
-      if (!/bot check|HTTP 40[13]|HTTP 429|HTTP 503/i.test(e.message) && !noImgSeen.has(hostOf(ch.url) + '|' + e.message.slice(0, 40))) {
+      // ROUND 72: a pure NETWORK failure (every proxy "NetworkError / timed out / failed to fetch", no HTTP answer from the site) is usually a short hiccup of the connection or the proxies.
+      //   WHY: the report "Could not load Chapter 67: no proxy could load it ... NetworkError" opened a big red pop-up on the FIRST failure, before the keeper's automatic retry had even run.
+      //   HOW: the first 2 such failures of a chapter only change the line in the box ("trying again by itself"); the pop-up (with the report) comes on the 3rd failure. IMPROVE: show the retry countdown.
+      const netOnly = !e.details && /no proxy could load|failed to fetch|networkerror|timed out|empty reply/i.test(e.message) && !/HTTP \d\d\d/.test(e.message.replace(/Tip:[\s\S]*$/, ''));
+      if (netOnly) { ch.netFails = (ch.netFails || 0) + 1; sec._healAt = Date.now() + 3000 * ch.netFails; wait.textContent = 'Could not reach the site for ' + labelFor(i) + ' (connection or proxy problem). Trying again by itself…'; }
+      if (!(netOnly && ch.netFails < 3) && !/bot check|HTTP 40[13]|HTTP 429|HTTP 503/i.test(e.message) && !noImgSeen.has(hostOf(ch.url) + '|' + e.message.slice(0, 40))) {
         // WHY: Remember it. HOW: add key to the set.
         noImgSeen.add(hostOf(ch.url) + '|' + e.message.slice(0, 40));
         // WHY: Show a report. HOW: showError with details.
@@ -7937,7 +7964,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 71)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 72)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
