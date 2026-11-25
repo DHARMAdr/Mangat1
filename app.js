@@ -889,7 +889,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 72)',
+      'MangaFlow error report (build round 73)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -1817,13 +1817,57 @@
       // returns null if they left.
       await wait(1800); fd = liveDoc(token); if (!fd) return;
     }
+    /* ROUND 73 - FONT AS DATA (mgeko list page: "Font Awesome 5 Free" still failed after the proxy re-send). WHY: a font file loaded as a font needs the other site's permission (CORS) and its own request;
+         the same file fetched through the proxy as plain data always works. HOW: for every @font-face whose family is still in the 'error' state, the first .woff2/.woff address is downloaded through the
+         proxy (at most 6 files, each under 600 KB), turned into a data: address and written into the style sheet, so the browser needs no further request. IMPROVE: also keep the data in rawCache. */
+    if (fontBad(fd)) {
+      try {
+        const badFam = new Set(Array.from(fd.fonts).filter(f => f.status === 'error').map(f => String(f.family).replace(/["'\s]/g, '').toLowerCase()));
+        let done = 0;
+        for (const st of Array.from(fd.querySelectorAll('style[data-mf="repaired"]'))) {
+          let css = st.textContent, changed = false;
+          for (const face of (css.match(/@font-face\s*\{[^}]*\}/gi) || [])) {
+            if (done >= 6) break;
+            const fam = ((face.match(/font-family\s*:\s*([^;}]+)/i) || [])[1] || '').replace(/["'\s]/g, '').toLowerCase();
+            if (!badFam.has(fam)) continue;
+            const m = face.match(/url\(\s*["']?([^"')]+\.woff2?[^"')]*)["']?\s*\)/i); if (!m) continue;
+            try {
+              // the address in the sheet is already wrapped by one proxy; take the ORIGINAL file address out and ask every proxy in turn (a wrapped address may point at a proxy that is down)
+              let orig = m[1]; const w = orig.match(/[?&]url=([^&]+)/); if (w) { try { orig = decodeURIComponent(w[1]); } catch { /* keep */ } }
+              let blob = null, lastErr = 'no proxy answered';
+              for (const px of proxyList(false).slice(0, 4)) {
+                try { const r = await fetch(px.replace('{url}', encodeURIComponent(orig)), { credentials: 'omit' }); if (!r.ok) { lastErr = 'HTTP ' + r.status; continue; } const bl = await r.blob(); if (bl.size > 200 && !/html|json/i.test(bl.type)) { blob = bl; break; } lastErr = 'not a font file'; } catch (e4) { lastErr = (e4 && e4.message) || 'failed'; }
+              }
+              if (!blob) throw new Error(lastErr); if (blob.size > 600000) throw new Error('too big: ' + blob.size);
+              const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+              const fmt = /\.woff2/i.test(m[1]) ? 'woff2' : 'woff';
+              css = css.replace(face, face.replace(/src\s*:[^;}]*/i, 'src:url("' + data + '") format("' + fmt + '")')); changed = true; done++;
+            } catch (e3) { stat.notes.push('font as data failed for ' + fam + ': ' + ((e3 && e3.message) || e3)); }
+          }
+          if (changed) st.textContent = css;
+        }
+        if (done) { stat.notes.push('fonts turned into data: addresses: ' + done); await wait(1500); fd = liveDoc(token); if (!fd) return; }
+      } catch { /* keep what we have */ }
+    }
     // ROUND 54: only warn about fonts when it matters. WHY: nyxscans lists many text fonts (Arabic and others) and one of them failing made the notice say "icons may look like empty boxes" even though the page looked fine.
     // HOW: name the failed fonts in the report; warn only if an ICON-style font failed (name has icon / awesome / symbol / glyph / material / fa) or more than half of all fonts failed.
     // IMPROVE: also check that an icon glyph really drew.
     try {
       const all = Array.from(fd.fonts), bad = all.filter(f => f.status === 'error');
-      if (bad.length) stat.notes.push('fonts that failed (' + bad.length + ' of ' + all.length + '): ' + bad.map(f => String(f.family).replace(/["']/g, '')).slice(0, 12).join(', '));
-      stat.fontsBad = bad.some(f => /icon|awesome|symbol|glyph|material|(^|[^a-z])fa([^a-z]|$)/i.test(f.family)) || (all.length > 0 && bad.length * 2 > all.length);
+      if (bad.length) stat.notes.push('fonts that failed (' + bad.length + ' of ' + all.length + '): ' + bad.map(f => String(f.family).replace(/["']/g, '') + ' ' + f.weight).slice(0, 12).join(', '));
+      // ROUND 72 (mgeko list page: "Font Awesome 5 Free" failed, 1 of 141, and the notice said icons may be empty boxes). WHY: Font Awesome has several files (solid, regular, brands); when only the
+      //   regular one fails and nothing on the page uses that weight, nothing is wrong. HOW: a failed icon font only counts when some element on the page really draws with that family AND weight
+      //   (it has text, or a ::before text). IMPROVE: look at the glyph pixels.
+      const w2n = w => { w = String(w || '400').toLowerCase(); return w === 'normal' ? 400 : w === 'bold' ? 700 : parseInt(w, 10) || 400; };
+      const used = f => {
+        const fam = String(f.family).replace(/["']/g, '').trim().toLowerCase(), fw = w2n(f.weight), view = fd.defaultView;
+        const els = Array.from(fd.querySelectorAll('i,span,a,em,b,button,label,[class*="fa"],[class*="icon"],[class*="Icon"]')).slice(0, 1500);
+        return els.some(el => { try { const cs = view.getComputedStyle(el); if (!cs.fontFamily.toLowerCase().replace(/["']/g, '').split(',').some(x => x.trim() === fam)) return false; if (Math.abs(w2n(cs.fontWeight) - fw) > 100) return false; const pb = view.getComputedStyle(el, '::before').content, pa = view.getComputedStyle(el, '::after').content; return !!(el.textContent || '').trim() || (pb && !/^(none|normal|"")$/.test(pb)) || (pa && !/^(none|normal|"")$/.test(pa)); } catch { return false; } });
+      };
+      const badIcons = bad.filter(f => /icon|awesome|symbol|glyph|material|(^|[^a-z])fa([^a-z]|$)/i.test(f.family));
+      const iconsUsed = badIcons.filter(used), unused = badIcons.filter(f => !iconsUsed.includes(f));
+      if (unused.length) stat.notes.push('a failed icon font that nothing on the page uses was ignored: ' + unused.map(f => String(f.family).replace(/["']/g, '') + ' ' + f.weight).join(', '));
+      stat.fontsBad = iconsUsed.length > 0 || (all.length > 0 && bad.length * 2 > all.length);
     } catch { stat.fontsBad = false; }
     pageHealth(fd, stat, base);
   }
@@ -7779,7 +7823,7 @@
       const leftover = (c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1 && shown >= best.length;
       if (leftover) r.notes.push('a spare placeholder slot was ignored: all ' + best.length + ' pictures the finder knows are already shown');
       else if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
-      else if ((c.placeholder || 0) > 0 && best.length < 1) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
+      else if ((c.placeholder || 0) > 0 && best.length < 1 && (c.ok || 0) < 3) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
       if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
       if ((c.pending || 0) > 0 && cur.shownAt && Date.now() - cur.shownAt > 12000) r.problems.push({ code: 'P2-STALLED', text: (c.pending) + ' picture(s) are still loading after 12 seconds (slow or silent host).', fix: true });
       if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
@@ -7964,7 +8008,7 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 72)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 73)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),

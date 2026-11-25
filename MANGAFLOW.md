@@ -1,7 +1,7 @@
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 72 — 2026-11-23 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 73 — 2026-11-26 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -779,3 +779,9 @@ Paste this file at the start of a new session to give Claude full context. Then 
 **Causes found:** (1) `explain()` matched the word "Cloudflare" inside the proxy error's own tip ("free on Cloudflare") and so called a pure NETWORK failure "the site is blocking MangaFlow" -> the "Tip:" tail is cut off before classifying. (2) A chapter that failed only because of the network opened the big red pop-up on the FIRST failure, before the keeper's automatic retry ran -> the first 2 such failures only change the box line ("Trying again by itself…", retry after 3 s, then 6 s); the pop-up with the report appears on the 3rd failure. (3) The chapter-list lookup failed once (network) and nothing asked again -> one retry after 1.5 s when the lookup threw. (4) Madara sites show only the newest ~50 chapters plus chapter 1 on the series page, so opening chapter 65 gave 1, 65, 365..414 and Next would jump to 365 -> if the nearest listed chapter on either side is more than 30 numbers away, the site's full list (`ajax/chapters`) is requested and used when longer.
 **Not provable from here:** why all three proxies failed at that moment (a short outage of the proxies or the connection is the most likely reason; the Cloudflare server of the site cannot be reached from the build machine).
 **Tests:** `r72.js` (MODE=hole: list 414 with 66 right after 65; MODE=net: eight network failures for chapter 67, no pop-up, the chapter loads by itself within ~40 s) + the full regression.
+
+## 4zg. Round 73 — mgeko list page: "An icon / text font could not be loaded" (Font Awesome 5 Free) + "P2-PLACEHOLDER-NOSRC" (`?v=75`)
+**Report (build 72, mgeko.cc/jumbo/manga/):** 11 style sheets repaired through the proxy, but 1 of 141 fonts ("Font Awesome 5 Free") still failed -> notice "icons may look like empty boxes"; the page check also listed `P2-PLACEHOLDER-NOSRC` (1 spinner picture) although 111 cover pictures were loaded.
+**Fixes (app.js):** (1) FONT AS DATA: when a font is still in the 'error' state after the proxy re-send, its first .woff2/.woff is downloaded through the proxies as plain data (each proxy in turn, <= 600 KB, <= 6 files), written into the repaired sheet as a `data:` address - no further request and no CORS needed. (2) The icon-font notice only counts a failed icon font when an element on the page really uses that family AND weight (the report now lists the weight: "Font Awesome 5 Free 400"). (3) `P2-PLACEHOLDER-NOSRC` is not raised when the page already shows 3+ real pictures. (`script-src-attr` blocks in the report are harmless inline-handler blocks and were already ignored by the pop-up logic.)
+**Test:** `r73.js` - a sheet whose font files fail as fonts but work as data: before = both faces `error` + notice; now both `loaded`, no notice.
+**Still unknown:** why the regular-weight file failed natively on the user's phone; the report line will now say which weight.

@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 72 — 2026-11-23 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 73 — 2026-11-26 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -846,6 +846,12 @@ Paste this file at the start of a new session to give Claude full context. Then 
 **Not provable from here:** why all three proxies failed at that moment (a short outage of the proxies or the connection is the most likely reason; the Cloudflare server of the site cannot be reached from the build machine).
 **Tests:** `r72.js` (MODE=hole: list 414 with 66 right after 65; MODE=net: eight network failures for chapter 67, no pop-up, the chapter loads by itself within ~40 s) + the full regression.
 
+## 4zg. Round 73 — mgeko list page: "An icon / text font could not be loaded" (Font Awesome 5 Free) + "P2-PLACEHOLDER-NOSRC" (`?v=75`)
+**Report (build 72, mgeko.cc/jumbo/manga/):** 11 style sheets repaired through the proxy, but 1 of 141 fonts ("Font Awesome 5 Free") still failed -> notice "icons may look like empty boxes"; the page check also listed `P2-PLACEHOLDER-NOSRC` (1 spinner picture) although 111 cover pictures were loaded.
+**Fixes (app.js):** (1) FONT AS DATA: when a font is still in the 'error' state after the proxy re-send, its first .woff2/.woff is downloaded through the proxies as plain data (each proxy in turn, <= 600 KB, <= 6 files), written into the repaired sheet as a `data:` address - no further request and no CORS needed. (2) The icon-font notice only counts a failed icon font when an element on the page really uses that family AND weight (the report now lists the weight: "Font Awesome 5 Free 400"). (3) `P2-PLACEHOLDER-NOSRC` is not raised when the page already shows 3+ real pictures. (`script-src-attr` blocks in the report are harmless inline-handler blocks and were already ignored by the pop-up logic.)
+**Test:** `r73.js` - a sheet whose font files fail as fonts but work as data: before = both faces `error` + notice; now both `loaded`, no notice.
+**Still unknown:** why the regular-weight file failed natively on the user's phone; the report line will now say which weight.
+
 
 
 ---
@@ -923,17 +929,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=74" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=75" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=74" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=75" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=74">
+  <link rel="stylesheet" href="style.css?v=75">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=74"></script>
+  <script src="boot.js?v=75"></script>
 </head>
 <body data-side="right">
 
@@ -1506,24 +1512,24 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=74"></script>
+  <script src="pdfmaker.js?v=75"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=74"></script>
-  <script src="app.js?v=74"></script>
+  <script src="troubleshoot-data.js?v=75"></script>
+  <script src="app.js?v=75"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=74"></script>
+  <script src="chapter-slider.js?v=75"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=74"></script>
+  <script src="reload-wheel.js?v=75"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=74"></script>
+  <script src="edge-slider.js?v=75"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=74"></script>
+  <script src="translate.js?v=75"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=74"></script>
+  <script src="profiles.js?v=75"></script>
 </body>
 </html>
 ~~~~~~
@@ -3811,7 +3817,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8677 lines)
+### File: `app.js`  (8721 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -4708,7 +4714,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 72)',
+      'MangaFlow error report (build round 73)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -5636,13 +5642,57 @@ window.MF_FIX = {
       // returns null if they left.
       await wait(1800); fd = liveDoc(token); if (!fd) return;
     }
+    /* ROUND 73 - FONT AS DATA (mgeko list page: "Font Awesome 5 Free" still failed after the proxy re-send). WHY: a font file loaded as a font needs the other site's permission (CORS) and its own request;
+         the same file fetched through the proxy as plain data always works. HOW: for every @font-face whose family is still in the 'error' state, the first .woff2/.woff address is downloaded through the
+         proxy (at most 6 files, each under 600 KB), turned into a data: address and written into the style sheet, so the browser needs no further request. IMPROVE: also keep the data in rawCache. */
+    if (fontBad(fd)) {
+      try {
+        const badFam = new Set(Array.from(fd.fonts).filter(f => f.status === 'error').map(f => String(f.family).replace(/["'\s]/g, '').toLowerCase()));
+        let done = 0;
+        for (const st of Array.from(fd.querySelectorAll('style[data-mf="repaired"]'))) {
+          let css = st.textContent, changed = false;
+          for (const face of (css.match(/@font-face\s*\{[^}]*\}/gi) || [])) {
+            if (done >= 6) break;
+            const fam = ((face.match(/font-family\s*:\s*([^;}]+)/i) || [])[1] || '').replace(/["'\s]/g, '').toLowerCase();
+            if (!badFam.has(fam)) continue;
+            const m = face.match(/url\(\s*["']?([^"')]+\.woff2?[^"')]*)["']?\s*\)/i); if (!m) continue;
+            try {
+              // the address in the sheet is already wrapped by one proxy; take the ORIGINAL file address out and ask every proxy in turn (a wrapped address may point at a proxy that is down)
+              let orig = m[1]; const w = orig.match(/[?&]url=([^&]+)/); if (w) { try { orig = decodeURIComponent(w[1]); } catch { /* keep */ } }
+              let blob = null, lastErr = 'no proxy answered';
+              for (const px of proxyList(false).slice(0, 4)) {
+                try { const r = await fetch(px.replace('{url}', encodeURIComponent(orig)), { credentials: 'omit' }); if (!r.ok) { lastErr = 'HTTP ' + r.status; continue; } const bl = await r.blob(); if (bl.size > 200 && !/html|json/i.test(bl.type)) { blob = bl; break; } lastErr = 'not a font file'; } catch (e4) { lastErr = (e4 && e4.message) || 'failed'; }
+              }
+              if (!blob) throw new Error(lastErr); if (blob.size > 600000) throw new Error('too big: ' + blob.size);
+              const data = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(blob); });
+              const fmt = /\.woff2/i.test(m[1]) ? 'woff2' : 'woff';
+              css = css.replace(face, face.replace(/src\s*:[^;}]*/i, 'src:url("' + data + '") format("' + fmt + '")')); changed = true; done++;
+            } catch (e3) { stat.notes.push('font as data failed for ' + fam + ': ' + ((e3 && e3.message) || e3)); }
+          }
+          if (changed) st.textContent = css;
+        }
+        if (done) { stat.notes.push('fonts turned into data: addresses: ' + done); await wait(1500); fd = liveDoc(token); if (!fd) return; }
+      } catch { /* keep what we have */ }
+    }
     // ROUND 54: only warn about fonts when it matters. WHY: nyxscans lists many text fonts (Arabic and others) and one of them failing made the notice say "icons may look like empty boxes" even though the page looked fine.
     // HOW: name the failed fonts in the report; warn only if an ICON-style font failed (name has icon / awesome / symbol / glyph / material / fa) or more than half of all fonts failed.
     // IMPROVE: also check that an icon glyph really drew.
     try {
       const all = Array.from(fd.fonts), bad = all.filter(f => f.status === 'error');
-      if (bad.length) stat.notes.push('fonts that failed (' + bad.length + ' of ' + all.length + '): ' + bad.map(f => String(f.family).replace(/["']/g, '')).slice(0, 12).join(', '));
-      stat.fontsBad = bad.some(f => /icon|awesome|symbol|glyph|material|(^|[^a-z])fa([^a-z]|$)/i.test(f.family)) || (all.length > 0 && bad.length * 2 > all.length);
+      if (bad.length) stat.notes.push('fonts that failed (' + bad.length + ' of ' + all.length + '): ' + bad.map(f => String(f.family).replace(/["']/g, '') + ' ' + f.weight).slice(0, 12).join(', '));
+      // ROUND 72 (mgeko list page: "Font Awesome 5 Free" failed, 1 of 141, and the notice said icons may be empty boxes). WHY: Font Awesome has several files (solid, regular, brands); when only the
+      //   regular one fails and nothing on the page uses that weight, nothing is wrong. HOW: a failed icon font only counts when some element on the page really draws with that family AND weight
+      //   (it has text, or a ::before text). IMPROVE: look at the glyph pixels.
+      const w2n = w => { w = String(w || '400').toLowerCase(); return w === 'normal' ? 400 : w === 'bold' ? 700 : parseInt(w, 10) || 400; };
+      const used = f => {
+        const fam = String(f.family).replace(/["']/g, '').trim().toLowerCase(), fw = w2n(f.weight), view = fd.defaultView;
+        const els = Array.from(fd.querySelectorAll('i,span,a,em,b,button,label,[class*="fa"],[class*="icon"],[class*="Icon"]')).slice(0, 1500);
+        return els.some(el => { try { const cs = view.getComputedStyle(el); if (!cs.fontFamily.toLowerCase().replace(/["']/g, '').split(',').some(x => x.trim() === fam)) return false; if (Math.abs(w2n(cs.fontWeight) - fw) > 100) return false; const pb = view.getComputedStyle(el, '::before').content, pa = view.getComputedStyle(el, '::after').content; return !!(el.textContent || '').trim() || (pb && !/^(none|normal|"")$/.test(pb)) || (pa && !/^(none|normal|"")$/.test(pa)); } catch { return false; } });
+      };
+      const badIcons = bad.filter(f => /icon|awesome|symbol|glyph|material|(^|[^a-z])fa([^a-z]|$)/i.test(f.family));
+      const iconsUsed = badIcons.filter(used), unused = badIcons.filter(f => !iconsUsed.includes(f));
+      if (unused.length) stat.notes.push('a failed icon font that nothing on the page uses was ignored: ' + unused.map(f => String(f.family).replace(/["']/g, '') + ' ' + f.weight).join(', '));
+      stat.fontsBad = iconsUsed.length > 0 || (all.length > 0 && bad.length * 2 > all.length);
     } catch { stat.fontsBad = false; }
     pageHealth(fd, stat, base);
   }
@@ -11598,7 +11648,7 @@ window.MF_FIX = {
       const leftover = (c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1 && shown >= best.length;
       if (leftover) r.notes.push('a spare placeholder slot was ignored: all ' + best.length + ' pictures the finder knows are already shown');
       else if ((c.placeholder || 0) + (c.noaddr || 0) > 0 && best.length >= 1) r.problems.push({ code: 'P2-PLACEHOLDER', text: ((c.placeholder || 0) + (c.noaddr || 0)) + ' picture slot(s) only show a placeholder/spinner or are empty, but the reader finder knows ' + best.length + ' real picture(s).', fix: true });
-      else if ((c.placeholder || 0) > 0 && best.length < 1) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
+      else if ((c.placeholder || 0) > 0 && best.length < 1 && (c.ok || 0) < 3) r.problems.push({ code: 'P2-PLACEHOLDER-NOSRC', text: (c.placeholder) + ' placeholder slot(s) and the finder found no real pictures.', fix: false });
       if (best.length >= 3 && best.length >= shown + 3 && !((c.placeholder || 0) + (c.noaddr || 0) > 0 && shown + (c.placeholder || 0) + (c.noaddr || 0) >= best.length)) r.problems.push({ code: 'P2-MISSING', text: 'The page shows ' + shown + ' real picture(s) but the reader finder knows ' + best.length + '. Some pages of the chapter are missing here.', fix: true });
       if ((c.pending || 0) > 0 && cur.shownAt && Date.now() - cur.shownAt > 12000) r.problems.push({ code: 'P2-STALLED', text: (c.pending) + ' picture(s) are still loading after 12 seconds (slow or silent host).', fix: true });
       if ((c.failed || 0) > 0) r.problems.push({ code: 'P2-FAILED', text: (c.failed) + ' picture(s) failed to load (blocked or slow host).', fix: true });
@@ -11783,7 +11833,7 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 72)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 73)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
@@ -15722,7 +15772,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (165 lines)
+### File: `MANGAFLOW_GUIDE.md`  (167 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15731,7 +15781,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 72 — 2026-11-23*
+*Last updated: Round 73 — 2026-11-26*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15887,6 +15937,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 71: 'the site is missing chapter 26 (HTTP 404)' although the site may have it under another address ending -> a chapter rescue now reads the Previous/Next links of neighbouring chapters and tries other address endings before calling a chapter missing; when the site's own links skip a number it is only a small note (no red pop-up); chapters that could not be checked because of a slow connection are asked again by themselves after 12 s, 40 s and 100 s.**
 
 - **Round 72: manhuatop report - a plain network failure was shown as 'The site is blocking MangaFlow' (the word Cloudflare in the tip matched the block rule) and opened a big pop-up on the first failure -> network failures now say 'Could not reach the page', retry by themselves after 3 s / 6 s and only pop up on the 3rd failure; the chapter-list lookup is repeated once after a network error; when the listed chapters are more than 30 numbers away from the chapter you opened (site shows only the newest 50 + chapter 1) the site's full list is loaded.**
+
+- **Round 73: mgeko list page - a font that still fails after the proxy re-send is now downloaded through the proxies and embedded as data (no CORS needed); the 'icons may look like empty boxes' notice only appears when the failed icon font is really used on the page; a list page with many pictures no longer reports a 'placeholder' problem.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
