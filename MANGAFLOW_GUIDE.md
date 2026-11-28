@@ -1,7 +1,7 @@
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 73 — 2026-11-26*
+*Last updated: Round 74 — 2026-11-28*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -159,6 +159,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 72: manhuatop report - a plain network failure was shown as 'The site is blocking MangaFlow' (the word Cloudflare in the tip matched the block rule) and opened a big pop-up on the first failure -> network failures now say 'Could not reach the page', retry by themselves after 3 s / 6 s and only pop up on the 3rd failure; the chapter-list lookup is repeated once after a network error; when the listed chapters are more than 30 numbers away from the chapter you opened (site shows only the newest 50 + chapter 1) the site's full list is loaded.**
 
 - **Round 73: mgeko list page - a font that still fails after the proxy re-send is now downloaded through the proxies and embedded as data (no CORS needed); the 'icons may look like empty boxes' notice only appears when the failed icon font is really used on the page; a list page with many pictures no longer reports a 'placeholder' problem.**
+
+- **Round 74: NEW auto-scroll play button (file autoscroll.js, left side under the reload wheel). Click = scroll one screen-step every N seconds (Settings > Auto-scroll button, 'every N s', default 3) until the last chapter ends; click again or Esc = pause; keeps the screen awake while running (Settings option); switch it off in Settings to hide it. The reader's address box now shows the link of the chapter you are reading.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.

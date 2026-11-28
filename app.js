@@ -158,6 +158,9 @@
     pdfMode: 'balanced',  // round 11: PDF picture quality = 'original' | 'balanced' (default) | 'small' | 'tiny' (see PDF_PROFILES in section 12)
     showSlider: true,     // round 13: show the vertical chapter slider (chapter-slider.js). false = hidden and disabled
     showWheel: true,      // round 13: show the reload wheel (reload-wheel.js). false = hidden and disabled
+    showAuto: true,       // round 74: show the auto-scroll play button (autoscroll.js). false = hidden and disabled (it stops if it was running)
+    autoSecs: 3,          // round 74: seconds between two little scrolls of the auto-scroll button (1 - 60)
+    autoAwake: true,      // round 74: keep the screen awake while the auto-scroll button is running
     accent: '#e8590c',    // round 14: the highlight colour (buttons, progress bar). Chosen by the swatches in Settings > Reading
     searchManga: true,    // round 15: typed words are searched as "<words> manga" (true) or as they are (false = search everything)
     engineStrict: false,   // round 19: true = never fall back to another engine when the chosen one fails
@@ -288,6 +291,11 @@
   function applyAddons() {
     const b = document.body, sl = !!window.MangaFlowSlider && settings.showSlider !== false, wh = !!window.MangaFlowWheel && settings.showWheel !== false;
     b.classList.toggle('no-slider', settings.showSlider === false); b.classList.toggle('no-wheel', settings.showWheel === false);
+    // ROUND 74: the auto-scroll button (autoscroll.js). WHY: same pattern as the wheel: body.no-auto hides it; the file reads its numbers from window.MangaFlowAutoCfg.
+    //   HOW: seconds are clamped to 1..60 here, then the add-on is told with the event 'mf-auto-config'. IMPROVE: one generic add-on registry.
+    b.classList.toggle('no-auto', settings.showAuto === false);
+    window.MangaFlowAutoCfg = { show: settings.showAuto !== false, secs: Math.min(60, Math.max(1, Math.round(+settings.autoSecs) || 3)), awake: settings.autoAwake !== false };
+    try { window.dispatchEvent(new CustomEvent('mf-auto-config')); } catch { /* an add-on must never stop the settings */ }
     // WHY: CSS shows or hides the add-ons by these body classes. HOW: classList.toggle(name, true/false) adds or removes the
     // class.
     b.classList.toggle('has-slider', sl); b.classList.toggle('has-wheel', wh);
@@ -889,7 +897,7 @@
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 73)',
+      'MangaFlow error report (build round 74)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -4767,6 +4775,8 @@
           2) fill all of them in parallel, 3) when every box is done, check the sentinel again.
      Returns a promise, so callers (for example the "next chapter" key) can wait for the batch. */
   // WHY: Load the next batch of chapters. HOW: see the comment above. Returns a Promise.
+  // ROUND 74: a tiny read-only helper for autoscroll.js: is the reader open, is a batch loading, are all chapters already on the page?
+  window.MangaFlowReaderInfo = () => ({ reading: !reader.hidden, busy: !!R.loading, atEnd: R.next >= R.chapters.length });
   function loadNext() {
     // WHY: Do nothing when not reading or paused. HOW: return a done Promise.
     if (reader.hidden || R.paused) return Promise.resolve();
@@ -5716,7 +5726,11 @@
     for (const x of secs) { if (x.getBoundingClientRect().top <= mid) s = x; else break; }
     const idx = +s.dataset.index;
     // WHY: the chapter on screen changed. HOW: remember it, update the title line and the current mark in the menu.
-    if (idx !== R.cur) { R.cur = idx; $('#rSub').textContent = labelFor(idx); markCurrent(); setTimeout(keeperTick, 0); }   // round 63: start the next pictures now
+    if (idx !== R.cur) {
+      R.cur = idx; $('#rSub').textContent = labelFor(idx); markCurrent(); setTimeout(keeperTick, 0);
+      // ROUND 74: the address box follows the chapter AT ONCE (rememberChapter below only runs after the scrolling has paused for 600 ms, which never happens while auto-scroll runs every second)
+      { const ra = $('#rdAddr'), cc = R.chapters[idx]; if (ra && cc && document.activeElement !== ra && ra.value !== cc.url) ra.value = cc.url; }
+    }   // round 63: start the next pictures now
     // Close to the end of what is loaded (2 chapters left)? Start the next batch now, so you never wait.
     if (!R.loading && R.next < R.chapters.length && idx >= R.next - 2) loadNext();
     autoFree();
@@ -5766,6 +5780,10 @@
     //   the plain "still on the same chapter" keep-alive save) adds a real Back/Forward step. See rememberView above
     //   for the full explanation.
     // ROUND 46: the address is written ONLY while reading mode is really on screen (a late timer after Home must never put #r= back), and an old ?url= is never kept.
+    // ROUND 74: the reader's address box shows the link of the chapter you are reading NOW (it used to keep the link of chapter 1 when you went on to chapter 2).
+    //   WHY: if fetching ever fails you can copy / refresh with the right link. HOW: written here because rememberChapter runs whenever the current chapter changes;
+    //   a box you are typing in (focused) is never overwritten. IMPROVE: also update the Page 2 address box.
+    { const ra = $('#rdAddr'); if (ra && document.activeElement !== ra && ra.value !== ch.url) ra.value = ch.url; }
     if (!settings.noHistory && !reader.hidden) {
       const hash = '#r=' + encodeURIComponent(ch.url), full = location.pathname + cleanSearch() + hash;
       const changed = full !== (location.pathname + cleanSearch() + location.hash);
@@ -7315,6 +7333,7 @@
     $('#setAhead').value = [0, 3, 5, 9].includes(+settings.preloadAhead) ? String(+settings.preloadAhead) : '9';   // round 29d
     // WHY: tick the boxes for the current settings. HOW: checked = the saved value (default on).
     $('#setSlider').checked = settings.showSlider !== false; $('#setWheel').checked = settings.showWheel !== false;
+    $('#setAuto').checked = settings.showAuto !== false; $('#setAutoSecs').value = Math.min(60, Math.max(1, Math.round(+settings.autoSecs) || 3)); $('#setAutoAwake').checked = settings.autoAwake !== false;   // round 74
     $('#setAwake').checked = !!settings.keepAwake; $$('#accentRow [data-c]').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === String(settings.accent).toLowerCase()));   // round 14
     $('#setArrows').checked = settings.arrowKeys; $('#setTap').checked = settings.tapScroll; $('#setAutoRead').checked = settings.autoRead;
     // ROUND 18: the "Search & extras" card.
@@ -7412,6 +7431,10 @@
   $('#setPdf').onchange = e => { settings.pdfMode = e.target.value; applySettings(); };
   $('#setSlider').onchange = e => { settings.showSlider = e.target.checked; applySettings(); };   // round 13
   $('#setWheel').onchange = e => { settings.showWheel = e.target.checked; applySettings(); };      // round 13
+  // ROUND 74: auto-scroll button: show/hide, seconds between two scrolls, keep the screen awake while it runs
+  $('#setAuto').onchange = e => { settings.showAuto = e.target.checked; applySettings(); };
+  $('#setAutoSecs').onchange = e => { const v = Math.min(60, Math.max(1, Math.round(+e.target.value) || 3)); e.target.value = v; settings.autoSecs = v; applySettings(); };
+  $('#setAutoAwake').onchange = e => { settings.autoAwake = e.target.checked; applySettings(); };
   // ROUND 32: the Translate tab. Each control saves at once; applySettings() then sends 'mf-settings' so translate.js repeats only the work that the change needs.
   $('#setTrShow').onchange = e => { settings.showTranslate = e.target.checked; applySettings(); };
   $('#setTrTo').onchange = e => { settings.trTo = e.target.value; applySettings(); };
@@ -8008,14 +8031,14 @@
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 73)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 74)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
       'Proxies: ' + (settings.proxies.map(proxyName).join(', ') || 'NONE'),
       'Settings: quality ' + settings.pdfMode + ', width ' + settings.width + ', side ' + settings.side + ', autoRead ' + settings.autoRead + ', autoFree ' + settings.autoFree,
       // WHY: tell Claude which add-ons are linked. HOW: true or false for the slider and the wheel.
-      'Add-ons: slider ' + !!window.MangaFlowSlider + ', wheel ' + !!window.MangaFlowWheel + ', edge ' + !!window.MangaFlowEdge + ', translate ' + !!window.MangaFlowTranslate + ', profiles ' + !!PF,
+      'Add-ons: slider ' + !!window.MangaFlowSlider + ', wheel ' + !!window.MangaFlowWheel + ', edge ' + !!window.MangaFlowEdge + ', autoscroll ' + !!window.MangaFlowAutoScroll + ', translate ' + !!window.MangaFlowTranslate + ', profiles ' + !!PF,
       window.MangaFlowTranslate ? window.MangaFlowTranslate.report() : 'Translate add-on: not linked',
       'AutoPilot (round 67): ' + pilotText(),
       'Keeper (round 29d): ' + (keeper.last || 'not run yet') + ', setting ' + settings.preloadAhead + ', base wait ' + healBase() + ' ms',

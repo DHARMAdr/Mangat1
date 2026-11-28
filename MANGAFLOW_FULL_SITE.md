@@ -67,7 +67,7 @@ The complete stylesheet is Part C, file `style.css` (about 1,400 lines, every ru
 # MANGAFLOW — Project Reference, Code Map & Build History
 *GitHub repo: https://github.com/DHARMAdr/Mangat0 · Site: https://dharmadr.github.io/Mangat0/*
 *Cloudflare Workers: `worker.js` (page/image proxy) and `accounts-worker.js` (cloud profiles, D1 database)*
-*Last updated: Round 73 — 2026-11-26 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
+*Last updated: Round 74 — 2026-11-28 · Only HTML, CSS and JavaScript are used (no build step, no frameworks).*
 
 > This ONE file replaces every older copy. It has (1) the page naming we use, (2) what every file is for, (3) for every part of every file **why it exists / how it works / how it can be improved**, (4) the complete history up to the latest round, (5) how to continue with Claude.
 
@@ -852,6 +852,14 @@ Paste this file at the start of a new session to give Claude full context. Then 
 **Test:** `r73.js` - a sheet whose font files fail as fonts but work as data: before = both faces `error` + notice; now both `loaded`, no notice.
 **Still unknown:** why the regular-weight file failed natively on the user's phone; the report line will now say which weight.
 
+## 4zh. Round 74 — Auto-scroll play button (new add-on file `autoscroll.js`) + the reader address box follows the chapter (`?v=76`)
+**Request:** a play button (left side, below the header, under the reload wheel) that scrolls the chapters by itself like one tap, waits a few seconds (default 3) and repeats until the end of the chapters; a Settings switch to show/hide it and a box for the seconds; a SEPARATE file so the old code is not touched. Also: the address box in reading mode must show the link of the chapter being read (it kept chapter 1's link when chapter 2 was on screen).
+**New file `autoscroll.js`** (fully commented): one round button `#mfAuto` (play triangle / pause bars) fixed under `#mfWheel` (top = `--col-top + --mfw + 12px`, left edge). Click = start/pause, Esc = stop. A chained `setTimeout` calls `step()` every N seconds: `scrollBy(85 % of the screen height)` (the same amount as one tap in app.js), skipped when the tab is hidden or you touched/scrolled/pressed a key in the last 1.5 s. At the page bottom it waits for the next chapters (app.js says `MangaFlowReaderInfo().atEnd/busy`) and stops with "End of the chapters" only when no more chapters exist (2 rounds), or after 4 rounds at the bottom when the helper is missing. While running it holds a Screen Wake Lock (Settings: "Keep the screen on while auto-scrolling"). Leaving reading mode or switching the button off stops it.
+**app.js changes (small):** settings `showAuto` (true), `autoSecs` (3, clamped 1-60), `autoAwake` (true); `applyAddons()` toggles `body.no-auto`, writes `window.MangaFlowAutoCfg` and fires `mf-auto-config`; `window.MangaFlowReaderInfo`; Settings card line "Auto-scroll button  every [3] s" + "Keep the screen on while auto-scrolling" (index.html, next to Chapter slider / Reload wheel); diagnostic line "Add-ons: ... autoscroll true".
+**Address box:** `#rdAddr` is updated the moment the chapter on screen changes (scroll handler) and again in `rememberChapter`; a box you are typing in is never overwritten. The browser address (#r=) already followed the chapter after a 600 ms pause.
+**Remove the feature:** delete the `<script src="autoscroll.js">` line (and the file); the Settings switches then do nothing and nothing else changes.
+**Test:** `r74.js` (4-chapter mock): button sits under the wheel (190 > 180 px), click scrolls, pause holds still, resume runs to the end and stops with "End of the chapters" at the bottom, the address box shows chapters 1,2,3,4 in turn, switching the setting off hides the button.
+
 
 
 ---
@@ -860,7 +868,7 @@ Paste this file at the start of a new session to give Claude full context. Then 
 Each file has: a short introduction (why it exists), then the code between BEGIN/END markers. The code is the real file, byte for byte.
 
 
-### File: `index.html`  (667 lines)
+### File: `index.html`  (674 lines)
 
 **Why this file exists / what it does:** The page itself (Page 1 start page, Page 2 site view frame, Page 3 reading mode, all dialogs and settings). Loads every other file in a fixed order.
 
@@ -929,17 +937,17 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
        carriers/browsers, can keep serving an OLD cached copy of style.css / app.js / profiles.js / etc. for a
        while after a new version is deployed, because every round reused the exact same file name and address,
        which is the one thing a cache uses to decide "have I already got this?". WHY the fix: every local
-       stylesheet/script tag below now ends in "?v=75" — changing that number is a tiny edit to THIS file, but it
+       stylesheet/script tag below now ends in "?v=76" — changing that number is a tiny edit to THIS file, but it
        makes the browser treat it as a brand-new address it has never cached before, forcing a fresh download
        every time, with no stale leftovers possible, regardless of how long a phone or carrier would otherwise
-       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=75" below to the new round's number
+       hold onto the old copy. HOW TO KEEP THIS WORKING: bump every "?v=76" below to the new round's number
        whenever ANY of these specific files changes in a future round (a quick find-and-replace) — Claude will
        keep doing this automatically going forward. IMPROVE: a build step that computes this automatically from
        each file's own content hash, so it can never be forgotten by hand. -->
-  <link rel="stylesheet" href="style.css?v=75">
+  <link rel="stylesheet" href="style.css?v=76">
   <!-- ROUND 29: boot.js runs BEFORE the first paint. WHY: so a refresh / reopen shows the cover "Reopening where you were..." (below) and the saved dark theme at once,
        instead of flashing the start page while the big app.js loads. HOW: it only reads the address and the saved settings. IMPROVE: none needed. It is safe to remove (the flash returns). -->
-  <script src="boot.js?v=75"></script>
+  <script src="boot.js?v=76"></script>
 </head>
 <body data-side="right">
 
@@ -1364,6 +1372,10 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
           <!-- ROUND 13: switch the two optional controls off (hidden AND disabled) or on -->
           <div class="check-pair"><label class="check"><input type="checkbox" id="setSlider"> Chapter slider</label>
           <label class="check"><input type="checkbox" id="setWheel"> Reload wheel</label></div>
+          <!-- ROUND 74: auto-scroll play button (autoscroll.js): show / hide, seconds between two little scrolls, keep the screen awake while it runs -->
+          <div class="check-pair"><label class="check"><input type="checkbox" id="setAuto"> Auto-scroll button</label>
+          <label class="check">every <input type="number" id="setAutoSecs" min="1" max="60" step="1" inputmode="numeric" style="width:4.2em"> s</label></div>
+          <label class="check"><input type="checkbox" id="setAutoAwake"> Keep the screen on while auto-scrolling</label>
           <!-- ROUND 14: accent colour + keep the screen awake (one line, so Settings still fits big screens without tabs) -->
           <div class="check-pair"><label class="check"><input type="checkbox" id="setAwake"> Keep screen awake</label>
             <span id="accentRow" class="accent-row" role="group" aria-label="Accent colour"><button type="button" data-c="#e8590c" style="--c:#e8590c" aria-label="Orange"></button><button type="button" data-c="#1c7ed6" style="--c:#1c7ed6" aria-label="Blue"></button><button type="button" data-c="#7048e8" style="--c:#7048e8" aria-label="Violet"></button><button type="button" data-c="#0ca678" style="--c:#0ca678" aria-label="Green"></button><button type="button" data-c="#d6336c" style="--c:#d6336c" aria-label="Pink"></button></span></div>
@@ -1512,24 +1524,27 @@ Each file has: a short introduction (why it exists), then the code between BEGIN
   </dialog>
 
   <!-- pdfmaker.js must come BEFORE app.js (app.js uses MangaPDFLib). -->
-  <script src="pdfmaker.js?v=75"></script>
+  <script src="pdfmaker.js?v=76"></script>
   <!-- ROUND 11 (OPTIONAL): the texts of the troubleshoot guide. Without this file the guide is empty; the checks still work. Load it BEFORE app.js. -->
-  <script src="troubleshoot-data.js?v=75"></script>
-  <script src="app.js?v=75"></script>
+  <script src="troubleshoot-data.js?v=76"></script>
+  <script src="app.js?v=76"></script>
   <!-- ROUND 10 (OPTIONAL): the chapter slider on the right edge. Delete this one line (or the file) and the slider is simply gone;
        nothing else needs it. It talks to app.js only through the browser event "mf-chapter-step". -->
-  <script src="chapter-slider.js?v=75"></script>
+  <script src="chapter-slider.js?v=76"></script>
   <!-- ROUND 11 (OPTIONAL): the reload wheel on the left edge (turn right = reload this chapter, turn left = reload all). Same rule:
        delete this line (or the file) and it is gone. It talks to app.js only through the event "mf-reload". -->
-  <script src="reload-wheel.js?v=75"></script>
+  <script src="reload-wheel.js?v=76"></script>
+  <!-- ROUND 74 (OPTIONAL): the auto-scroll play button under the reload wheel. Delete this line (or the file) and it is gone; Settings then simply has an unused switch.
+       It talks to app.js only through window.MangaFlowAutoCfg, the event "mf-auto-config" and window.MangaFlowReaderInfo(). -->
+  <script src="autoscroll.js?v=76"></script>
   <!-- ROUND 18 (OPTIONAL): the Top / End slider on the left edge, above the reload wheel. Delete this line (or the file) and the Top / End keys stay. -->
-  <script src="edge-slider.js?v=75"></script>
+  <script src="edge-slider.js?v=76"></script>
   <!-- ROUND 32 (OPTIONAL): the Translate button (文A, left edge) and its engine. It needs the folder ocr/ (text reader + language files). Delete this line and the
        button, the Settings tab and every translation feature are simply gone; nothing else needs it. It talks to app.js only through the events mf-settings,
        mf-settings-set and mf-translate-problem. -->
-  <script src="translate.js?v=75"></script>
+  <script src="translate.js?v=76"></script>
   <!-- ROUND 13: optional profile icon + sign-in + admin view (delete this line and profiles.js to remove the feature) -->
-  <script src="profiles.js?v=75"></script>
+  <script src="profiles.js?v=76"></script>
 </body>
 </html>
 ~~~~~~
@@ -3817,7 +3832,7 @@ window.MF_FIX = {
 <!-- END FILE -->
 
 
-### File: `app.js`  (8721 lines)
+### File: `app.js`  (8744 lines)
 
 **Why this file exists / what it does:** THE MAIN PROGRAM (about 7,800 lines): proxies and fetching, page analysis, chapter detection, the mini-browser (Page 2), reading mode (Page 3), downloads, settings, keyboard shortcuts, error reports, the chapter audit and the button bridge.
 
@@ -3983,6 +3998,9 @@ window.MF_FIX = {
     pdfMode: 'balanced',  // round 11: PDF picture quality = 'original' | 'balanced' (default) | 'small' | 'tiny' (see PDF_PROFILES in section 12)
     showSlider: true,     // round 13: show the vertical chapter slider (chapter-slider.js). false = hidden and disabled
     showWheel: true,      // round 13: show the reload wheel (reload-wheel.js). false = hidden and disabled
+    showAuto: true,       // round 74: show the auto-scroll play button (autoscroll.js). false = hidden and disabled (it stops if it was running)
+    autoSecs: 3,          // round 74: seconds between two little scrolls of the auto-scroll button (1 - 60)
+    autoAwake: true,      // round 74: keep the screen awake while the auto-scroll button is running
     accent: '#e8590c',    // round 14: the highlight colour (buttons, progress bar). Chosen by the swatches in Settings > Reading
     searchManga: true,    // round 15: typed words are searched as "<words> manga" (true) or as they are (false = search everything)
     engineStrict: false,   // round 19: true = never fall back to another engine when the chosen one fails
@@ -4113,6 +4131,11 @@ window.MF_FIX = {
   function applyAddons() {
     const b = document.body, sl = !!window.MangaFlowSlider && settings.showSlider !== false, wh = !!window.MangaFlowWheel && settings.showWheel !== false;
     b.classList.toggle('no-slider', settings.showSlider === false); b.classList.toggle('no-wheel', settings.showWheel === false);
+    // ROUND 74: the auto-scroll button (autoscroll.js). WHY: same pattern as the wheel: body.no-auto hides it; the file reads its numbers from window.MangaFlowAutoCfg.
+    //   HOW: seconds are clamped to 1..60 here, then the add-on is told with the event 'mf-auto-config'. IMPROVE: one generic add-on registry.
+    b.classList.toggle('no-auto', settings.showAuto === false);
+    window.MangaFlowAutoCfg = { show: settings.showAuto !== false, secs: Math.min(60, Math.max(1, Math.round(+settings.autoSecs) || 3)), awake: settings.autoAwake !== false };
+    try { window.dispatchEvent(new CustomEvent('mf-auto-config')); } catch { /* an add-on must never stop the settings */ }
     // WHY: CSS shows or hides the add-ons by these body classes. HOW: classList.toggle(name, true/false) adds or removes the
     // class.
     b.classList.toggle('has-slider', sl); b.classList.toggle('has-wheel', wh);
@@ -4714,7 +4737,7 @@ window.MF_FIX = {
     // time, problem, page, reading state, downloads, proxies, browser, extra details. IMPROVE: hide private parts of
     // addresses.
     const report = [
-      'MangaFlow error report (build round 73)',
+      'MangaFlow error report (build round 74)',
       'Time: ' + new Date().toString(),
       // WHY: the lines of the error report the person can copy. HOW: each line is 'Label: value'; they are joined with new
       // lines at the end.
@@ -8592,6 +8615,8 @@ window.MF_FIX = {
           2) fill all of them in parallel, 3) when every box is done, check the sentinel again.
      Returns a promise, so callers (for example the "next chapter" key) can wait for the batch. */
   // WHY: Load the next batch of chapters. HOW: see the comment above. Returns a Promise.
+  // ROUND 74: a tiny read-only helper for autoscroll.js: is the reader open, is a batch loading, are all chapters already on the page?
+  window.MangaFlowReaderInfo = () => ({ reading: !reader.hidden, busy: !!R.loading, atEnd: R.next >= R.chapters.length });
   function loadNext() {
     // WHY: Do nothing when not reading or paused. HOW: return a done Promise.
     if (reader.hidden || R.paused) return Promise.resolve();
@@ -9541,7 +9566,11 @@ window.MF_FIX = {
     for (const x of secs) { if (x.getBoundingClientRect().top <= mid) s = x; else break; }
     const idx = +s.dataset.index;
     // WHY: the chapter on screen changed. HOW: remember it, update the title line and the current mark in the menu.
-    if (idx !== R.cur) { R.cur = idx; $('#rSub').textContent = labelFor(idx); markCurrent(); setTimeout(keeperTick, 0); }   // round 63: start the next pictures now
+    if (idx !== R.cur) {
+      R.cur = idx; $('#rSub').textContent = labelFor(idx); markCurrent(); setTimeout(keeperTick, 0);
+      // ROUND 74: the address box follows the chapter AT ONCE (rememberChapter below only runs after the scrolling has paused for 600 ms, which never happens while auto-scroll runs every second)
+      { const ra = $('#rdAddr'), cc = R.chapters[idx]; if (ra && cc && document.activeElement !== ra && ra.value !== cc.url) ra.value = cc.url; }
+    }   // round 63: start the next pictures now
     // Close to the end of what is loaded (2 chapters left)? Start the next batch now, so you never wait.
     if (!R.loading && R.next < R.chapters.length && idx >= R.next - 2) loadNext();
     autoFree();
@@ -9591,6 +9620,10 @@ window.MF_FIX = {
     //   the plain "still on the same chapter" keep-alive save) adds a real Back/Forward step. See rememberView above
     //   for the full explanation.
     // ROUND 46: the address is written ONLY while reading mode is really on screen (a late timer after Home must never put #r= back), and an old ?url= is never kept.
+    // ROUND 74: the reader's address box shows the link of the chapter you are reading NOW (it used to keep the link of chapter 1 when you went on to chapter 2).
+    //   WHY: if fetching ever fails you can copy / refresh with the right link. HOW: written here because rememberChapter runs whenever the current chapter changes;
+    //   a box you are typing in (focused) is never overwritten. IMPROVE: also update the Page 2 address box.
+    { const ra = $('#rdAddr'); if (ra && document.activeElement !== ra && ra.value !== ch.url) ra.value = ch.url; }
     if (!settings.noHistory && !reader.hidden) {
       const hash = '#r=' + encodeURIComponent(ch.url), full = location.pathname + cleanSearch() + hash;
       const changed = full !== (location.pathname + cleanSearch() + location.hash);
@@ -11140,6 +11173,7 @@ window.MF_FIX = {
     $('#setAhead').value = [0, 3, 5, 9].includes(+settings.preloadAhead) ? String(+settings.preloadAhead) : '9';   // round 29d
     // WHY: tick the boxes for the current settings. HOW: checked = the saved value (default on).
     $('#setSlider').checked = settings.showSlider !== false; $('#setWheel').checked = settings.showWheel !== false;
+    $('#setAuto').checked = settings.showAuto !== false; $('#setAutoSecs').value = Math.min(60, Math.max(1, Math.round(+settings.autoSecs) || 3)); $('#setAutoAwake').checked = settings.autoAwake !== false;   // round 74
     $('#setAwake').checked = !!settings.keepAwake; $$('#accentRow [data-c]').forEach(b => b.classList.toggle('on', b.dataset.c.toLowerCase() === String(settings.accent).toLowerCase()));   // round 14
     $('#setArrows').checked = settings.arrowKeys; $('#setTap').checked = settings.tapScroll; $('#setAutoRead').checked = settings.autoRead;
     // ROUND 18: the "Search & extras" card.
@@ -11237,6 +11271,10 @@ window.MF_FIX = {
   $('#setPdf').onchange = e => { settings.pdfMode = e.target.value; applySettings(); };
   $('#setSlider').onchange = e => { settings.showSlider = e.target.checked; applySettings(); };   // round 13
   $('#setWheel').onchange = e => { settings.showWheel = e.target.checked; applySettings(); };      // round 13
+  // ROUND 74: auto-scroll button: show/hide, seconds between two scrolls, keep the screen awake while it runs
+  $('#setAuto').onchange = e => { settings.showAuto = e.target.checked; applySettings(); };
+  $('#setAutoSecs').onchange = e => { const v = Math.min(60, Math.max(1, Math.round(+e.target.value) || 3)); e.target.value = v; settings.autoSecs = v; applySettings(); };
+  $('#setAutoAwake').onchange = e => { settings.autoAwake = e.target.checked; applySettings(); };
   // ROUND 32: the Translate tab. Each control saves at once; applySettings() then sends 'mf-settings' so translate.js repeats only the work that the change needs.
   $('#setTrShow').onchange = e => { settings.showTranslate = e.target.checked; applySettings(); };
   $('#setTrTo').onchange = e => { settings.trTo = e.target.value; applySettings(); };
@@ -11833,14 +11871,14 @@ window.MF_FIX = {
   function diagnostic(extra) {
     // ROUND 21: the report now says which build it is, how Google search went last time and how the profile sync went, so a bug report shows the cause at once.
     const PF = window.MangaFlowProfiles, si = PF && PF.syncInfo ? PF.syncInfo() : null;
-    return ['MangaFlow diagnostic (build round 73)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
+    return ['MangaFlow diagnostic (build round 74)', 'Time: ' + new Date().toString(), 'App page: ' + location.href, 'Browser: ' + navigator.userAgent,
       'Manga page open: ' + (cur ? cur.url : '-'),
       // WHY: the reading state in the copy-for-Claude text. HOW: title, chapter number and total.
       'Reading: ' + (R.chapters && R.chapters.length ? R.title + ' | chapter ' + (R.cur + 1) + ' of ' + R.chapters.length : 'not reading'),
       'Proxies: ' + (settings.proxies.map(proxyName).join(', ') || 'NONE'),
       'Settings: quality ' + settings.pdfMode + ', width ' + settings.width + ', side ' + settings.side + ', autoRead ' + settings.autoRead + ', autoFree ' + settings.autoFree,
       // WHY: tell Claude which add-ons are linked. HOW: true or false for the slider and the wheel.
-      'Add-ons: slider ' + !!window.MangaFlowSlider + ', wheel ' + !!window.MangaFlowWheel + ', edge ' + !!window.MangaFlowEdge + ', translate ' + !!window.MangaFlowTranslate + ', profiles ' + !!PF,
+      'Add-ons: slider ' + !!window.MangaFlowSlider + ', wheel ' + !!window.MangaFlowWheel + ', edge ' + !!window.MangaFlowEdge + ', autoscroll ' + !!window.MangaFlowAutoScroll + ', translate ' + !!window.MangaFlowTranslate + ', profiles ' + !!PF,
       window.MangaFlowTranslate ? window.MangaFlowTranslate.report() : 'Translate add-on: not linked',
       'AutoPilot (round 67): ' + pilotText(),
       'Keeper (round 29d): ' + (keeper.last || 'not run yet') + ', setting ' + settings.preloadAhead + ', base wait ' + healBase() + ' ms',
@@ -12684,6 +12722,142 @@ window.MF_FIX = {
   });
 
   window.MangaFlowSlider = { version: 2, axis: 'y', el: box };   // WHY: lets other code (and MANGAFLOW.md) check that the add-on is present
+})();
+~~~~~~
+<!-- END FILE -->
+
+
+### File: `autoscroll.js`  (127 lines)
+
+**Why this file exists / what it does:** Optional add-on (round 74): the auto-scroll play button under the reload wheel; scrolls one screen-step every N seconds until the last chapter ends.
+
+<!-- BEGIN FILE: autoscroll.js -->
+~~~~~~js
+/* =====================================================================
+   MangaFlow - autoscroll.js   (OPTIONAL add-on file, round 74)
+   ---------------------------------------------------------------------
+   WHY it exists:
+     The owner wanted a play button that reads "by itself": press it once and the chapters scroll down a little, wait a few seconds, scroll a
+     little again ... until the end of the last chapter. It is a SEPARATE file (like chapter-slider.js and reload-wheel.js): link it and the button
+     appears, remove the <script> line (or this file) and nothing else changes.
+   WHERE: the left edge in reading mode, directly UNDER the reload wheel (style.css is not needed: this file brings its own CSS).
+   HOW it works (4 short steps):
+     1. It draws one round button with a play triangle. Click = start, click again = pause (the picture changes to two bars).
+     2. A timer (setTimeout, one after the other, never two at once) calls step() every N seconds (Settings: "Auto scroll: every N s", default 3).
+     3. step() does exactly what one TAP on the page does in MangaFlow: window.scrollBy(0, 85 % of the screen height), smoothly.
+        - If you touched / scrolled / pressed a key in the last 1.5 s it waits for the next round (you are reading something else).
+        - If the browser tab is hidden it waits (no scrolling in the background).
+        - At the bottom of the page it does NOT stop at once: new chapters are still being loaded. It stops only when app.js says there are no more
+          chapters (window.MangaFlowReaderInfo().atEnd) and nothing is loading. Without that helper it stops after 4 rounds at the bottom.
+     4. While it runs it asks the browser to keep the screen awake (Screen Wake Lock) when Settings > "keep the screen on" is ticked.
+   TALKS TO app.js ONLY through:   window.MangaFlowAutoCfg = {show, secs, awake}  +  the event 'mf-auto-config'  +  window.MangaFlowReaderInfo().
+   KEYBOARD: Tab to the button, Enter / Space = start / pause. Esc stops it.
+   HOW to IMPROVE it: a speed slider in pixels per second (smooth continuous scroll), a "stop at next chapter" choice, a countdown ring around the button,
+     remember the running state after a reload.
+   ===================================================================== */
+(() => {                                                   // WHY: an IIFE keeps every variable private
+  'use strict';
+  if (window.MangaFlowAutoScroll) return;                  // WHY: never build two buttons
+
+  const cfg = () => Object.assign({ show: true, secs: 3, awake: true }, window.MangaFlowAutoCfg || {});   // WHY: safe defaults when app.js has not set anything yet
+  const clampSecs = v => Math.min(60, Math.max(1, Math.round(+v) || 3));                                  // 1 .. 60 seconds, a wrong value becomes 3
+  const reduce = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;      // people who dislike animation get a plain jump
+
+  const css = `
+  #mfAuto{position:fixed;display:none;z-index:31;left:max(8px,env(safe-area-inset-left));top:calc(var(--col-top,124px) + var(--mfw,64px) + 12px);
+    width:44px;height:44px;padding:0;border-radius:50%;border:1px solid rgba(127,246,255,.35);cursor:pointer;color:#7ff6ff;
+    background:radial-gradient(circle at 50% 40%,#1c1f33,#080a11 72%);box-shadow:0 0 12px rgba(37,168,255,.3),0 4px 12px rgba(0,0,0,.4);
+    transition:top .25s,opacity .25s,box-shadow .2s;-webkit-tap-highlight-color:transparent;touch-action:manipulation;}
+  body.reading #mfAuto{display:block;}                       /* only in reading mode */
+  body.no-auto #mfAuto{display:none!important;pointer-events:none!important;}   /* Settings: Auto-scroll button switched off */
+  body.fs-small #mfAuto{display:none!important;}
+  #mfAuto svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+  #mfAuto .mf-play{display:block;} #mfAuto .mf-pause{display:none;}
+  #mfAuto.on .mf-play{display:none;} #mfAuto.on .mf-pause{display:block;}
+  #mfAuto.on{color:#fff;box-shadow:0 0 16px rgba(224,64,251,.55),0 0 0 2px rgba(224,64,251,.55);}
+  #mfAuto:focus-visible{outline:3px solid #fff;outline-offset:3px;}
+  #mfAuto .mf-tip{position:absolute;left:0;top:100%;margin-top:8px;padding:3px 10px;border-radius:999px;background:#111;color:#fff;
+    font:600 12px system-ui,sans-serif;white-space:nowrap;opacity:0;transition:opacity .15s;pointer-events:none;}
+  #mfAuto.show .mf-tip{opacity:1;}
+  @media (max-width:520px){#mfAuto{width:40px;height:40px;top:calc(var(--col-top,124px) + var(--mfw,56px) + 10px);}}
+  @media (max-height:430px){#mfAuto{width:38px;height:38px;}}
+  `;
+  const st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+
+  const btn = document.createElement('button');            // the one button
+  btn.id = 'mfAuto'; btn.type = 'button'; btn.setAttribute('aria-label', 'Auto scroll: start or pause'); btn.setAttribute('aria-pressed', 'false');
+  btn.innerHTML =
+    '<svg viewBox="0 0 44 44" aria-hidden="true">' +
+      '<path class="mf-play" d="M17 13.5v17l14-8.5z" fill="currentColor"/>' +
+      '<g class="mf-pause" fill="currentColor"><rect x="15" y="14" width="5" height="16" rx="1.5"/><rect x="24" y="14" width="5" height="16" rx="1.5"/></g>' +
+    '</svg><span class="mf-tip" role="status"></span>';
+  document.body.appendChild(btn);
+  const tip = btn.querySelector('.mf-tip');
+
+  let on = false, timer = 0, lastUser = 0, atBottomRounds = 0, lock = null, tipTimer = 0;
+
+  function say(text, ms) {                                 // WHY: a tiny message next to the button (this file cannot call app.js's toast)
+    tip.textContent = text; btn.classList.add('show'); clearTimeout(tipTimer);
+    tipTimer = setTimeout(() => btn.classList.remove('show'), ms || 2200);
+  }
+  function reading() { return document.body.classList.contains('reading') && !document.body.classList.contains('no-auto') && cfg().show !== false; }
+
+  /* ---------- keep the screen awake while running (Screen Wake Lock) ---------- */
+  async function wake(want) {
+    try {
+      if (!want) { if (lock) { await lock.release(); lock = null; } return; }
+      if (cfg().awake === false || !('wakeLock' in navigator) || lock || document.hidden) return;
+      lock = await navigator.wakeLock.request('screen');
+      lock.addEventListener('release', () => { lock = null; });
+    } catch { /* not allowed (battery saver, old browser): scrolling still works */ }
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && on) wake(true); });   // the browser drops the lock when the tab hides: ask again
+
+  /* ---------- the scroll step ---------- */
+  function atBottom() { return window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 8; }
+  function step() {
+    timer = 0;
+    if (!on) return;
+    if (!reading()) { stop(); return; }                    // left reading mode / switched off in Settings
+    if (document.hidden || Date.now() - lastUser < 1500) { schedule(); return; }   // tab hidden or you are touching the page: try again next round
+    if (atBottom()) {
+      // at the bottom: either the next chapters are still arriving, or this is really the end
+      let info = null; try { info = window.MangaFlowReaderInfo && window.MangaFlowReaderInfo(); } catch { /* none */ }
+      atBottomRounds++;
+      if ((info && info.atEnd && !info.busy && atBottomRounds >= 2) || (!info && atBottomRounds >= 4)) { stop('End of the chapters'); return; }
+    } else {
+      atBottomRounds = 0;
+      window.scrollBy({ top: Math.round(window.innerHeight * 0.85), behavior: reduce() ? 'auto' : 'smooth' });   // = one tap of the page (app.js uses 85 %)
+    }
+    schedule();
+  }
+  function schedule() { clearTimeout(timer); timer = setTimeout(step, clampSecs(cfg().secs) * 1000); }
+
+  function start() {
+    if (on || !reading()) return;
+    on = true; atBottomRounds = 0; lastUser = 0;
+    btn.classList.add('on'); btn.setAttribute('aria-pressed', 'true');
+    say('Auto scroll on · every ' + clampSecs(cfg().secs) + ' s', 2200);
+    wake(true);
+    clearTimeout(timer); timer = setTimeout(step, 400);    // the first little scroll comes almost at once, then every N seconds
+  }
+  function stop(msg) {
+    const was = on;
+    on = false; clearTimeout(timer); timer = 0;
+    btn.classList.remove('on'); btn.setAttribute('aria-pressed', 'false');
+    wake(false);
+    if (was && msg) say(msg, 3000); else if (was) say('Auto scroll paused', 1600);
+  }
+
+  btn.addEventListener('click', () => { if (on) stop(); else start(); });
+  // your own touch / wheel / keys: a short pause so the page does not jump away while you read something
+  ['touchstart', 'touchmove', 'wheel', 'keydown', 'pointerdown'].forEach(ev => window.addEventListener(ev, e => { if (e.target !== btn && !btn.contains(e.target)) lastUser = Date.now(); }, { passive: true }));
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' && on) stop(); });
+  window.addEventListener('mf-auto-config', () => { if (on && !reading()) stop(); });          // the setting was switched off while running
+  // leaving reading mode (Home, another manga) stops it
+  new MutationObserver(() => { if (on && !reading()) stop(); }).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+
+  window.MangaFlowAutoScroll = { start, stop, running: () => on };    // marker (app.js looks it up) and a tiny public handle
 })();
 ~~~~~~
 <!-- END FILE -->
@@ -15772,7 +15946,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 <!-- END FILE -->
 
 
-### File: `MANGAFLOW_GUIDE.md`  (167 lines)
+### File: `MANGAFLOW_GUIDE.md`  (169 lines)
 
 **Why this file exists / what it does:** Options guide: every button, shortcut, setting, server option, troubleshoot option and algorithm, with fix notes (no private names).
 
@@ -15781,7 +15955,7 @@ google-site-verification: googledb6fd0cf04d837f7.html
 # MangaFlow — Options Guide (buttons, shortcuts, settings, servers, troubleshoot, fix notes)
 
 *Core file. Keep it next to `MANGAFLOW.md` (history + code map) and `MANGAFLOW_FULL_SITE.md` (all code). A plain-text copy is `MANGAFLOW_GUIDE.txt` (same content).*
-*Last updated: Round 73 — 2026-11-26*
+*Last updated: Round 74 — 2026-11-28*
 
 ## HOW TO KEEP THIS FILE UP TO DATE (rule for every future update)
 1. Every time a button, shortcut, setting, server option, troubleshoot check or algorithm is added or changed, change its line here in the same update.
@@ -15939,6 +16113,8 @@ Chapter slider, Reload wheel, Edge (Top/End) slider, Translate, Profiles. Each c
 - **Round 72: manhuatop report - a plain network failure was shown as 'The site is blocking MangaFlow' (the word Cloudflare in the tip matched the block rule) and opened a big pop-up on the first failure -> network failures now say 'Could not reach the page', retry by themselves after 3 s / 6 s and only pop up on the 3rd failure; the chapter-list lookup is repeated once after a network error; when the listed chapters are more than 30 numbers away from the chapter you opened (site shows only the newest 50 + chapter 1) the site's full list is loaded.**
 
 - **Round 73: mgeko list page - a font that still fails after the proxy re-send is now downloaded through the proxies and embedded as data (no CORS needed); the 'icons may look like empty boxes' notice only appears when the failed icon font is really used on the page; a list page with many pictures no longer reports a 'placeholder' problem.**
+
+- **Round 74: NEW auto-scroll play button (file autoscroll.js, left side under the reload wheel). Click = scroll one screen-step every N seconds (Settings > Auto-scroll button, 'every N s', default 3) until the last chapter ends; click again or Esc = pause; keeps the screen awake while running (Settings option); switch it off in Settings to hide it. The reader's address box now shows the link of the chapter you are reading.**
 
 ## 8. Known open items
 - Replace/revoke any old Google key that was ever shown in a report.
